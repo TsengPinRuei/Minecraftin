@@ -1,68 +1,70 @@
 # Minecraftin Java Clone
 
-A detailed Java + LWJGL voxel sandbox inspired by classic Minecraft, with chunked procedural terrain, first-person movement, editable blocks, persistent saves, and a complete rendering/input/game loop.
+Traditional Chinese version: [READMEzhTW.md](READMEzhTW.md)
 
-## Goals
+A Java + LWJGL voxel sandbox inspired by classic Minecraft.  
+Current scope is a polished creative-mode foundation: chunked terrain generation, first-person movement, block interaction, and persistent world save/load.
 
-- Deliver a **closest practical Minecraft-like foundation** in pure Java desktop tooling.
-- Keep architecture modular enough to extend into survival systems, entities, lighting, and multiplayer.
-- Make the project runnable with standard Gradle workflows.
+## Current Scope
 
-## Current Feature Set
+### Engine and Rendering
 
-### Core Engine
+- OpenGL 3.3 core pipeline (LWJGL 3).
+- GLFW window/input loop with uncapped framerate.
+- Camera yaw/pitch mouse-look with perspective projection.
+- Dynamic mesh uploads (VAO/VBO updates per chunk rebuild).
+- Shader pipeline for world, wireframe selection, and HUD.
+- Procedural texture atlas generated in code.
+- Per-face directional shading and distance fog.
+- HUD crosshair and 9-slot hotbar with selected-slot highlight.
+- Window starts in windowed mode and is clamped to monitor size.
 
-- OpenGL 3.3 core rendering pipeline (LWJGL 3).
-- GLFW windowing/input, uncapped framerate loop.
-- Camera with yaw/pitch look and perspective projection.
-- Mesh abstraction for dynamic VBO/VAO updates.
-- GLSL shader pipeline for world, lines, and HUD layers.
+### World and Terrain
 
-### World / Terrain
+- Chunked voxel world (`16 x 16`, height `128`).
+- Seeded deterministic terrain generation.
+- Biomes: plains, forest, desert, snow, mountain, badlands.
+- Sea level + water fill.
+- 3D noise cave carving.
+- Biome-aware surface layering and strata.
+- Procedural tree placement.
+- Land-first spawn selection (avoids underwater spawning).
 
-- Chunked voxel world:
-  - Chunk size: `16 x 16`
-  - Height: `128`
-- Deterministic procedural terrain based on seed (`Noise` FBM/value-noise blend).
-- Biome conditions: plains, forest, desert, snow, mountain, badlands.
-- Sea level and water fill.
-- Cave carving via 3D noise threshold.
-- Surface layering with biome-specific topsoil (grass/sand/snow/stone).
-- Procedural trees with biome-specific spawn rates.
-- Chunk neighbor-aware block access.
+### Gameplay
 
-### Rendering
-
-- Face culling at mesh-build level (only visible block faces emitted).
-- Per-face directional light tinting (top/sides/bottom intensity bias).
-- Texture atlas generated in code (procedural Minecraft-like tile textures).
-- Fog blended by camera distance.
-- Selected block wireframe outline.
-- HUD crosshair and visible hotbar bar (with selected-slot highlight).
-
-### Player / Interaction
-
-- Creative mode only movement:
-  - Double-tap `Space` to toggle flight mode on/off.
-  - Flight mode has solid-block collision (no clipping through terrain).
-  - Flight-off movement uses gravity + grounded collision.
-  - Faster movement while sprint key is held.
-- Block raycast (voxel DDA) with face normal hit info.
-- Block breaking (left mouse).
-- Block placement with collision safety check (prevents placing inside player).
-- Hotbar-style selection with number keys / mouse wheel.
+- Creative mode only (`CREATIVE_MODE_ONLY = true`).
+- Double-tap `Space` toggles flying on/off.
+- Flying still collides with solid blocks (no noclip).
+- Flight-off movement uses gravity, jump, and grounded collision.
+- Sprint modifier (`Left Ctrl`) for ground and flight.
+- Voxel raycast (DDA) for precise target block and face normal.
+- Block break/place cooldowns.
+- Placement safety check to prevent placing blocks inside player.
+- Hotbar selection via `1-9` or mouse wheel.
 
 ### Persistence
 
-- Binary world save/load to `saves/world.dat`.
-- Persistent seed + chunk block data.
+- Binary world save/load at `saves/world.dat`.
+- Stores world seed and loaded chunk block data.
 - Autosave every 20 seconds and on shutdown.
+
+## Hotbar Blocks (Default 9)
+
+1. Red block
+2. Orange block
+3. Yellow block
+4. Green block
+5. Blue block
+6. Purple block
+7. Dirt
+8. Stone
+9. Glass
 
 ## Controls
 
 - `W/A/S/D`: Move
 - `Mouse`: Look
-- `Left Ctrl`: Sprint/Fast fly
+- `Left Ctrl`: Sprint / fast fly
 - `Space` (double tap): Toggle flight on/off
 - `Space` (while flying): Fly up
 - `Left Shift` (while flying): Fly down
@@ -70,15 +72,35 @@ A detailed Java + LWJGL voxel sandbox inspired by classic Minecraft, with chunke
 - `Right Click`: Place selected block
 - `1-9` / `Mouse Wheel`: Change selected block
 - `Esc`: Release mouse cursor
-- `Left Click` (when cursor is free): Capture cursor and resume game control
+- `Left Click` (when cursor is free): Capture cursor
 - `Q`: Quit
 
-## Tech Stack
+## Build and Run
 
-- Java 17+ source compatibility (build verified on Java 21 runtime)
-- Gradle
-- LWJGL 3 (`glfw`, `opengl`, `stb`)
-- JOML (math)
+### Requirements
+
+- JDK 17+ (project is compiled with Java release `17`; tested with Java 21 runtime)
+- Gradle wrapper (`./gradlew`, included)
+
+### Build
+
+```bash
+./gradlew build -x test
+```
+
+### Run
+
+```bash
+./gradlew run
+```
+
+If your environment blocks Gradle daemon sockets:
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
+```
+
+On macOS, `-XstartOnFirstThread` is already configured in `build.gradle` for the Gradle run task.
 
 ## Project Layout
 
@@ -90,68 +112,33 @@ A detailed Java + LWJGL voxel sandbox inspired by classic Minecraft, with chunke
 - `src/main/java/com/minecraftin/clone/render/*`
 - `src/main/resources/shaders/*`
 
-## Build and Run
+## Tunable Config
 
-### 1) Build
-
-```bash
-./gradlew build -x test
-```
-
-### 2) Run
-
-```bash
-./gradlew run
-```
-
-If your environment blocks Gradle daemon sockets, use:
-
-```bash
-GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
-```
-
-## Tunable Gameplay Config
-
-Adjust values in:
+Main config file:
 
 - `src/main/java/com/minecraftin/clone/config/GameConfig.java`
 
-Notable parameters:
+Key values you may tune:
 
-- render distance
-- movement/jump/gravity values
-- reach distance
-- chunk/world dimensions
-- save path and default seed
+- Window size/title
+- Render distance and chunk dimensions
+- Mouse sensitivity and movement physics
+- Reach distance and break/place cooldowns
+- Save path and default world seed
 
-## What Makes This Close to Minecraft Already
+## Known Gaps vs Full Minecraft
 
-- Voxel chunks with procedural generation and caves
-- Real first-person block interaction loop
-- Break/place mechanics with ray hit normals
-- World persistence and seeded replayability
-- Atlas-based block texturing and directional face lighting
-- Crosshair + targeted block outline UX
-
-## What Is Not Implemented Yet (Roadmap to Closer Parity)
-
-1. True skylight + block light flood-fill propagation
-2. Chunk mesh rebuild queue on worker threads
-3. Biome system with humidity/temperature maps and decorators
-4. Full block state system (slabs, stairs, doors, fluids, crops)
-5. Entity system (mobs, AI, pathfinding)
-6. Item entities, inventory, crafting, furnace, chests
-7. Health/hunger/damage/survival loop
-8. Day-night cycle + sun/moon shadows
-9. Weather (rain/snow), particles, ambient audio
-10. Structure generation (villages, caves revamp, strongholds)
-11. Chunk serialization by region files (Anvil-like format)
-12. Multiplayer server/client protocol layer
+1. No survival systems (health, hunger, damage, crafting, inventory).
+2. No entity/mob AI system.
+3. No dynamic skylight/block-light propagation.
+4. No day-night cycle or weather.
+5. No structure generation pipeline.
+6. No multiplayer networking.
+7. No worker-thread meshing pipeline.
+8. No automated tests yet (`test` task currently has no test sources).
 
 ## Notes
 
-- This codebase intentionally prioritizes an extendable architecture over one-file demo shortcuts.
-- Old project files have been removed; this clone is now the primary implementation in this repository.
-- Spawn point selection prefers dry land above sea level (avoids underwater spawning).
-- Default hotbar blocks are: red, orange, yellow, green, blue, purple, dirt, stone, glass.
-- Game starts in window mode by default; use the macOS green window button menu to enter/exit native fullscreen (separate app Space).
+- This codebase is structured for extension rather than one-file demo shortcuts.
+- Save files are local-only and intentionally ignored by Git (`saves/`).
+- To enter native fullscreen on macOS, use the green window button menu.

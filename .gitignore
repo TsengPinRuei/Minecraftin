@@ -1,0 +1,30 @@
+# Gradle / build outputs
+.gradle/
+.gradle-home/
+build/
+out/
+bin/
+
+# Java runtime / compiler outputs
+*.class
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# IDE / editor metadata
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Logs
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local game data
+saves/

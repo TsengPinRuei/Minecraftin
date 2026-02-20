@@ -2,6 +2,8 @@ package com.minecraftin.clone.world;
 
 import com.minecraftin.clone.render.AtlasTiles;
 
+import java.util.Locale;
+
 public enum BlockType {
     AIR(0, false, false, 0, 0, 0),
     GRASS(1, true, true, AtlasTiles.GRASS_SIDE, AtlasTiles.GRASS_TOP, AtlasTiles.DIRT),
@@ -69,6 +71,18 @@ public enum BlockType {
         return !opaque;
     }
 
+    public String displayName() {
+        return switch (this) {
+            case RED_BLOCK -> "Red";
+            case ORANGE_BLOCK -> "Orange";
+            case YELLOW_BLOCK -> "Yellow";
+            case GREEN_BLOCK -> "Green";
+            case BLUE_BLOCK -> "Blue";
+            case PURPLE_BLOCK -> "Purple";
+            default -> titleCaseFromEnum(name());
+        };
+    }
+
     public int tileForFace(Face face) {
         return switch (face) {
             case UP -> topTile;
@@ -83,5 +97,23 @@ public enum BlockType {
         }
         BlockType type = BY_ID[id];
         return type != null ? type : AIR;
+    }
+
+    private static String titleCaseFromEnum(String enumName) {
+        String[] words = enumName.toLowerCase(Locale.ROOT).split("_");
+        StringBuilder out = new StringBuilder(enumName.length() + 4);
+        for (String word : words) {
+            if (word.isEmpty()) {
+                continue;
+            }
+            if (!out.isEmpty()) {
+                out.append(' ');
+            }
+            out.append(Character.toUpperCase(word.charAt(0)));
+            if (word.length() > 1) {
+                out.append(word, 1, word.length());
+            }
+        }
+        return out.isEmpty() ? enumName : out.toString();
     }
 }

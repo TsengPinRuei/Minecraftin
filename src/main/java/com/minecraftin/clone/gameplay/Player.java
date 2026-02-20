@@ -15,6 +15,9 @@ public final class Player {
 
     private final Vector3f position = new Vector3f();
     private final Vector3f velocity = new Vector3f();
+    private final Vector3f tmpWish = new Vector3f();
+    private final Vector3f tmpForward = new Vector3f();
+    private final Vector3f tmpRight = new Vector3f();
 
     private final boolean creativeMode = GameConfig.CREATIVE_MODE_ONLY;
 
@@ -95,9 +98,9 @@ public final class Player {
     }
 
     private void updateCreative(InputState input, Camera camera, World world, float deltaSeconds) {
-        Vector3f wish = new Vector3f();
-        Vector3f forward = camera.forward(new Vector3f());
-        Vector3f right = camera.right(new Vector3f());
+        Vector3f wish = tmpWish.zero();
+        Vector3f forward = camera.forward(tmpForward);
+        Vector3f right = camera.right(tmpRight);
 
         if (input.isKeyDown(GLFW_KEY_W)) {
             wish.add(forward);
@@ -141,15 +144,15 @@ public final class Player {
     }
 
     private void updateGrounded(InputState input, Camera camera, World world, float deltaSeconds, boolean spacePressed) {
-        Vector3f wish = new Vector3f();
+        Vector3f wish = tmpWish.zero();
 
-        Vector3f forward = camera.forward(new Vector3f());
+        Vector3f forward = camera.forward(tmpForward);
         forward.y = 0.0f;
         if (forward.lengthSquared() > 0.0001f) {
             forward.normalize();
         }
 
-        Vector3f right = camera.right(new Vector3f());
+        Vector3f right = camera.right(tmpRight);
         right.y = 0.0f;
         if (right.lengthSquared() > 0.0001f) {
             right.normalize();

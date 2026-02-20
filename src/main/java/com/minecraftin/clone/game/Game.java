@@ -41,6 +41,9 @@ public final class Game {
     private final Camera camera = new Camera();
     private final Player player = new Player();
     private final World world = new World(Paths.get(GameConfig.WORLD_FILE), GameConfig.DEFAULT_WORLD_SEED);
+    private final Vector3f tmpCameraRight = new Vector3f();
+    private final Vector3f tmpRayOrigin = new Vector3f();
+    private final Vector3f tmpRayDirection = new Vector3f();
 
     private WorldRenderer worldRenderer;
     private HudRenderer hudRenderer;
@@ -83,7 +86,7 @@ public final class Game {
 
             loop();
         } finally {
-            if (worldInitialized) {
+            if (worldInitialized && world.hasModifiedChunks()) {
                 safeSaveWorld();
             }
             if (hudRenderer != null) {
@@ -144,7 +147,9 @@ public final class Game {
 
             autosaveTimer += delta;
             if (autosaveTimer >= 20.0f) {
-                safeSaveWorld();
+                if (world.hasModifiedChunks()) {
+                    safeSaveWorld();
+                }
                 autosaveTimer = 0.0f;
             }
         }
@@ -190,7 +195,7 @@ public final class Game {
     private void updateCameraFromPlayer(float deltaSeconds) {
         updateWalkBob(deltaSeconds);
 
-        Vector3f right = camera.right(new Vector3f());
+        Vector3f right = camera.right(tmpCameraRight);
         camera.setPosition(
                 player.position().x + right.x * walkBobHorizontal,
                 player.position().y + GameConfig.PLAYER_EYE_HEIGHT + walkBobVertical,
@@ -229,9 +234,9 @@ public final class Game {
     }
 
     private void updateTargetBlock() {
-        Vector3f eye = new Vector3f(camera.position());
-        Vector3f direction = camera.forward(new Vector3f());
-        targetedBlock = world.raycast(eye, direction, GameConfig.BLOCK_REACH);
+        tmpRayOrigin.set(camera.position());
+        camera.forward(tmpRayDirection);
+        targetedBlock = world.raycast(tmpRayOrigin, tmpRayDirection, GameConfig.BLOCK_REACH);
     }
 
     private void updateBlockInteraction(float deltaSeconds) {
@@ -273,7 +278,7 @@ public final class Game {
                     + " | Flight: " + (player.isFlying() ? "ON" : "OFF")
                     + " | FPS: " + fps
                     + " | Chunks: " + world.chunkCount()
-                    + " | Block: " + selected.name();
+                    + " | Block: " + selected.displayName();
             glfwSetWindowTitle(window.handle(), title);
 
             fpsFrames = 0;

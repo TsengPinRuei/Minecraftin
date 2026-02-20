@@ -23,8 +23,12 @@ public final class Mesh implements AutoCloseable {
 
         int strideFloats = 0;
         for (int size : attributeSizes) {
+            if (size <= 0) {
+                throw new IllegalArgumentException("attributeSizes must be positive");
+            }
             strideFloats += size;
         }
+        validateVertexLayout(vertices, strideFloats);
 
         int offsetFloats = 0;
         for (int i = 0; i < attributeSizes.length; i++) {
@@ -41,6 +45,7 @@ public final class Mesh implements AutoCloseable {
     }
 
     public void update(float[] vertices, int strideFloats) {
+        validateVertexLayout(vertices, strideFloats);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, vertices, GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -60,5 +65,14 @@ public final class Mesh implements AutoCloseable {
     public void close() {
         glDeleteBuffers(vbo);
         glDeleteVertexArrays(vao);
+    }
+
+    private static void validateVertexLayout(float[] vertices, int strideFloats) {
+        if (strideFloats <= 0) {
+            throw new IllegalArgumentException("strideFloats must be positive");
+        }
+        if (vertices.length % strideFloats != 0) {
+            throw new IllegalArgumentException("vertices length must be divisible by stride");
+        }
     }
 }

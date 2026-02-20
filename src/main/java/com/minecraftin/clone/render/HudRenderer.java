@@ -60,6 +60,8 @@ public final class HudRenderer implements AutoCloseable {
     private final Mesh crosshair;
     private final Mesh hotbarMesh;
     private final FloatArrayBuilder hotbarVertices = new FloatArrayBuilder(32768);
+    private int cachedSelectedIndex = Integer.MIN_VALUE;
+    private int cachedHotbarSignature = Integer.MIN_VALUE;
 
     public HudRenderer() {
         shader = new ShaderProgram("/shaders/hud.vert", "/shaders/hud.frag");
@@ -78,7 +80,12 @@ public final class HudRenderer implements AutoCloseable {
     public void render(BlockType[] hotbar, int selectedIndex) {
         glDisable(GL_DEPTH_TEST);
         shader.use();
-        updateHotbarMesh(hotbar, selectedIndex);
+        int hotbarSignature = hotbarSignature(hotbar);
+        if (hotbarSignature != cachedHotbarSignature || selectedIndex != cachedSelectedIndex) {
+            updateHotbarMesh(hotbar, selectedIndex);
+            cachedHotbarSignature = hotbarSignature;
+            cachedSelectedIndex = selectedIndex;
+        }
         hotbarMesh.draw();
         crosshair.draw();
         glEnable(GL_DEPTH_TEST);
@@ -121,7 +128,7 @@ public final class HudRenderer implements AutoCloseable {
         }
 
         if (selectedIndex >= 0 && selectedIndex < hotbar.length) {
-            String label = selectedBlockName(hotbar[selectedIndex]);
+            String label = hotbar[selectedIndex].displayName();
             addCenteredText(hotbarVertices, label, -0.735f);
         }
 
@@ -251,21 +258,6 @@ public final class HudRenderer implements AutoCloseable {
         font.put(c, rows);
     }
 
-    private String selectedBlockName(BlockType type) {
-        return switch (type) {
-            case RED_BLOCK -> "Red";
-            case ORANGE_BLOCK -> "Orange";
-            case YELLOW_BLOCK -> "Yellow";
-            case GREEN_BLOCK -> "Green";
-            case BLUE_BLOCK -> "Blue";
-            case PURPLE_BLOCK -> "Purple";
-            case DIRT -> "Dirt";
-            case STONE -> "Stone";
-            case GLASS -> "Glass";
-            default -> type.name();
-        };
-    }
-
     private void addQuad(
             FloatArrayBuilder out,
             float ax, float ay,
@@ -286,6 +278,14 @@ public final class HudRenderer implements AutoCloseable {
 
     private void addVertex(FloatArrayBuilder out, float x, float y, float z, float r, float g, float b, float a) {
         out.add(x, y, z, r, g, b, a);
+    }
+
+    private int hotbarSignature(BlockType[] hotbar) {
+        int hash = 1;
+        for (BlockType blockType : hotbar) {
+            hash = 31 * hash + (blockType != null ? blockType.id() : -1);
+        }
+        return hash;
     }
 
     private float[] blockColor(BlockType type) {

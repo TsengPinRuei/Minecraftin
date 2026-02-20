@@ -14,7 +14,10 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 import static org.lwjgl.opengl.GL33C.*;
 
@@ -27,12 +30,16 @@ public final class WorldRenderer implements AutoCloseable {
     private final ShaderProgram lineShader;
 
     private final Map<ChunkPos, Mesh> chunkMeshes = new HashMap<>();
+    private final Set<ChunkPos> visibleChunks = new HashSet<>();
 
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f view = new Matrix4f();
     private final Matrix4f model = new Matrix4f();
 
     private final Mesh selectionMesh;
+    private int lastSelectionX = Integer.MIN_VALUE;
+    private int lastSelectionY = Integer.MIN_VALUE;
+    private int lastSelectionZ = Integer.MIN_VALUE;
 
     public WorldRenderer() {
         atlas = new TextureAtlas();
@@ -72,40 +79,72 @@ public final class WorldRenderer implements AutoCloseable {
 
         int viewDistance = GameConfig.RENDER_DISTANCE_CHUNKS;
         int maxDistSq = viewDistance * viewDistance;
+        visibleChunks.clear();
 
-        for (Chunk chunk : world.chunks()) {
-            int dx = chunk.chunkX() - centerChunkX;
-            int dz = chunk.chunkZ() - centerChunkZ;
-            if (dx * dx + dz * dz > maxDistSq) {
+        for (int dz = -viewDistance; dz <= viewDistance; dz++) {
+            for (int dx = -viewDistance; dx <= viewDistance; dx++) {
+                if (dx * dx + dz * dz > maxDistSq) {
+                    continue;
+                }
+
+                int chunkX = centerChunkX + dx;
+                int chunkZ = centerChunkZ + dz;
+                Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
+                if (chunk == null) {
+                    continue;
+                }
+
+                ChunkPos key = new ChunkPos(chunkX, chunkZ);
+                visibleChunks.add(key);
+
+                Mesh mesh = chunkMeshes.get(key);
+                if (mesh == null || chunk.isMeshDirty()) {
+                    float[] vertices = ChunkMesher.build(chunk, world, atlas);
+                    if (mesh == null) {
+                        mesh = new Mesh(vertices, GL_TRIANGLES, 3, 2, 1);
+                        chunkMeshes.put(key, mesh);
+                    } else {
+                        mesh.update(vertices, ChunkMesher.STRIDE_FLOATS);
+                    }
+                    chunk.clearMeshDirty();
+                }
+
+                model.identity().translate(chunk.worldMinX(), 0.0f, chunk.worldMinZ());
+                worldShader.setMat4("uModel", model);
+                mesh.draw();
+            }
+        }
+
+        pruneChunkMeshes(visibleChunks);
+    }
+
+    private void pruneChunkMeshes(Set<ChunkPos> visibleChunks) {
+        Iterator<Map.Entry<ChunkPos, Mesh>> iterator = chunkMeshes.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<ChunkPos, Mesh> entry = iterator.next();
+            if (visibleChunks.contains(entry.getKey())) {
                 continue;
             }
-
-            ChunkPos key = new ChunkPos(chunk.chunkX(), chunk.chunkZ());
-            Mesh mesh = chunkMeshes.get(key);
-            if (mesh == null || chunk.isMeshDirty()) {
-                float[] vertices = ChunkMesher.build(chunk, world, atlas);
-                if (mesh == null) {
-                    mesh = new Mesh(vertices, GL_TRIANGLES, 3, 2, 1);
-                    chunkMeshes.put(key, mesh);
-                } else {
-                    mesh.update(vertices, ChunkMesher.STRIDE_FLOATS);
-                }
-                chunk.clearMeshDirty();
-            }
-
-            model.identity().translate(chunk.worldMinX(), 0.0f, chunk.worldMinZ());
-            worldShader.setMat4("uModel", model);
-            mesh.draw();
+            entry.getValue().close();
+            iterator.remove();
         }
     }
 
     private void renderSelectionOutline(RaycastHit hit) {
         if (hit == null) {
+            lastSelectionX = Integer.MIN_VALUE;
+            lastSelectionY = Integer.MIN_VALUE;
+            lastSelectionZ = Integer.MIN_VALUE;
             return;
         }
 
-        float[] vertices = buildWireCube(hit.x(), hit.y(), hit.z());
-        selectionMesh.update(vertices, 3);
+        if (hit.x() != lastSelectionX || hit.y() != lastSelectionY || hit.z() != lastSelectionZ) {
+            float[] vertices = buildWireCube(hit.x(), hit.y(), hit.z());
+            selectionMesh.update(vertices, 3);
+            lastSelectionX = hit.x();
+            lastSelectionY = hit.y();
+            lastSelectionZ = hit.z();
+        }
 
         lineShader.use();
         lineShader.setMat4("uProjection", projection);

@@ -8,28 +8,36 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.FloatBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.lwjgl.opengl.GL33C.*;
 
 public final class ShaderProgram implements AutoCloseable {
     private final int id;
+    private final Map<String, Integer> uniformLocations = new HashMap<>();
 
     public ShaderProgram(String vertexResource, String fragmentResource) {
         int vertexShader = compile(GL_VERTEX_SHADER, loadResource(vertexResource));
         int fragmentShader = compile(GL_FRAGMENT_SHADER, loadResource(fragmentResource));
+        int programId = glCreateProgram();
+        try {
+            glAttachShader(programId, vertexShader);
+            glAttachShader(programId, fragmentShader);
+            glLinkProgram(programId);
 
-        id = glCreateProgram();
-        glAttachShader(id, vertexShader);
-        glAttachShader(id, fragmentShader);
-        glLinkProgram(id);
-
-        if (glGetProgrami(id, GL_LINK_STATUS) == GL_FALSE) {
-            String log = glGetProgramInfoLog(id);
-            throw new IllegalStateException("Program link failed: " + log);
+            if (glGetProgrami(programId, GL_LINK_STATUS) == GL_FALSE) {
+                String log = glGetProgramInfoLog(programId);
+                throw new IllegalStateException("Program link failed: " + log);
+            }
+        } catch (RuntimeException e) {
+            glDeleteProgram(programId);
+            throw e;
+        } finally {
+            glDeleteShader(vertexShader);
+            glDeleteShader(fragmentShader);
         }
-
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
+        id = programId;
     }
 
     private static int compile(int type, String source) {
@@ -39,6 +47,7 @@ public final class ShaderProgram implements AutoCloseable {
 
         if (glGetShaderi(shader, GL_COMPILE_STATUS) == GL_FALSE) {
             String log = glGetShaderInfoLog(shader);
+            glDeleteShader(shader);
             throw new IllegalStateException("Shader compile failed: " + log);
         }
         return shader;
@@ -60,28 +69,28 @@ public final class ShaderProgram implements AutoCloseable {
     }
 
     public void setInt(String name, int value) {
-        int location = glGetUniformLocation(id, name);
+        int location = uniformLocation(name);
         if (location >= 0) {
             glUniform1i(location, value);
         }
     }
 
     public void setFloat(String name, float value) {
-        int location = glGetUniformLocation(id, name);
+        int location = uniformLocation(name);
         if (location >= 0) {
             glUniform1f(location, value);
         }
     }
 
     public void setVec3(String name, Vector3f vec) {
-        int location = glGetUniformLocation(id, name);
+        int location = uniformLocation(name);
         if (location >= 0) {
             glUniform3f(location, vec.x, vec.y, vec.z);
         }
     }
 
     public void setMat4(String name, Matrix4f matrix) {
-        int location = glGetUniformLocation(id, name);
+        int location = uniformLocation(name);
         if (location < 0) {
             return;
         }
@@ -90,6 +99,10 @@ public final class ShaderProgram implements AutoCloseable {
             matrix.get(buffer);
             glUniformMatrix4fv(location, false, buffer);
         }
+    }
+
+    private int uniformLocation(String name) {
+        return uniformLocations.computeIfAbsent(name, key -> glGetUniformLocation(id, key));
     }
 
     @Override

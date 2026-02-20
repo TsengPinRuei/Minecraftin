@@ -10,7 +10,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,10 +46,6 @@ public final class World {
         }
     }
 
-    public Collection<Chunk> chunks() {
-        return chunks.values();
-    }
-
     public long seed() {
         return seed;
     }
@@ -61,6 +56,15 @@ public final class World {
 
     public int chunkCount() {
         return chunks.size();
+    }
+
+    public boolean hasModifiedChunks() {
+        for (Chunk chunk : chunks.values()) {
+            if (chunk.isModified()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void ensureChunksAround(int centerChunkX, int centerChunkZ, int radius) {

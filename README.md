@@ -10,16 +10,16 @@ This project is currently focused on a solid **creative-mode foundation**:
 
 It is intentionally simple to run and easy to extend.
 
-## 1) Who This README Is For
+## Who This README Is For
 
 This guide is written for:
 - New developers who have never run a Java game project before
 - Users who want exact commands and troubleshooting
 - Users who want architecture and config entry points
 
-If you only want to run the game quickly, go to **2) Quick Start**.
+If you only want to run the game quickly, go to **Quick Start**.
 
-## 2) Quick Start
+## Quick Start
 
 ### macOS / Linux
 
@@ -37,12 +37,12 @@ cd C:\path\to\Minecraftin
 
 On first run, Gradle will download dependencies (can take a few minutes).
 
-## 3) Environment Requirements
+## Environment Requirements
 
 ### Minimum
 
 - OS: macOS, Windows, or Linux
-- Java: JDK 17 or newer
+- Java: >= JDK `17` and < JDK `25`
 - GPU: OpenGL 3.3 capable
 - RAM: 4 GB minimum (8 GB recommended)
 - Disk: at least 1 GB free (dependencies + build cache)
@@ -50,12 +50,12 @@ On first run, Gradle will download dependencies (can take a few minutes).
 ### Project-specific notes
 
 - Source is compiled with Java release `17`
-- Runtime has been verified on Java 21
+- Runtime has been verified on `Java 21`
 - On macOS, Gradle run is already configured with `-XstartOnFirstThread`
 
-## 4) Install Java (If Needed)
+## Install Java (If Needed)
 
-If `java -version` fails or shows a very old version, install JDK 17+.
+If `java -version` fails or shows a very old version, install JDK `17+`.
 
 ### Check Java
 
@@ -63,7 +63,7 @@ If `java -version` fails or shows a very old version, install JDK 17+.
 java -version
 ```
 
-You should see version `17`, `21`, or newer.
+You should see version `17` or `21`.
 
 ### Common setup issues
 
@@ -72,7 +72,7 @@ You should see version `17`, `21`, or newer.
 - Wrong Java version
   - Install JDK 17+ and make sure your terminal uses that JDK.
 
-## 5) Build and Run Commands
+## Build and Run Commands
 
 ### Run game
 
@@ -101,14 +101,7 @@ You should see version `17`, `21`, or newer.
   .\gradlew.bat --no-daemon run
   ```
 
-## 6) How to Play
-
-When the game starts:
-- A world opens directly (no main menu yet)
-- Mouse is initially free
-- Left click once inside the game window to capture mouse and start controlling player
-
-### Controls
+## How to Play
 
 - `W/A/S/D`: move
 - `Mouse`: look around
@@ -122,7 +115,7 @@ When the game starts:
 - `Esc`: release mouse cursor
 - `Q`: quit game
 
-### Default hotbar blocks (9)
+### Default blocks
 
 1. Red block
 2. Orange block
@@ -134,12 +127,7 @@ When the game starts:
 8. Stone
 9. Glass
 
-### Fullscreen behavior
-
-- Game starts in windowed mode.
-- On macOS, use the green window button menu to enter native fullscreen.
-
-## 7) Save Files and World Reset
+## Save Files and World Reset
 
 ### Save location
 
@@ -166,7 +154,7 @@ Remove-Item .\saves\world.dat -ErrorAction SilentlyContinue
 
 Then run the game again.
 
-## 8) Troubleshooting (Common Errors)
+## Troubleshooting
 
 ### Error: GLFW must run on first thread (macOS)
 
@@ -200,14 +188,6 @@ Possible causes and fixes:
 - GPU/OpenGL driver issue -> update graphics drivers
 - Remote desktop/VM without OpenGL 3.3 -> run locally on supported hardware
 
-### Issue: player cannot move
-
-Usually mouse is not captured.
-
-Fix:
-- Left click inside game window once
-- Press `Esc` to release mouse, left click again to re-capture
-
 ### Error: world save failed
 
 Example message:
@@ -226,7 +206,7 @@ Fix:
 - Retry command
 - If behind strict network policy, configure Gradle proxy
 
-## 9) Current Scope vs Full Minecraft
+## Scope
 
 - [x] Chunk terrain generation with multiple biomes
 - [x] Caves, sea level, tree generation
@@ -237,39 +217,40 @@ Fix:
 - [ ] Entities/mobs AI
 - [ ] Day/night cycle and weather
 
-## 10) Key Config File
+## Project Structure
 
-Main config:
-- `src/main/java/com/minecraftin/clone/config/GameConfig.java`
-
-Useful values:
-- Window size/title
-- Render distance and chunk dimensions
-- Movement/physics values
-- Reach and interaction cooldowns
-- Save path and default world seed
-
-## 11) Project Structure
-
-- `src/main/java/com/minecraftin/clone/MinecraftClone.java` (entry point)
-- `src/main/java/com/minecraftin/clone/game/Game.java` (main loop)
-- `src/main/java/com/minecraftin/clone/engine/*` (window/input/camera/shader/mesh)
-- `src/main/java/com/minecraftin/clone/world/*` (chunks/world/gen/raycast)
-- `src/main/java/com/minecraftin/clone/gameplay/*` (player physics/input behavior)
-- `src/main/java/com/minecraftin/clone/render/*` (world and HUD rendering)
-- `src/main/resources/shaders/*` (GLSL shaders)
-
-## 12) FAQ
-
-### Why does the game start in window mode?
-
-This is intentional for compatibility and usability. You can switch to fullscreen from OS window controls.
-
-### Is this survival mode?
-
-Not yet. Current gameplay is creative-mode only.
-
-## 13) Notes for Contributors
-
-- Save files are local-only and ignored by Git (`saves/`)
-- Build/cache folders are ignored via `.gitignore`
+```text
+Minecraftin/
+├─ src/
+│  └─ main/
+│     ├─ java/com/minecraftin/clone/
+│     │  ├─ MinecraftClone.java
+│     │  │  # Entry point
+│     │  ├─ config/
+│     │  │  └─ GameConfig.java
+│     │  │     # Main config file:
+│     │  │     # - window size/title
+│     │  │     # - render distance and chunk settings
+│     │  │     # - movement/physics values
+│     │  │     # - interaction reach/cooldowns
+│     │  │     # - save path and default seed
+│     │  ├─ game/
+│     │  │  └─ Game.java
+│     │  │     # Main loop and game flow
+│     │  ├─ engine/
+│     │  │  # Core systems: window/input/camera/shader/mesh
+│     │  ├─ world/
+│     │  │  # World data: chunks/generation/raycast/save-load
+│     │  ├─ gameplay/
+│     │  │  # Player movement and physics behavior
+│     │  └─ render/
+│     │     # World renderer and HUD renderer
+│     └─ resources/shaders/
+│        # GLSL shader files
+├─ saves/
+│  # Local world save data (Git ignored)
+├─ .gradle/ / .gradle-home/ / build/
+│  # Build and cache outputs (Git ignored)
+└─ .gitignore
+   # Defines ignored local/build files
+```

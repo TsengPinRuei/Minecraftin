@@ -1,314 +1,556 @@
+// 說明：宣告此檔案所屬的套件。
 package com.minecraftin.clone.render;
 
+// 說明：匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.Mesh;
+// 說明：匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.ShaderProgram;
+// 說明：匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.util.FloatArrayBuilder;
+// 說明：匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.world.BlockType;
 
+// 說明：匯入後續會使用到的型別或函式。
 import java.util.HashMap;
+// 說明：匯入後續會使用到的型別或函式。
 import java.util.Map;
 
+// 說明：匯入後續會使用到的型別或函式。
 import static org.lwjgl.opengl.GL33C.*;
 
+// 說明：定義主要型別與其結構。
 public final class HudRenderer implements AutoCloseable {
+    // 說明：下一行程式碼負責執行目前步驟。
     private static final int STRIDE = 7; // position xyz + color rgba
+    // 說明：設定或更新變數的值。
     private static final float TEXT_PIXEL_SIZE = 0.0062f;
+    // 說明：設定或更新變數的值。
     private static final int FONT_GLYPH_WIDTH = 5;
+    // 說明：設定或更新變數的值。
     private static final int FONT_GLYPH_HEIGHT = 7;
+    // 說明：設定或更新變數的值。
     private static final int FONT_GLYPH_SPACING = 1;
 
+    // 說明：設定或更新變數的值。
     private static final float[] BORDER_COLOR_SELECTED = new float[]{0.95f, 0.95f, 0.95f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] BORDER_COLOR_NORMAL = new float[]{0.16f, 0.16f, 0.16f, 0.82f};
+    // 說明：設定或更新變數的值。
     private static final float[] SLOT_COLOR_SELECTED = new float[]{0.20f, 0.20f, 0.20f, 0.92f};
+    // 說明：設定或更新變數的值。
     private static final float[] SLOT_COLOR_NORMAL = new float[]{0.10f, 0.10f, 0.10f, 0.75f};
+    // 說明：設定或更新變數的值。
     private static final float[] TEXT_COLOR = new float[]{0.97f, 0.97f, 0.97f, 0.98f};
+    // 說明：設定或更新變數的值。
     private static final float[] TEXT_BG_COLOR = new float[]{0.04f, 0.04f, 0.04f, 0.72f};
 
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_RED_BLOCK = new float[]{0.85f, 0.25f, 0.25f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_ORANGE_BLOCK = new float[]{0.90f, 0.54f, 0.18f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_YELLOW_BLOCK = new float[]{0.95f, 0.84f, 0.23f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_GREEN_BLOCK = new float[]{0.30f, 0.66f, 0.27f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_BLUE_BLOCK = new float[]{0.24f, 0.47f, 0.85f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_PURPLE_BLOCK = new float[]{0.51f, 0.28f, 0.80f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_GRASS = new float[]{0.36f, 0.69f, 0.29f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_DIRT = new float[]{0.53f, 0.34f, 0.19f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_STONE = new float[]{0.53f, 0.53f, 0.53f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_SAND = new float[]{0.85f, 0.78f, 0.56f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_WATER = new float[]{0.29f, 0.48f, 0.84f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_LOG = new float[]{0.59f, 0.41f, 0.24f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_LEAVES = new float[]{0.23f, 0.54f, 0.26f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_COBBLE = new float[]{0.45f, 0.45f, 0.45f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_PLANKS = new float[]{0.72f, 0.54f, 0.30f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_GLASS = new float[]{0.67f, 0.84f, 0.98f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_BRICKS = new float[]{0.63f, 0.31f, 0.28f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_BEDROCK = new float[]{0.22f, 0.22f, 0.22f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_SNOW = new float[]{0.95f, 0.97f, 1.00f, 0.95f};
+    // 說明：設定或更新變數的值。
     private static final float[] COLOR_DEFAULT = new float[]{0.20f, 0.20f, 0.20f, 0.95f};
+    // 說明：下一行程式碼負責執行目前步驟。
     private static final String[] GLYPH_EMPTY = new String[]{
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000",
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000",
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000",
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000",
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000",
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000",
+            // 說明：下一行程式碼負責執行目前步驟。
             "00000"
     };
 
+    // 說明：設定或更新變數的值。
     private static final Map<Character, String[]> FONT = createFont();
 
+    // 說明：下一行程式碼負責執行目前步驟。
     private final ShaderProgram shader;
+    // 說明：下一行程式碼負責執行目前步驟。
     private final Mesh crosshair;
+    // 說明：下一行程式碼負責執行目前步驟。
     private final Mesh hotbarMesh;
+    // 說明：設定或更新變數的值。
     private final FloatArrayBuilder hotbarVertices = new FloatArrayBuilder(32768);
+    // 說明：設定或更新變數的值。
     private int cachedSelectedIndex = Integer.MIN_VALUE;
+    // 說明：設定或更新變數的值。
     private int cachedHotbarSignature = Integer.MIN_VALUE;
 
+    // 說明：定義對外可呼叫的方法。
     public HudRenderer() {
+        // 說明：設定或更新變數的值。
         shader = new ShaderProgram("/shaders/hud.vert", "/shaders/hud.frag");
 
+        // 說明：宣告並初始化變數。
         float s = 0.015f;
+        // 說明：下一行程式碼負責執行目前步驟。
         crosshair = new Mesh(new float[]{
+                // 說明：下一行程式碼負責執行目前步驟。
                 -s, 0.0f, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
+                // 說明：下一行程式碼負責執行目前步驟。
                 s, 0.0f, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
+                // 說明：下一行程式碼負責執行目前步驟。
                 0.0f, -s, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
+                // 說明：下一行程式碼負責執行目前步驟。
                 0.0f, s, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f
+        // 說明：下一行程式碼負責執行目前步驟。
         }, GL_LINES, 3, 4);
 
+        // 說明：設定或更新變數的值。
         hotbarMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 4);
     }
 
+    // 說明：定義對外可呼叫的方法。
     public void render(BlockType[] hotbar, int selectedIndex) {
+        // 說明：呼叫方法執行對應功能。
         glDisable(GL_DEPTH_TEST);
+        // 說明：呼叫方法執行對應功能。
         shader.use();
+        // 說明：宣告並初始化變數。
         int hotbarSignature = hotbarSignature(hotbar);
+        // 說明：根據條件決定是否進入此邏輯分支。
         if (hotbarSignature != cachedHotbarSignature || selectedIndex != cachedSelectedIndex) {
+            // 說明：呼叫方法執行對應功能。
             updateHotbarMesh(hotbar, selectedIndex);
+            // 說明：設定或更新變數的值。
             cachedHotbarSignature = hotbarSignature;
+            // 說明：設定或更新變數的值。
             cachedSelectedIndex = selectedIndex;
         }
+        // 說明：呼叫方法執行對應功能。
         hotbarMesh.draw();
+        // 說明：呼叫方法執行對應功能。
         crosshair.draw();
+        // 說明：呼叫方法執行對應功能。
         glEnable(GL_DEPTH_TEST);
     }
 
+    // 說明：宣告註解標記，提供編譯器或框架額外資訊。
     @Override
+    // 說明：定義對外可呼叫的方法。
     public void close() {
+        // 說明：呼叫方法執行對應功能。
         hotbarMesh.close();
+        // 說明：呼叫方法執行對應功能。
         crosshair.close();
+        // 說明：呼叫方法執行對應功能。
         shader.close();
     }
 
+    // 說明：定義類別內部使用的方法。
     private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex) {
+        // 說明：呼叫方法執行對應功能。
         hotbarVertices.clear();
 
+        // 說明：宣告並初始化變數。
         int slots = hotbar.length;
+        // 說明：宣告並初始化變數。
         float slotSize = 0.105f;
+        // 說明：宣告並初始化變數。
         float gap = 0.014f;
+        // 說明：宣告並初始化變數。
         float totalWidth = slots * slotSize + (slots - 1) * gap;
+        // 說明：宣告並初始化變數。
         float startX = -totalWidth * 0.5f;
+        // 說明：宣告並初始化變數。
         float y = -0.90f;
 
+        // 說明：使用迴圈逐一處理每個元素或區間。
         for (int i = 0; i < slots; i++) {
+            // 說明：宣告並初始化變數。
             float x = startX + i * (slotSize + gap);
+            // 說明：宣告並初始化變數。
             boolean selected = i == selectedIndex;
 
+            // 說明：宣告並初始化變數。
             float border = selected ? 0.007f : 0.004f;
+            // 說明：宣告並初始化變數。
             float[] borderColor = selected ? BORDER_COLOR_SELECTED : BORDER_COLOR_NORMAL;
+            // 說明：宣告並初始化變數。
             float[] slotColor = selected ? SLOT_COLOR_SELECTED : SLOT_COLOR_NORMAL;
 
+            // 說明：呼叫方法執行對應功能。
             addRect(hotbarVertices, x - border, y - border, slotSize + border * 2.0f, slotSize + border * 2.0f, borderColor);
+            // 說明：呼叫方法執行對應功能。
             addRect(hotbarVertices, x, y, slotSize, slotSize, slotColor);
 
+            // 說明：宣告並初始化變數。
             float cubeSize = slotSize * 0.44f;
+            // 說明：宣告並初始化變數。
             float depthX = cubeSize * 0.30f;
+            // 說明：宣告並初始化變數。
             float depthY = cubeSize * 0.22f;
+            // 說明：宣告並初始化變數。
             float cubeX = x + (slotSize - (cubeSize + depthX)) * 0.5f;
+            // 說明：宣告並初始化變數。
             float cubeY = y + (slotSize - (cubeSize + depthY)) * 0.5f;
+            // 說明：呼叫方法執行對應功能。
             addCubeIcon(hotbarVertices, cubeX, cubeY, cubeSize, depthX, depthY, blockColor(hotbar[i]));
         }
 
+        // 說明：根據條件決定是否進入此邏輯分支。
         if (selectedIndex >= 0 && selectedIndex < hotbar.length) {
+            // 說明：宣告並初始化變數。
             String label = hotbar[selectedIndex].displayName();
+            // 說明：呼叫方法執行對應功能。
             addCenteredText(hotbarVertices, label, -0.735f);
         }
 
+        // 說明：呼叫方法執行對應功能。
         hotbarMesh.update(hotbarVertices.toArray(), STRIDE);
     }
 
+    // 說明：定義類別內部使用的方法。
     private void addRect(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        // 說明：宣告並初始化變數。
         float x2 = x + width;
+        // 說明：宣告並初始化變數。
         float y2 = y + height;
+        // 說明：呼叫方法執行對應功能。
         addQuad(out, x, y, x2, y, x2, y2, x, y2, color[0], color[1], color[2], color[3]);
     }
 
+    // 說明：定義類別內部使用的方法。
     private void addCubeIcon(FloatArrayBuilder out, float x, float y, float size, float depthX, float depthY, float[] baseColor) {
+        // 說明：宣告並初始化變數。
         float x0 = x;
+        // 說明：宣告並初始化變數。
         float y0 = y;
+        // 說明：宣告並初始化變數。
         float x1 = x + size;
+        // 說明：宣告並初始化變數。
         float y1 = y + size;
 
+        // 說明：宣告並初始化變數。
         float r = baseColor[0];
+        // 說明：宣告並初始化變數。
         float g = baseColor[1];
+        // 說明：宣告並初始化變數。
         float b = baseColor[2];
+        // 說明：宣告並初始化變數。
         float a = baseColor[3];
 
+        // 說明：呼叫方法執行對應功能。
         addQuad(out, x0, y0, x1, y0, x1, y1, x0, y1, r, g, b, a);
+        // 說明：下一行程式碼負責執行目前步驟。
         addQuad(out, x0, y1, x1, y1, x1 + depthX, y1 + depthY, x0 + depthX, y1 + depthY,
+                // 說明：呼叫方法執行對應功能。
                 lighten(r), lighten(g), lighten(b), a);
+        // 說明：下一行程式碼負責執行目前步驟。
         addQuad(out, x1, y0, x1 + depthX, y0 + depthY, x1 + depthX, y1 + depthY, x1, y1,
+                // 說明：呼叫方法執行對應功能。
                 darken(r), darken(g), darken(b), a);
     }
 
+    // 說明：定義類別內部使用的方法。
     private float lighten(float channel) {
+        // 說明：呼叫方法執行對應功能。
         return Math.min(channel * 1.20f + 0.03f, 1.0f);
     }
 
+    // 說明：定義類別內部使用的方法。
     private float darken(float channel) {
+        // 說明：呼叫方法執行對應功能。
         return Math.max(channel * 0.72f, 0.0f);
     }
 
+    // 說明：定義類別內部使用的方法。
     private void addCenteredText(FloatArrayBuilder out, String text, float y) {
+        // 說明：根據條件決定是否進入此邏輯分支。
         if (text == null || text.isBlank()) {
+            // 說明：下一行程式碼負責執行目前步驟。
             return;
         }
 
+        // 說明：宣告並初始化變數。
         int charCount = text.length();
+        // 說明：宣告並初始化變數。
         int pixelColumns = charCount * FONT_GLYPH_WIDTH + Math.max(0, charCount - 1) * FONT_GLYPH_SPACING;
+        // 說明：宣告並初始化變數。
         float textWidth = pixelColumns * TEXT_PIXEL_SIZE;
+        // 說明：宣告並初始化變數。
         float textHeight = FONT_GLYPH_HEIGHT * TEXT_PIXEL_SIZE;
+        // 說明：宣告並初始化變數。
         float startX = -textWidth * 0.5f;
 
+        // 說明：宣告並初始化變數。
         float padX = TEXT_PIXEL_SIZE * 2.2f;
+        // 說明：宣告並初始化變數。
         float padY = TEXT_PIXEL_SIZE * 1.5f;
+        // 說明：呼叫方法執行對應功能。
         addRect(out, startX - padX, y - padY, textWidth + padX * 2.0f, textHeight + padY * 2.0f, TEXT_BG_COLOR);
 
+        // 說明：宣告並初始化變數。
         float cursorX = startX;
+        // 說明：使用迴圈逐一處理每個元素或區間。
         for (int i = 0; i < text.length(); i++) {
+            // 說明：宣告並初始化變數。
             String[] glyph = glyphFor(text.charAt(i));
+            // 說明：呼叫方法執行對應功能。
             addGlyph(out, cursorX, y, glyph, TEXT_COLOR);
+            // 說明：設定或更新變數的值。
             cursorX += (FONT_GLYPH_WIDTH + FONT_GLYPH_SPACING) * TEXT_PIXEL_SIZE;
         }
     }
 
+    // 說明：定義類別內部使用的方法。
     private void addGlyph(FloatArrayBuilder out, float x, float y, String[] glyph, float[] color) {
+        // 說明：使用迴圈逐一處理每個元素或區間。
         for (int row = 0; row < FONT_GLYPH_HEIGHT; row++) {
+            // 說明：宣告並初始化變數。
             String line = glyph[row];
+            // 說明：使用迴圈逐一處理每個元素或區間。
             for (int col = 0; col < FONT_GLYPH_WIDTH; col++) {
+                // 說明：根據條件決定是否進入此邏輯分支。
                 if (line.charAt(col) != '1') {
+                    // 說明：跳過本次迴圈剩餘邏輯，直接進入下一次迭代。
                     continue;
                 }
+                // 說明：宣告並初始化變數。
                 float px = x + col * TEXT_PIXEL_SIZE;
+                // 說明：宣告並初始化變數。
                 float py = y + (FONT_GLYPH_HEIGHT - 1 - row) * TEXT_PIXEL_SIZE;
+                // 說明：呼叫方法執行對應功能。
                 addRect(out, px, py, TEXT_PIXEL_SIZE, TEXT_PIXEL_SIZE, color);
             }
         }
     }
 
+    // 說明：定義類別內部使用的方法。
     private String[] glyphFor(char c) {
+        // 說明：宣告並初始化變數。
         String[] glyph = FONT.get(c);
+        // 說明：根據條件決定是否進入此邏輯分支。
         if (glyph != null) {
+            // 說明：下一行程式碼負責執行目前步驟。
             return glyph;
         }
 
+        // 說明：設定或更新變數的值。
         glyph = FONT.get(Character.toUpperCase(c));
+        // 說明：設定或更新變數的值。
         return glyph != null ? glyph : GLYPH_EMPTY;
     }
 
+    // 說明：定義類別內部使用的方法。
     private static Map<Character, String[]> createFont() {
+        // 說明：設定或更新變數的值。
         Map<Character, String[]> font = new HashMap<>();
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, ' ', GLYPH_EMPTY);
 
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'A', "01110", "10001", "10001", "11111", "10001", "10001", "10001");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'B', "11110", "10001", "10001", "11110", "10001", "10001", "11110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'D', "11110", "10001", "10001", "10001", "10001", "10001", "11110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'E', "11111", "10000", "10000", "11110", "10000", "10000", "11111");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'G', "01110", "10001", "10000", "10111", "10001", "10001", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'I', "11111", "00100", "00100", "00100", "00100", "00100", "11111");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'L', "10000", "10000", "10000", "10000", "10000", "10000", "11111");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'N', "10001", "11001", "10101", "10011", "10001", "10001", "10001");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'O', "01110", "10001", "10001", "10001", "10001", "10001", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'P', "11110", "10001", "10001", "11110", "10000", "10000", "10000");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'R', "11110", "10001", "10001", "11110", "10100", "10010", "10001");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'S', "01111", "10000", "10000", "01110", "00001", "00001", "11110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'T', "11111", "00100", "00100", "00100", "00100", "00100", "00100");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'U', "10001", "10001", "10001", "10001", "10001", "10001", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'W', "10001", "10001", "10001", "10101", "10101", "10101", "01010");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'Y', "10001", "10001", "01010", "00100", "00100", "00100", "00100");
 
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'a', "00000", "00000", "01110", "00001", "01111", "10001", "01111");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'b', "10000", "10000", "10110", "11001", "10001", "11001", "10110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'd', "00001", "00001", "01101", "10011", "10001", "10011", "01101");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'e', "00000", "00000", "01110", "10001", "11111", "10000", "01111");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'g', "00000", "00000", "01110", "10001", "01111", "00001", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'i', "00100", "00000", "01100", "00100", "00100", "00100", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'l', "01100", "00100", "00100", "00100", "00100", "00100", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'n', "00000", "00000", "10110", "11001", "10001", "10001", "10001");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'o', "00000", "00000", "01110", "10001", "10001", "10001", "01110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'p', "00000", "00000", "11110", "10001", "11110", "10000", "10000");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'r', "00000", "00000", "10110", "11001", "10000", "10000", "10000");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 's', "00000", "00000", "01111", "10000", "01110", "00001", "11110");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 't', "00100", "00100", "11111", "00100", "00100", "00101", "00010");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'u', "00000", "00000", "10001", "10001", "10001", "10011", "01101");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'w', "00000", "00000", "10001", "10001", "10101", "10101", "01010");
+        // 說明：呼叫方法執行對應功能。
         putGlyph(font, 'y', "00000", "00000", "10001", "10001", "01111", "00001", "01110");
+        // 說明：下一行程式碼負責執行目前步驟。
         return font;
     }
 
+    // 說明：定義類別內部使用的方法。
     private static void putGlyph(Map<Character, String[]> font, char c, String... rows) {
+        // 說明：呼叫方法執行對應功能。
         font.put(c, rows);
     }
 
+    // 說明：下一行程式碼負責執行目前步驟。
     private void addQuad(
+            // 說明：下一行程式碼負責執行目前步驟。
             FloatArrayBuilder out,
+            // 說明：下一行程式碼負責執行目前步驟。
             float ax, float ay,
+            // 說明：下一行程式碼負責執行目前步驟。
             float bx, float by,
+            // 說明：下一行程式碼負責執行目前步驟。
             float cx, float cy,
+            // 說明：下一行程式碼負責執行目前步驟。
             float dx, float dy,
+            // 說明：下一行程式碼負責執行目前步驟。
             float r, float g, float b, float a
+    // 說明：下一行程式碼負責執行目前步驟。
     ) {
+        // 說明：宣告並初始化變數。
         float z = 0.0f;
+        // 說明：呼叫方法執行對應功能。
         addVertex(out, ax, ay, z, r, g, b, a);
+        // 說明：呼叫方法執行對應功能。
         addVertex(out, bx, by, z, r, g, b, a);
+        // 說明：呼叫方法執行對應功能。
         addVertex(out, cx, cy, z, r, g, b, a);
 
+        // 說明：呼叫方法執行對應功能。
         addVertex(out, cx, cy, z, r, g, b, a);
+        // 說明：呼叫方法執行對應功能。
         addVertex(out, dx, dy, z, r, g, b, a);
+        // 說明：呼叫方法執行對應功能。
         addVertex(out, ax, ay, z, r, g, b, a);
     }
 
+    // 說明：定義類別內部使用的方法。
     private void addVertex(FloatArrayBuilder out, float x, float y, float z, float r, float g, float b, float a) {
+        // 說明：呼叫方法執行對應功能。
         out.add(x, y, z, r, g, b, a);
     }
 
+    // 說明：定義類別內部使用的方法。
     private int hotbarSignature(BlockType[] hotbar) {
+        // 說明：宣告並初始化變數。
         int hash = 1;
+        // 說明：使用迴圈逐一處理每個元素或區間。
         for (BlockType blockType : hotbar) {
+            // 說明：設定或更新變數的值。
             hash = 31 * hash + (blockType != null ? blockType.id() : -1);
         }
+        // 說明：下一行程式碼負責執行目前步驟。
         return hash;
     }
 
+    // 說明：定義類別內部使用的方法。
     private float[] blockColor(BlockType type) {
+        // 說明：下一行程式碼負責執行目前步驟。
         return switch (type) {
+            // 說明：宣告 switch 的其中一個分支。
             case RED_BLOCK -> COLOR_RED_BLOCK;
+            // 說明：宣告 switch 的其中一個分支。
             case ORANGE_BLOCK -> COLOR_ORANGE_BLOCK;
+            // 說明：宣告 switch 的其中一個分支。
             case YELLOW_BLOCK -> COLOR_YELLOW_BLOCK;
+            // 說明：宣告 switch 的其中一個分支。
             case GREEN_BLOCK -> COLOR_GREEN_BLOCK;
+            // 說明：宣告 switch 的其中一個分支。
             case BLUE_BLOCK -> COLOR_BLUE_BLOCK;
+            // 說明：宣告 switch 的其中一個分支。
             case PURPLE_BLOCK -> COLOR_PURPLE_BLOCK;
+            // 說明：宣告 switch 的其中一個分支。
             case GRASS -> COLOR_GRASS;
+            // 說明：宣告 switch 的其中一個分支。
             case DIRT -> COLOR_DIRT;
+            // 說明：宣告 switch 的其中一個分支。
             case STONE -> COLOR_STONE;
+            // 說明：宣告 switch 的其中一個分支。
             case SAND -> COLOR_SAND;
+            // 說明：宣告 switch 的其中一個分支。
             case WATER -> COLOR_WATER;
+            // 說明：宣告 switch 的其中一個分支。
             case LOG -> COLOR_LOG;
+            // 說明：宣告 switch 的其中一個分支。
             case LEAVES -> COLOR_LEAVES;
+            // 說明：宣告 switch 的其中一個分支。
             case COBBLESTONE -> COLOR_COBBLE;
+            // 說明：宣告 switch 的其中一個分支。
             case PLANKS -> COLOR_PLANKS;
+            // 說明：宣告 switch 的其中一個分支。
             case GLASS -> COLOR_GLASS;
+            // 說明：宣告 switch 的其中一個分支。
             case BRICKS -> COLOR_BRICKS;
+            // 說明：宣告 switch 的其中一個分支。
             case BEDROCK -> COLOR_BEDROCK;
+            // 說明：宣告 switch 的其中一個分支。
             case SNOW -> COLOR_SNOW;
+            // 說明：下一行程式碼負責執行目前步驟。
             default -> COLOR_DEFAULT;
         };
     }

@@ -1,66 +1,110 @@
+// 說明：下一行程式碼負責執行目前步驟。
 plugins {
+    // 說明：下一行程式碼負責執行目前步驟。
     id 'java'
+    // 說明：下一行程式碼負責執行目前步驟。
     id 'application'
 }
 
+// 說明：下一行程式碼負責執行目前步驟。
 group = 'com.minecraftin'
+// 說明：下一行程式碼負責執行目前步驟。
 version = '0.1.0'
 
+// 說明：下一行程式碼負責執行目前步驟。
 repositories {
+    // 說明：下一行程式碼負責執行目前步驟。
     mavenCentral()
 }
 
+// 說明：宣告並初始化變數。
 def os = org.gradle.internal.os.OperatingSystem.current()
+// 說明：宣告並初始化變數。
 def arch = System.getProperty('os.arch')
+// 說明：下一行程式碼負責執行目前步驟。
 def lwjglNatives
 
+// 說明：根據條件決定是否進入此邏輯分支。
 if (os.isWindows()) {
+    // 說明：下一行程式碼負責執行目前步驟。
     lwjglNatives = arch.contains('64') ? 'natives-windows' : 'natives-windows-x86'
+// 說明：下一行程式碼負責執行目前步驟。
 } else if (os.isMacOsX()) {
+    // 說明：下一行程式碼負責執行目前步驟。
     lwjglNatives = arch.contains('aarch64') || arch.contains('arm') ? 'natives-macos-arm64' : 'natives-macos'
+// 說明：下一行程式碼負責執行目前步驟。
 } else if (os.isLinux()) {
+    // 說明：下一行程式碼負責執行目前步驟。
     lwjglNatives = arch.contains('64') ? 'natives-linux' : 'natives-linux-arm32'
+// 說明：下一行程式碼負責執行目前步驟。
 } else {
+    // 說明：下一行程式碼負責執行目前步驟。
     throw new GradleException("Unsupported OS: ${os}")
 }
 
+// 說明：下一行程式碼負責執行目前步驟。
 ext {
+    // 說明：下一行程式碼負責執行目前步驟。
     lwjglVersion = '3.3.3'
+    // 說明：下一行程式碼負責執行目前步驟。
     jomlVersion = '1.10.5'
 }
 
+// 說明：宣告並初始化變數。
 def defaultJvmArgs = ['-Xms1g', '-Xmx2g']
+// 說明：根據條件決定是否進入此邏輯分支。
 if (os.isMacOsX()) {
+    // 說明：下一行程式碼負責執行目前步驟。
     defaultJvmArgs += '-XstartOnFirstThread'
 }
 
+// 說明：下一行程式碼負責執行目前步驟。
 dependencies {
+    // 說明：下一行程式碼負責執行目前步驟。
     implementation platform("org.lwjgl:lwjgl-bom:${lwjglVersion}")
+    // 說明：下一行程式碼負責執行目前步驟。
     implementation 'org.lwjgl:lwjgl'
+    // 說明：下一行程式碼負責執行目前步驟。
     implementation 'org.lwjgl:lwjgl-glfw'
+    // 說明：下一行程式碼負責執行目前步驟。
     implementation 'org.lwjgl:lwjgl-opengl'
+    // 說明：下一行程式碼負責執行目前步驟。
     implementation 'org.lwjgl:lwjgl-stb'
 
+    // 說明：下一行程式碼負責執行目前步驟。
     runtimeOnly "org.lwjgl:lwjgl::${lwjglNatives}"
+    // 說明：下一行程式碼負責執行目前步驟。
     runtimeOnly "org.lwjgl:lwjgl-glfw::${lwjglNatives}"
+    // 說明：下一行程式碼負責執行目前步驟。
     runtimeOnly "org.lwjgl:lwjgl-opengl::${lwjglNatives}"
+    // 說明：下一行程式碼負責執行目前步驟。
     runtimeOnly "org.lwjgl:lwjgl-stb::${lwjglNatives}"
 
+    // 說明：下一行程式碼負責執行目前步驟。
     implementation "org.joml:joml:${jomlVersion}"
 
+    // 說明：下一行程式碼負責執行目前步驟。
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
+// 說明：下一行程式碼負責執行目前步驟。
 application {
+    // 說明：下一行程式碼負責執行目前步驟。
     mainClass = 'com.minecraftin.clone.MinecraftClone'
+    // 說明：下一行程式碼負責執行目前步驟。
     applicationDefaultJvmArgs = defaultJvmArgs
 }
 
+// 說明：下一行程式碼負責執行目前步驟。
 tasks.withType(JavaCompile).configureEach {
+    // 說明：下一行程式碼負責執行目前步驟。
     options.encoding = 'UTF-8'
+    // 說明：下一行程式碼負責執行目前步驟。
     options.release.set(17)
 }
 
+// 說明：下一行程式碼負責執行目前步驟。
 test {
+    // 說明：下一行程式碼負責執行目前步驟。
     useJUnitPlatform()
 }

@@ -89,6 +89,10 @@ public final class World {
         Chunk chunk = new Chunk(chunkX, chunkZ);
         terrainGenerator.generate(chunk);
         chunks.put(key, chunk);
+        markChunkMeshDirty(chunkX - 1, chunkZ);
+        markChunkMeshDirty(chunkX + 1, chunkZ);
+        markChunkMeshDirty(chunkX, chunkZ - 1);
+        markChunkMeshDirty(chunkX, chunkZ + 1);
         return chunk;
     }
 

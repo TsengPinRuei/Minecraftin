@@ -70,7 +70,7 @@ public final class WorldRenderer implements AutoCloseable {
         int centerChunkX = Math.floorDiv((int) Math.floor(camera.position().x), GameConfig.CHUNK_SIZE);
         int centerChunkZ = Math.floorDiv((int) Math.floor(camera.position().z), GameConfig.CHUNK_SIZE);
 
-        int viewDistance = GameConfig.RENDER_DISTANCE_CHUNKS + 1;
+        int viewDistance = GameConfig.RENDER_DISTANCE_CHUNKS;
         int maxDistSq = viewDistance * viewDistance;
 
         for (Chunk chunk : world.chunks()) {

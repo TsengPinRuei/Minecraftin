@@ -3,6 +3,9 @@ package com.minecraftin.clone.world;
 import com.minecraftin.clone.config.GameConfig;
 import com.minecraftin.clone.util.Noise;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public final class TerrainGenerator {
     private enum Biome {
         PLAINS,
@@ -24,6 +27,9 @@ public final class TerrainGenerator {
     public void generate(Chunk chunk) {
         int worldMinX = chunk.worldMinX();
         int worldMinZ = chunk.worldMinZ();
+        int[][] heights = new int[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
+        Biome[][] biomes = new Biome[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
+        List<TreeSpec> plannedTrees = new ArrayList<>();
 
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
             for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
@@ -51,6 +57,8 @@ public final class TerrainGenerator {
 
                 Biome biome = pickBiome(height, continental, ridges, temperature, moisture);
                 int topDepth = biome == Biome.DESERT || biome == Biome.BADLANDS ? 5 : 4;
+                heights[lx][lz] = height;
+                biomes[lx][lz] = biome;
 
                 for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
                     BlockType block;
@@ -71,11 +79,30 @@ public final class TerrainGenerator {
 
                     chunk.setRaw(lx, y, lz, (short) block.id());
                 }
+            }
+        }
 
-                if (height > seaLevel + 1) {
-                    maybePlaceTree(chunk, biome, lx, height + 1, lz, worldX, worldZ);
+        for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
+            for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
+                int height = heights[lx][lz];
+                if (height <= seaLevel + 1) {
+                    continue;
+                }
+
+                int worldX = worldMinX + lx;
+                int worldZ = worldMinZ + lz;
+                TreeSpec tree = planTree(chunk, biomes[lx][lz], lx, height + 1, lz, worldX, worldZ);
+                if (tree != null) {
+                    plannedTrees.add(tree);
                 }
             }
+        }
+
+        for (TreeSpec tree : plannedTrees) {
+            placeTrunk(chunk, tree);
+        }
+        for (TreeSpec tree : plannedTrees) {
+            placeCanopy(chunk, tree);
         }
 
         chunk.markMeshDirty();
@@ -129,9 +156,9 @@ public final class TerrainGenerator {
         };
     }
 
-    private void maybePlaceTree(Chunk chunk, Biome biome, int lx, int baseY, int lz, int worldX, int worldZ) {
+    private TreeSpec planTree(Chunk chunk, Biome biome, int lx, int baseY, int lz, int worldX, int worldZ) {
         if (biome == Biome.DESERT || biome == Biome.BADLANDS || biome == Biome.MOUNTAIN) {
-            return;
+            return null;
         }
 
         int hash = Noise.hashInt(worldX, 0, worldZ, seed + 191);
@@ -143,56 +170,102 @@ public final class TerrainGenerator {
         };
 
         if ((hash & 0xFF) > chance) {
-            return;
+            return null;
         }
 
         int trunkHeight = 4 + Math.abs(hash % 3);
         int topY = baseY + trunkHeight;
 
         if (topY + 3 >= GameConfig.CHUNK_HEIGHT) {
-            return;
+            return null;
         }
 
         if (lx < 2 || lx >= GameConfig.CHUNK_SIZE - 2 || lz < 2 || lz >= GameConfig.CHUNK_SIZE - 2) {
-            return;
+            return null;
         }
 
         for (int y = 0; y < trunkHeight; y++) {
             if (chunk.get(lx, baseY + y, lz) != BlockType.AIR) {
-                return;
+                return null;
             }
         }
 
-        for (int y = 0; y < trunkHeight; y++) {
-            chunk.setRaw(lx, baseY + y, lz, (short) BlockType.LOG.id());
+        return new TreeSpec(lx, lz, baseY, trunkHeight);
+    }
+
+    private void placeTrunk(Chunk chunk, TreeSpec tree) {
+        for (int y = 0; y < tree.trunkHeight(); y++) {
+            chunk.setRaw(tree.lx(), tree.baseY() + y, tree.lz(), (short) BlockType.LOG.id());
+        }
+    }
+
+    private void placeCanopy(Chunk chunk, TreeSpec tree) {
+        int topY = tree.topY();
+        int canopyBaseY = tree.baseY() + Math.max(1, tree.trunkHeight() - 4);
+
+        for (int y = canopyBaseY; y <= topY + 2; y++) {
+            int rel = y - topY;
+            int radius;
+            boolean trimCorners;
+
+            if (rel <= -3) {
+                radius = 1;
+                trimCorners = false;
+            } else if (rel <= 0) {
+                radius = 2;
+                trimCorners = rel == 0;
+            } else if (rel == 1) {
+                radius = 1;
+                trimCorners = false;
+            } else {
+                radius = 0;
+                trimCorners = false;
+            }
+
+            placeLeafLayer(chunk, tree.lx(), y, tree.lz(), radius, trimCorners);
         }
 
-        int radius = 2;
-        for (int dy = -2; dy <= 2; dy++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    int tx = lx + dx;
-                    int ty = topY + dy;
-                    int tz = lz + dz;
+        int wrapStart = Math.max(tree.baseY() + 1, topY - 3);
+        for (int y = wrapStart; y <= topY - 1; y++) {
+            trySetLeaf(chunk, tree.lx() + 1, y, tree.lz());
+            trySetLeaf(chunk, tree.lx() - 1, y, tree.lz());
+            trySetLeaf(chunk, tree.lx(), y, tree.lz() + 1);
+            trySetLeaf(chunk, tree.lx(), y, tree.lz() - 1);
+        }
+    }
 
-                    if (tx < 0 || tx >= GameConfig.CHUNK_SIZE || tz < 0 || tz >= GameConfig.CHUNK_SIZE) {
-                        continue;
-                    }
+    private void placeLeafLayer(Chunk chunk, int centerX, int y, int centerZ, int radius, boolean trimCorners) {
+        if (radius <= 0) {
+            trySetLeaf(chunk, centerX, y, centerZ);
+            return;
+        }
 
-                    if (ty < 1 || ty >= GameConfig.CHUNK_HEIGHT) {
-                        continue;
-                    }
-
-                    int dist = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
-                    if (dist > 4) {
-                        continue;
-                    }
-
-                    if (chunk.get(tx, ty, tz) == BlockType.AIR) {
-                        chunk.setRaw(tx, ty, tz, (short) BlockType.LEAVES.id());
-                    }
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (trimCorners && Math.abs(dx) == radius && Math.abs(dz) == radius) {
+                    continue;
                 }
+                trySetLeaf(chunk, centerX + dx, y, centerZ + dz);
             }
+        }
+    }
+
+    private void trySetLeaf(Chunk chunk, int x, int y, int z) {
+        if (x < 0 || x >= GameConfig.CHUNK_SIZE || z < 0 || z >= GameConfig.CHUNK_SIZE) {
+            return;
+        }
+        if (y < 1 || y >= GameConfig.CHUNK_HEIGHT) {
+            return;
+        }
+
+        if (chunk.get(x, y, z) == BlockType.AIR) {
+            chunk.setRaw(x, y, z, (short) BlockType.LEAVES.id());
+        }
+    }
+
+    private record TreeSpec(int lx, int lz, int baseY, int trunkHeight) {
+        int topY() {
+            return baseY + trunkHeight;
         }
     }
 }

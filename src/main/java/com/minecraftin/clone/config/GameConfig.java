@@ -16,8 +16,8 @@ public final class GameConfig {
     public static final boolean CREATIVE_MODE_ONLY = true;
 
     public static final float MOUSE_SENSITIVITY = 0.12f;
-    public static final float WALK_SPEED = 4.8f;
-    public static final float FLY_SPEED = 10.0f;
+    public static final float WALK_SPEED = 4.5f;
+    public static final float FLY_SPEED = WALK_SPEED * 3.0f;
     public static final float SPRINT_MULTIPLIER = 1.65f;
     public static final float JUMP_VELOCITY = 6.8f;
     public static final float GRAVITY = 22.0f;

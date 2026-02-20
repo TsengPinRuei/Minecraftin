@@ -30,6 +30,14 @@ public final class Player {
         return flying;
     }
 
+    public boolean isOnGround() {
+        return onGround;
+    }
+
+    public float horizontalSpeed() {
+        return (float) Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    }
+
     public void setPosition(float x, float y, float z) {
         position.set(x, y, z);
         velocity.zero();

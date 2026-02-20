@@ -113,7 +113,7 @@ public final class TextureAtlas implements AutoCloseable {
                 }
 
                 int color = mix(colorA, colorB, blend);
-                int alpha = tile == AtlasTiles.WATER ? 180 : (tile == AtlasTiles.GLASS ? 140 : 255);
+                int alpha = tile == AtlasTiles.WATER ? 255 : (tile == AtlasTiles.GLASS ? 140 : 255);
                 int pixel = (alpha << 24) | color;
                 int px = tileX + x;
                 int py = tileY + y;

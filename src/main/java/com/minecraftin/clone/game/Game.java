@@ -19,6 +19,10 @@ import static org.lwjgl.opengl.GL33C.*;
 
 public final class Game {
     private static final String MODE_LABEL = GameConfig.CREATIVE_MODE_ONLY ? "CREATIVE" : "SURVIVAL";
+    private static final float WALK_BOB_VERTICAL_BASE = 0.020f;
+    private static final float WALK_BOB_VERTICAL_SCALE = 0.024f;
+    private static final float WALK_BOB_HORIZONTAL_FACTOR = 0.60f;
+    private static final float WALK_BOB_RESET_SPEED = 8.0f;
 
     private final BlockType[] hotbar = {
             BlockType.RED_BLOCK,
@@ -53,6 +57,9 @@ public final class Game {
     private double fpsTimer;
     private int fpsFrames;
     private boolean worldInitialized;
+    private float walkBobPhase;
+    private float walkBobVertical;
+    private float walkBobHorizontal;
 
     public void run() {
         try {
@@ -69,7 +76,7 @@ public final class Game {
             Vector3f spawn = world.defaultSpawn(new Vector3f());
             player.setPosition(spawn.x, spawn.y, spawn.z);
             camera.setRotation(-90.0f, -15.0f);
-            updateCameraFromPlayer();
+            updateCameraFromPlayer(0.0f);
 
             window.captureCursor(false);
             input.resetMouseTracking();
@@ -113,14 +120,15 @@ public final class Game {
 
             int playerChunkX = Math.floorDiv((int) Math.floor(player.position().x), GameConfig.CHUNK_SIZE);
             int playerChunkZ = Math.floorDiv((int) Math.floor(player.position().z), GameConfig.CHUNK_SIZE);
-            world.ensureChunksAround(playerChunkX, playerChunkZ, GameConfig.RENDER_DISTANCE_CHUNKS);
+            // Load one extra ring so rendered chunks always have neighbor data at the edges.
+            world.ensureChunksAround(playerChunkX, playerChunkZ, GameConfig.RENDER_DISTANCE_CHUNKS + 1);
 
             if (cursorCaptured) {
                 applyLookFromMouse();
                 player.update(input, camera, world, delta);
             }
 
-            updateCameraFromPlayer();
+            updateCameraFromPlayer(delta);
             updateTargetBlock();
             if (cursorCaptured) {
                 updateBlockInteraction(delta);
@@ -179,16 +187,49 @@ public final class Game {
         camera.rotate(yawDelta, pitchDelta);
     }
 
-    private void updateCameraFromPlayer() {
+    private void updateCameraFromPlayer(float deltaSeconds) {
+        updateWalkBob(deltaSeconds);
+
+        Vector3f right = camera.right(new Vector3f());
         camera.setPosition(
-                player.position().x,
-                player.position().y + GameConfig.PLAYER_EYE_HEIGHT,
-                player.position().z
+                player.position().x + right.x * walkBobHorizontal,
+                player.position().y + GameConfig.PLAYER_EYE_HEIGHT + walkBobVertical,
+                player.position().z + right.z * walkBobHorizontal
         );
     }
 
+    private void updateWalkBob(float deltaSeconds) {
+        if (deltaSeconds <= 0.0f) {
+            walkBobVertical = 0.0f;
+            walkBobHorizontal = 0.0f;
+            return;
+        }
+
+        if (!cursorCaptured || player.isFlying() || !player.isOnGround()) {
+            walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
+            walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
+            return;
+        }
+
+        float speedRatio = Math.min(player.horizontalSpeed() / Math.max(GameConfig.WALK_SPEED, 0.001f), 1.6f);
+        if (speedRatio < 0.06f) {
+            walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
+            walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
+            return;
+        }
+
+        walkBobPhase += deltaSeconds * (8.0f + 4.0f * speedRatio);
+        if (walkBobPhase > (float) (Math.PI * 2.0)) {
+            walkBobPhase -= (float) (Math.PI * 2.0);
+        }
+
+        float amplitude = WALK_BOB_VERTICAL_BASE + WALK_BOB_VERTICAL_SCALE * speedRatio;
+        walkBobVertical = (float) Math.sin(walkBobPhase * 2.0f) * amplitude;
+        walkBobHorizontal = (float) Math.cos(walkBobPhase) * amplitude * WALK_BOB_HORIZONTAL_FACTOR;
+    }
+
     private void updateTargetBlock() {
-        Vector3f eye = player.eyePosition(new Vector3f());
+        Vector3f eye = new Vector3f(camera.position());
         Vector3f direction = camera.forward(new Vector3f());
         targetedBlock = world.raycast(eye, direction, GameConfig.BLOCK_REACH);
     }
@@ -246,5 +287,12 @@ public final class Game {
         } catch (Exception e) {
             System.err.println("World save failed: " + e.getMessage());
         }
+    }
+
+    private float approach(float current, float target, float delta) {
+        if (current < target) {
+            return Math.min(current + delta, target);
+        }
+        return Math.max(current - delta, target);
     }
 }

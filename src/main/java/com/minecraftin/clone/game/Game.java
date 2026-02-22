@@ -111,6 +111,8 @@ public final class Game {
     // 下一行程式碼負責執行目前步驟。
     private boolean worldInitialized;
     // 下一行程式碼負責執行目前步驟。
+    private boolean playerSpawnInitialized;
+    // 下一行程式碼負責執行目前步驟。
     private float walkBobPhase;
     // 下一行程式碼負責執行目前步驟。
     private float walkBobVertical;
@@ -139,9 +141,17 @@ public final class Game {
             hudRenderer = new HudRenderer();
 
             // 宣告並初始化變數。
-            Vector3f spawn = world.defaultSpawn(new Vector3f());
+            // 優先使用關閉遊戲時存下的重生點，舊存檔或新世界則退回地形出生點搜尋。
+            Vector3f spawn = new Vector3f();
+            // 根據條件決定是否進入此邏輯分支。
+            if (!world.tryGetSavedRespawnPosition(spawn)) {
+                // 呼叫方法執行對應功能。
+                world.defaultSpawn(spawn);
+            }
             // 呼叫方法執行對應功能。
             player.setPosition(spawn.x, spawn.y, spawn.z);
+            // 設定或更新變數的值。
+            playerSpawnInitialized = true;
             // 呼叫方法執行對應功能。
             camera.setRotation(-90.0f, -15.0f);
             // 呼叫方法執行對應功能。
@@ -157,7 +167,12 @@ public final class Game {
         // 下一行程式碼負責執行目前步驟。
         } finally {
             // 根據條件決定是否進入此邏輯分支。
-            if (worldInitialized && world.hasModifiedChunks()) {
+            if (worldInitialized && playerSpawnInitialized) {
+                // 將關閉遊戲當下玩家位置存成下次開啟時的重生點。
+                world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
+            }
+            // 根據條件決定是否進入此邏輯分支。
+            if (worldInitialized && world.hasPendingSave()) {
                 // 呼叫方法執行對應功能。
                 safeSaveWorld();
             }

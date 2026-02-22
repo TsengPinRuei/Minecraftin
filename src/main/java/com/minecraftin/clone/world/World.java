@@ -32,7 +32,7 @@ public final class World {
     // 下一行程式碼負責執行目前步驟。
     private static final int SAVE_MAGIC = 0x4D434C4E; // MCLN
     // 設定或更新變數的值。
-    private static final int SAVE_VERSION = 1;
+    private static final int SAVE_VERSION = 2;
     // 設定或更新變數的值。
     private static final float SPAWN_Y_OFFSET = 1.05f;
     // 限制單次補水量，避免玩家挖開超大空腔時造成卡頓。
@@ -55,6 +55,12 @@ public final class World {
     private long seed;
     // 下一行程式碼負責執行目前步驟。
     private TerrainGenerator terrainGenerator;
+    // 設定或更新變數的值。
+    private final Vector3f savedRespawnPosition = new Vector3f();
+    // 下一行程式碼負責執行目前步驟。
+    private boolean hasSavedRespawnPosition;
+    // 下一行程式碼負責執行目前步驟。
+    private boolean respawnPositionDirty;
 
     // 定義對外可呼叫的方法。
     public World(Path worldFile, long defaultSeed) {
@@ -89,6 +95,8 @@ public final class World {
             chunks.clear();
             // 設定或更新變數的值。
             terrainGenerator = new TerrainGenerator(seed, 62);
+            // 呼叫方法執行對應功能。
+            clearSavedRespawnPosition();
         }
     }
 
@@ -122,6 +130,47 @@ public final class World {
         }
         // 下一行程式碼負責執行目前步驟。
         return false;
+    }
+
+    // 定義對外可呼叫的方法。
+    public boolean hasPendingSave() {
+        // 下一行程式碼負責執行目前步驟。
+        return respawnPositionDirty || hasModifiedChunks();
+    }
+
+    // 定義對外可呼叫的方法。
+    public void setRespawnPosition(float x, float y, float z) {
+        // 根據條件決定是否進入此邏輯分支。
+        if (hasSavedRespawnPosition
+                // 下一行程式碼負責執行目前步驟。
+                && Float.compare(savedRespawnPosition.x, x) == 0
+                // 下一行程式碼負責執行目前步驟。
+                && Float.compare(savedRespawnPosition.y, y) == 0
+                // 下一行程式碼負責執行目前步驟。
+                && Float.compare(savedRespawnPosition.z, z) == 0) {
+            // 下一行程式碼負責執行目前步驟。
+            return;
+        }
+
+        // 呼叫方法執行對應功能。
+        savedRespawnPosition.set(x, y, z);
+        // 設定或更新變數的值。
+        hasSavedRespawnPosition = true;
+        // 設定或更新變數的值。
+        respawnPositionDirty = true;
+    }
+
+    // 定義對外可呼叫的方法。
+    public boolean tryGetSavedRespawnPosition(Vector3f out) {
+        // 根據條件決定是否進入此邏輯分支。
+        if (!hasSavedRespawnPosition) {
+            // 下一行程式碼負責執行目前步驟。
+            return false;
+        }
+        // 呼叫方法執行對應功能。
+        out.set(savedRespawnPosition);
+        // 下一行程式碼負責執行目前步驟。
+        return true;
     }
 
     // 定義對外可呼叫的方法。
@@ -923,6 +972,17 @@ public final class World {
             // 呼叫方法執行對應功能。
             out.writeLong(seed);
             // 呼叫方法執行對應功能。
+            out.writeBoolean(hasSavedRespawnPosition);
+            // 根據條件決定是否進入此邏輯分支。
+            if (hasSavedRespawnPosition) {
+                // 呼叫方法執行對應功能。
+                out.writeFloat(savedRespawnPosition.x);
+                // 呼叫方法執行對應功能。
+                out.writeFloat(savedRespawnPosition.y);
+                // 呼叫方法執行對應功能。
+                out.writeFloat(savedRespawnPosition.z);
+            }
+            // 呼叫方法執行對應功能。
             out.writeInt(chunks.size());
 
             // 使用迴圈逐一處理每個元素或區間。
@@ -945,6 +1005,8 @@ public final class World {
                 // 呼叫方法執行對應功能。
                 chunk.clearModified();
             }
+            // 設定或更新變數的值。
+            respawnPositionDirty = false;
         // 下一行程式碼負責執行目前步驟。
         } catch (IOException e) {
             // 呼叫方法執行對應功能。
@@ -968,7 +1030,7 @@ public final class World {
             int version = in.readInt();
 
             // 根據條件決定是否進入此邏輯分支。
-            if (magic != SAVE_MAGIC || version != SAVE_VERSION) {
+            if (magic != SAVE_MAGIC || (version != 1 && version != SAVE_VERSION)) {
                 // 下一行程式碼負責執行目前步驟。
                 return false;
             }
@@ -977,6 +1039,26 @@ public final class World {
             seed = in.readLong();
             // 設定或更新變數的值。
             terrainGenerator = new TerrainGenerator(seed, 62);
+
+            // 根據存檔版本讀取玩家重生點；舊版存檔沒有此欄位。
+            if (version >= 2) {
+                // 設定或更新變數的值。
+                hasSavedRespawnPosition = in.readBoolean();
+                // 根據條件決定是否進入此邏輯分支。
+                if (hasSavedRespawnPosition) {
+                    // 呼叫方法執行對應功能。
+                    savedRespawnPosition.set(in.readFloat(), in.readFloat(), in.readFloat());
+                // 下一行程式碼負責執行目前步驟。
+                } else {
+                    // 呼叫方法執行對應功能。
+                    savedRespawnPosition.zero();
+                }
+            } else {
+                // 呼叫方法執行對應功能。
+                clearSavedRespawnPosition();
+            }
+            // 設定或更新變數的值。
+            respawnPositionDirty = false;
 
             // 宣告並初始化變數。
             int count = in.readInt();
@@ -1020,6 +1102,8 @@ public final class World {
             chunks.clear();
             // 呼叫方法執行對應功能。
             chunks.putAll(loadedChunks);
+            // 設定或更新變數的值。
+            respawnPositionDirty = false;
             // 下一行程式碼負責執行目前步驟。
             return true;
         // 下一行程式碼負責執行目前步驟。
@@ -1027,6 +1111,16 @@ public final class World {
             // 下一行程式碼負責執行目前步驟。
             return false;
         }
+    }
+
+    // 定義類別內部使用的方法。
+    private void clearSavedRespawnPosition() {
+        // 呼叫方法執行對應功能。
+        savedRespawnPosition.zero();
+        // 設定或更新變數的值。
+        hasSavedRespawnPosition = false;
+        // 設定或更新變數的值。
+        respawnPositionDirty = false;
     }
 
     // 定義類別內部使用的方法。

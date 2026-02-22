@@ -21,6 +21,8 @@ import java.nio.file.Files;
 // 說明：匯入後續會使用到的型別或函式。
 import java.nio.file.Path;
 // 說明：匯入後續會使用到的型別或函式。
+import java.util.ArrayDeque;
+// 說明：匯入後續會使用到的型別或函式。
 import java.util.HashMap;
 // 說明：匯入後續會使用到的型別或函式。
 import java.util.Map;
@@ -33,6 +35,8 @@ public final class World {
     private static final int SAVE_VERSION = 1;
     // 說明：設定或更新變數的值。
     private static final float SPAWN_Y_OFFSET = 1.05f;
+    // 說明：限制單次補水量，避免玩家挖開超大空腔時造成卡頓。
+    private static final int WATER_FLOOD_MAX_BLOCKS = 32768;
 
     // 說明：設定或更新變數的值。
     private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
@@ -232,6 +236,26 @@ public final class World {
 
     // 說明：定義對外可呼叫的方法。
     public boolean setBlock(int worldX, int y, int worldZ, BlockType type) {
+        // 說明：先套用方塊變更，玩家建造/破壞都走同一條更新路徑。
+        boolean changed = setBlockInternal(worldX, y, worldZ, type, true);
+        // 說明：根據條件決定是否進入此邏輯分支。
+        if (!changed) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return false;
+        }
+
+        // 說明：破壞方塊後若形成水下空腔，從相鄰水體開始局部補水。
+        if (type == BlockType.AIR) {
+            // 說明：呼叫方法執行對應功能。
+            floodWaterIntoAirPocket(worldX, y, worldZ);
+        }
+
+        // 說明：下一行程式碼負責執行目前步驟。
+        return true;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean setBlockInternal(int worldX, int y, int worldZ, BlockType type, boolean createMissingChunk) {
         // 說明：根據條件決定是否進入此邏輯分支。
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             // 說明：下一行程式碼負責執行目前步驟。
@@ -247,8 +271,14 @@ public final class World {
         // 說明：宣告並初始化變數。
         int localZ = Math.floorMod(worldZ, GameConfig.CHUNK_SIZE);
 
-        // 說明：宣告並初始化變數。
-        Chunk chunk = getOrCreateChunk(chunkX, chunkZ);
+        // 說明：補水流程不應為了遠方邊界而新生成區塊，因此可選擇只操作已載入區塊。
+        Chunk chunk = createMissingChunk ? getOrCreateChunk(chunkX, chunkZ) : getChunkIfLoaded(chunkX, chunkZ);
+        // 說明：根據條件決定是否進入此邏輯分支。
+        if (chunk == null) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return false;
+        }
+
         // 說明：宣告並初始化變數。
         BlockType existing = chunk.get(localX, y, localZ);
         // 說明：根據條件決定是否進入此邏輯分支。
@@ -260,7 +290,7 @@ public final class World {
         // 說明：呼叫方法執行對應功能。
         chunk.set(localX, y, localZ, type);
 
-        // 說明：根據條件決定是否進入此邏輯分支。
+        // 說明：若修改在 chunk 邊界，鄰居 mesh 也要重建避免接縫顯示錯誤。
         if (localX == 0) {
             // 說明：呼叫方法執行對應功能。
             markChunkMeshDirty(chunkX - 1, chunkZ);
@@ -270,7 +300,7 @@ public final class World {
             markChunkMeshDirty(chunkX + 1, chunkZ);
         }
 
-        // 說明：根據條件決定是否進入此邏輯分支。
+        // 說明：若修改在 chunk 邊界，鄰居 mesh 也要重建避免接縫顯示錯誤。
         if (localZ == 0) {
             // 說明：呼叫方法執行對應功能。
             markChunkMeshDirty(chunkX, chunkZ - 1);
@@ -282,6 +312,126 @@ public final class World {
 
         // 說明：下一行程式碼負責執行目前步驟。
         return true;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private void floodWaterIntoAirPocket(int worldX, int y, int worldZ) {
+        // 說明：只處理海平面以下的空腔，避免讓海水不合理地往上爬。
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || y > seaLevel()) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return;
+        }
+
+        // 說明：若目標已不是空氣，代表後續流程或其他更新已處理過。
+        if (peekBlock(worldX, y, worldZ) != BlockType.AIR) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return;
+        }
+
+        // 說明：只有接觸到已載入的水方塊時才開始補水，避免無條件灌水。
+        if (!hasAdjacentLoadedWater(worldX, y, worldZ)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return;
+        }
+
+        // 說明：使用 BFS 局部填充空腔，效果接近「水往附近空格流入」。
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+        // 說明：先填入起點，後續以它為源頭擴散。
+        if (!setBlockInternal(worldX, y, worldZ, BlockType.WATER, false)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return;
+        }
+        // 說明：呼叫方法執行對應功能。
+        queue.addLast(new int[]{worldX, y, worldZ});
+
+        // 說明：宣告並初始化變數。
+        int filled = 1;
+        // 說明：在條件成立時重複執行此區塊。
+        while (!queue.isEmpty() && filled < WATER_FLOOD_MAX_BLOCKS) {
+            // 說明：宣告並初始化變數。
+            int[] cell = queue.removeFirst();
+            // 說明：宣告並初始化變數。
+            int cx = cell[0];
+            // 說明：宣告並初始化變數。
+            int cy = cell[1];
+            // 說明：宣告並初始化變數。
+            int cz = cell[2];
+
+            // 說明：依序檢查六個方向，把相連空氣補成水。
+            filled = tryFloodNeighbor(queue, filled, cx + 1, cy, cz);
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
+                // 說明：跳出迴圈以結束目前流程。
+                break;
+            }
+            // 說明：呼叫方法執行對應功能。
+            filled = tryFloodNeighbor(queue, filled, cx - 1, cy, cz);
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
+                // 說明：跳出迴圈以結束目前流程。
+                break;
+            }
+            // 說明：呼叫方法執行對應功能。
+            filled = tryFloodNeighbor(queue, filled, cx, cy, cz + 1);
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
+                // 說明：跳出迴圈以結束目前流程。
+                break;
+            }
+            // 說明：呼叫方法執行對應功能。
+            filled = tryFloodNeighbor(queue, filled, cx, cy, cz - 1);
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
+                // 說明：跳出迴圈以結束目前流程。
+                break;
+            }
+            // 說明：呼叫方法執行對應功能。
+            filled = tryFloodNeighbor(queue, filled, cx, cy - 1, cz);
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
+                // 說明：跳出迴圈以結束目前流程。
+                break;
+            }
+            // 說明：呼叫方法執行對應功能。
+            filled = tryFloodNeighbor(queue, filled, cx, cy + 1, cz);
+        }
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private int tryFloodNeighbor(ArrayDeque<int[]> queue, int filled, int x, int y, int z) {
+        // 說明：水體補充不超過世界高度，也不超過海平面高度。
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || y > seaLevel()) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return filled;
+        }
+
+        // 說明：只有空氣格才會被補成水，其它方塊維持不變。
+        if (peekBlock(x, y, z) != BlockType.AIR) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return filled;
+        }
+
+        // 說明：只修改已載入區塊，避免補水流程導致遠方 chunk 被動生成。
+        if (!setBlockInternal(x, y, z, BlockType.WATER, false)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return filled;
+        }
+
+        // 說明：呼叫方法執行對應功能。
+        queue.addLast(new int[]{x, y, z});
+        // 說明：下一行程式碼負責執行目前步驟。
+        return filled + 1;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean hasAdjacentLoadedWater(int worldX, int y, int worldZ) {
+        // 說明：以面接觸作為流動判定，避免斜角接觸時不合理補水。
+        return peekBlock(worldX + 1, y, worldZ) == BlockType.WATER
+                || peekBlock(worldX - 1, y, worldZ) == BlockType.WATER
+                || peekBlock(worldX, y, worldZ + 1) == BlockType.WATER
+                || peekBlock(worldX, y, worldZ - 1) == BlockType.WATER
+                || peekBlock(worldX, y + 1, worldZ) == BlockType.WATER
+                || peekBlock(worldX, y - 1, worldZ) == BlockType.WATER;
     }
 
     // 說明：定義類別內部使用的方法。

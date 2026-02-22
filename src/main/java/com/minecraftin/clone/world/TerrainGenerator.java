@@ -130,7 +130,7 @@ public final class TerrainGenerator {
                         // 說明：根據條件決定是否進入此邏輯分支。
                         if (y > 5 && y < height - 3 && cave > caveThreshold) {
                             // 說明：設定或更新變數的值。
-                            block = BlockType.AIR;
+                            block = y <= seaLevel ? BlockType.WATER : BlockType.AIR;
                         // 說明：下一行程式碼負責執行目前步驟。
                         } else {
                             // 說明：設定或更新變數的值。

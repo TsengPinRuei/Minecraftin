@@ -113,6 +113,7 @@ You should see version `17` or `21`.
 - `Right Click`: place selected block
 - `1-9` or `Mouse Wheel`: switch hotbar block
 - `Esc`: release mouse cursor
+- `Left Click` (when cursor is free): capture mouse again
 - `Q`: quit game
 
 ### Default blocks
@@ -135,7 +136,7 @@ You should see version `17` or `21`.
 
 ### Autosave
 
-- Every 20 seconds
+- Checks every 20 seconds and saves only if the world has changed
 - Also saved on clean shutdown
 
 ### Reset world
@@ -209,9 +210,10 @@ Fix:
 ## Scope
 
 - [x] Chunk terrain generation with multiple biomes
-- [x] Caves, sea level, tree generation
+- [x] Caves, sea level, local water refill, tree generation
 - [x] Creative movement + fly toggle
 - [x] Collision-aware breaking/placing
+- [x] Land-first / forest-preferred spawn selection
 - [x] Persistent world save/load
 - [ ] Survival gameplay (health, hunger, crafting, inventory)
 - [ ] Entities/mobs AI

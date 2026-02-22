@@ -37,6 +37,14 @@ public final class World {
     private static final float SPAWN_Y_OFFSET = 1.05f;
     // 說明：限制單次補水量，避免玩家挖開超大空腔時造成卡頓。
     private static final int WATER_FLOOD_MAX_BLOCKS = 32768;
+    // 說明：大片森林出生點搜尋的最大半徑（方塊）。
+    private static final int FOREST_SPAWN_SEARCH_MAX_RADIUS = 1536;
+    // 說明：大片森林出生點搜尋的粗略步距（方塊）。
+    private static final int FOREST_SPAWN_SEARCH_STEP = 64;
+    // 說明：在森林中心附近找安全落點的最大半徑（方塊）。
+    private static final int FOREST_LOCAL_SPAWN_RADIUS = 56;
+    // 說明：在森林中心附近找安全落點的步距（方塊）。
+    private static final int FOREST_LOCAL_SPAWN_STEP = 8;
 
     // 說明：設定或更新變數的值。
     private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
@@ -463,6 +471,12 @@ public final class World {
 
     // 說明：定義對外可呼叫的方法。
     public Vector3f defaultSpawn(Vector3f out) {
+        // 說明：優先嘗試把玩家放在大片森林中，而不是靠近原點的小島或海岸。
+        if (trySpawnInLargeForest(out)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return out;
+        }
+
         // 說明：宣告並初始化變數。
         int maxRadius = 256;
         // 說明：宣告並初始化變數。
@@ -509,6 +523,234 @@ public final class World {
         out.set(fallbackX + 0.5f, fallbackY + SPAWN_Y_OFFSET, fallbackZ + 0.5f);
         // 說明：下一行程式碼負責執行目前步驟。
         return out;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean trySpawnInLargeForest(Vector3f out) {
+        // 說明：宣告並初始化變數。
+        int bestScore = Integer.MIN_VALUE;
+        // 說明：宣告並初始化變數。
+        int bestX = 0;
+        // 說明：宣告並初始化變數。
+        int bestZ = 0;
+        // 說明：宣告並初始化變數。
+        boolean foundForestRegion = false;
+
+        // 說明：使用粗略搜尋先找出「大片森林中心」。
+        for (int radius = 0; radius <= FOREST_SPAWN_SEARCH_MAX_RADIUS; radius += FOREST_SPAWN_SEARCH_STEP) {
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (considerForestSpawnRegion(-radius, -radius, bestScore)) {
+                // 說明：宣告並初始化變數。
+                int score = terrainGenerator.forestSpawnRegionScore(-radius, -radius);
+                // 說明：設定或更新變數的值。
+                bestScore = score;
+                // 說明：設定或更新變數的值。
+                bestX = -radius;
+                // 說明：設定或更新變數的值。
+                bestZ = -radius;
+                // 說明：設定或更新變數的值。
+                foundForestRegion = true;
+            }
+            // 說明：根據條件決定是否進入此邏輯分支。
+            if (considerForestSpawnRegion(radius, radius, bestScore)) {
+                // 說明：宣告並初始化變數。
+                int score = terrainGenerator.forestSpawnRegionScore(radius, radius);
+                // 說明：設定或更新變數的值。
+                bestScore = score;
+                // 說明：設定或更新變數的值。
+                bestX = radius;
+                // 說明：設定或更新變數的值。
+                bestZ = radius;
+                // 說明：設定或更新變數的值。
+                foundForestRegion = true;
+            }
+
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int x = -radius; x <= radius; x += FOREST_SPAWN_SEARCH_STEP) {
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (considerForestSpawnRegion(x, -radius, bestScore)) {
+                    // 說明：宣告並初始化變數。
+                    int score = terrainGenerator.forestSpawnRegionScore(x, -radius);
+                    // 說明：根據條件決定是否進入此邏輯分支。
+                    if (score > bestScore) {
+                        // 說明：設定或更新變數的值。
+                        bestScore = score;
+                        // 說明：設定或更新變數的值。
+                        bestX = x;
+                        // 說明：設定或更新變數的值。
+                        bestZ = -radius;
+                        // 說明：設定或更新變數的值。
+                        foundForestRegion = true;
+                    }
+                }
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (considerForestSpawnRegion(x, radius, bestScore)) {
+                    // 說明：宣告並初始化變數。
+                    int score = terrainGenerator.forestSpawnRegionScore(x, radius);
+                    // 說明：根據條件決定是否進入此邏輯分支。
+                    if (score > bestScore) {
+                        // 說明：設定或更新變數的值。
+                        bestScore = score;
+                        // 說明：設定或更新變數的值。
+                        bestX = x;
+                        // 說明：設定或更新變數的值。
+                        bestZ = radius;
+                        // 說明：設定或更新變數的值。
+                        foundForestRegion = true;
+                    }
+                }
+            }
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int z = -radius + FOREST_SPAWN_SEARCH_STEP; z <= radius - FOREST_SPAWN_SEARCH_STEP; z += FOREST_SPAWN_SEARCH_STEP) {
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (considerForestSpawnRegion(-radius, z, bestScore)) {
+                    // 說明：宣告並初始化變數。
+                    int score = terrainGenerator.forestSpawnRegionScore(-radius, z);
+                    // 說明：根據條件決定是否進入此邏輯分支。
+                    if (score > bestScore) {
+                        // 說明：設定或更新變數的值。
+                        bestScore = score;
+                        // 說明：設定或更新變數的值。
+                        bestX = -radius;
+                        // 說明：設定或更新變數的值。
+                        bestZ = z;
+                        // 說明：設定或更新變數的值。
+                        foundForestRegion = true;
+                    }
+                }
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (considerForestSpawnRegion(radius, z, bestScore)) {
+                    // 說明：宣告並初始化變數。
+                    int score = terrainGenerator.forestSpawnRegionScore(radius, z);
+                    // 說明：根據條件決定是否進入此邏輯分支。
+                    if (score > bestScore) {
+                        // 說明：設定或更新變數的值。
+                        bestScore = score;
+                        // 說明：設定或更新變數的值。
+                        bestX = radius;
+                        // 說明：設定或更新變數的值。
+                        bestZ = z;
+                        // 說明：設定或更新變數的值。
+                        foundForestRegion = true;
+                    }
+                }
+            }
+
+            // 說明：若已找到高分內陸森林區，可提早結束降低開局等待時間。
+            if (foundForestRegion && bestScore >= 290) {
+                // 說明：跳出迴圈以結束目前流程。
+                break;
+            }
+        }
+
+        // 說明：根據條件決定是否進入此邏輯分支。
+        if (!foundForestRegion) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return false;
+        }
+
+        // 說明：在森林中心附近找一個安全且附近看得到樹木的實際出生點。
+        return trySpawnNearForestCenter(out, bestX, bestZ);
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean considerForestSpawnRegion(int x, int z, int currentBestScore) {
+        // 說明：宣告並初始化變數。
+        int score = terrainGenerator.forestSpawnRegionScore(x, z);
+        // 說明：下一行程式碼負責執行目前步驟。
+        return score > currentBestScore;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean trySpawnNearForestCenter(Vector3f out, int centerX, int centerZ) {
+        // 說明：先嘗試中心點本身，若不行再做小範圍螺旋搜尋。
+        if (trySpawnAtForestVisible(out, centerX, centerZ)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return true;
+        }
+
+        // 說明：使用迴圈逐一處理每個元素或區間。
+        for (int radius = FOREST_LOCAL_SPAWN_STEP; radius <= FOREST_LOCAL_SPAWN_RADIUS; radius += FOREST_LOCAL_SPAWN_STEP) {
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int x = centerX - radius; x <= centerX + radius; x += FOREST_LOCAL_SPAWN_STEP) {
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (trySpawnAtForestVisible(out, x, centerZ - radius) || trySpawnAtForestVisible(out, x, centerZ + radius)) {
+                    // 說明：下一行程式碼負責執行目前步驟。
+                    return true;
+                }
+            }
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int z = centerZ - radius + FOREST_LOCAL_SPAWN_STEP; z <= centerZ + radius - FOREST_LOCAL_SPAWN_STEP; z += FOREST_LOCAL_SPAWN_STEP) {
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (trySpawnAtForestVisible(out, centerX - radius, z) || trySpawnAtForestVisible(out, centerX + radius, z)) {
+                    // 說明：下一行程式碼負責執行目前步驟。
+                    return true;
+                }
+            }
+        }
+
+        // 說明：最後退一步，只要是中心附近安全地面也接受，避免找不到出生點。
+        for (int radius = 0; radius <= FOREST_LOCAL_SPAWN_RADIUS; radius += FOREST_LOCAL_SPAWN_STEP) {
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int x = centerX - radius; x <= centerX + radius; x += FOREST_LOCAL_SPAWN_STEP) {
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (trySpawnAt(out, x, centerZ - radius) || trySpawnAt(out, x, centerZ + radius)) {
+                    // 說明：下一行程式碼負責執行目前步驟。
+                    return true;
+                }
+            }
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int z = centerZ - radius + FOREST_LOCAL_SPAWN_STEP; z <= centerZ + radius - FOREST_LOCAL_SPAWN_STEP; z += FOREST_LOCAL_SPAWN_STEP) {
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (trySpawnAt(out, centerX - radius, z) || trySpawnAt(out, centerX + radius, z)) {
+                    // 說明：下一行程式碼負責執行目前步驟。
+                    return true;
+                }
+            }
+        }
+
+        // 說明：下一行程式碼負責執行目前步驟。
+        return false;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean trySpawnAtForestVisible(Vector3f out, int x, int z) {
+        // 說明：根據條件決定是否進入此邏輯分支。
+        if (!trySpawnAt(out, x, z)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return false;
+        }
+
+        // 說明：宣告並初始化變數。
+        int y = topSolidY(x, z);
+        // 說明：下一行程式碼負責執行目前步驟。
+        return hasNearbyForestCover(x, y, z);
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean hasNearbyForestCover(int x, int y, int z) {
+        // 說明：宣告並初始化變數。
+        int treeColumns = 0;
+        // 說明：使用稀疏取樣確認出生點周圍真的有樹，而不是只有森林生物群系噪聲。
+        for (int dz = -18; dz <= 18; dz += 6) {
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int dx = -18; dx <= 18; dx += 6) {
+                // 說明：使用迴圈逐一處理每個元素或區間。
+                for (int dy = 1; dy <= 10; dy++) {
+                    // 說明：宣告並初始化變數。
+                    BlockType block = getBlock(x + dx, y + dy, z + dz);
+                    // 說明：根據條件決定是否進入此邏輯分支。
+                    if (block == BlockType.LOG || block == BlockType.LEAVES) {
+                        // 說明：設定或更新變數的值。
+                        treeColumns++;
+                        // 說明：跳過本次迴圈剩餘邏輯，直接進入下一次迭代。
+                        break;
+                    }
+                }
+            }
+        }
+        // 說明：至少要有一定數量的樹木取樣命中，才視為森林中出生。
+        return treeColumns >= 6;
     }
 
     // 說明：定義類別內部使用的方法。

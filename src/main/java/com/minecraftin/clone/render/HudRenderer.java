@@ -22,70 +22,82 @@ import static org.lwjgl.opengl.GL33C.*;
 public final class HudRenderer implements AutoCloseable {
     // 說明：下一行程式碼負責執行目前步驟。
     private static final int STRIDE = 7; // position xyz + color rgba
-    // 說明：設定或更新變數的值。
-    private static final float TEXT_PIXEL_SIZE = 0.0062f;
+    // 說明：設定文字像素寬度（NDC）。
+    private static final float TEXT_PIXEL_WIDTH = 0.005f;
+    // 說明：設定文字像素高度（NDC）。
+    private static final float TEXT_PIXEL_HEIGHT = 0.01f;
     // 說明：設定或更新變數的值。
     private static final int FONT_GLYPH_WIDTH = 5;
     // 說明：設定或更新變數的值。
     private static final int FONT_GLYPH_HEIGHT = 7;
     // 說明：設定或更新變數的值。
     private static final int FONT_GLYPH_SPACING = 1;
+    // 說明：設定 hotbar 槽位寬度。
+    private static final float HOTBAR_SLOT_WIDTH = 0.1f;
+    // 說明：設定 hotbar 槽位高度。
+    private static final float HOTBAR_SLOT_HEIGHT = 0.15f;
+    // 說明：設定 hotbar 槽位間距。
+    private static final float HOTBAR_GAP = 0.014f;
+    // 說明：設定 hotbar 左下角基準 Y（第一格底部）。
+    private static final float HOTBAR_Y = -0.90f;
+    // 說明：設定 hotbar 上方名稱標籤與槽位頂部的距離。
+    private static final float HOTBAR_LABEL_MARGIN = 0.032f;
 
     // 說明：設定或更新變數的值。
-    private static final float[] BORDER_COLOR_SELECTED = new float[]{0.95f, 0.95f, 0.95f, 0.95f};
+    private static final float[] BORDER_COLOR_SELECTED = new float[] { 0.95f, 0.95f, 0.95f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] BORDER_COLOR_NORMAL = new float[]{0.16f, 0.16f, 0.16f, 0.82f};
+    private static final float[] BORDER_COLOR_NORMAL = new float[] { 0.16f, 0.16f, 0.16f, 0.82f };
     // 說明：設定或更新變數的值。
-    private static final float[] SLOT_COLOR_SELECTED = new float[]{0.20f, 0.20f, 0.20f, 0.92f};
+    private static final float[] SLOT_COLOR_SELECTED = new float[] { 0.20f, 0.20f, 0.20f, 0.92f };
     // 說明：設定或更新變數的值。
-    private static final float[] SLOT_COLOR_NORMAL = new float[]{0.10f, 0.10f, 0.10f, 0.75f};
+    private static final float[] SLOT_COLOR_NORMAL = new float[] { 0.10f, 0.10f, 0.10f, 0.75f };
     // 說明：設定或更新變數的值。
-    private static final float[] TEXT_COLOR = new float[]{0.97f, 0.97f, 0.97f, 0.98f};
+    private static final float[] TEXT_COLOR = new float[] { 0.97f, 0.97f, 0.97f, 0.98f };
     // 說明：設定或更新變數的值。
-    private static final float[] TEXT_BG_COLOR = new float[]{0.04f, 0.04f, 0.04f, 0.72f};
+    private static final float[] TEXT_BG_COLOR = new float[] { 0.04f, 0.04f, 0.04f, 0.72f };
 
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_RED_BLOCK = new float[]{0.85f, 0.25f, 0.25f, 0.95f};
+    private static final float[] COLOR_RED_BLOCK = new float[] { 0.85f, 0.25f, 0.25f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_ORANGE_BLOCK = new float[]{0.90f, 0.54f, 0.18f, 0.95f};
+    private static final float[] COLOR_ORANGE_BLOCK = new float[] { 0.90f, 0.54f, 0.18f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_YELLOW_BLOCK = new float[]{0.95f, 0.84f, 0.23f, 0.95f};
+    private static final float[] COLOR_YELLOW_BLOCK = new float[] { 0.95f, 0.84f, 0.23f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_GREEN_BLOCK = new float[]{0.30f, 0.66f, 0.27f, 0.95f};
+    private static final float[] COLOR_GREEN_BLOCK = new float[] { 0.30f, 0.66f, 0.27f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_BLUE_BLOCK = new float[]{0.24f, 0.47f, 0.85f, 0.95f};
+    private static final float[] COLOR_BLUE_BLOCK = new float[] { 0.24f, 0.47f, 0.85f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_PURPLE_BLOCK = new float[]{0.51f, 0.28f, 0.80f, 0.95f};
+    private static final float[] COLOR_PURPLE_BLOCK = new float[] { 0.51f, 0.28f, 0.80f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_GRASS = new float[]{0.36f, 0.69f, 0.29f, 0.95f};
+    private static final float[] COLOR_GRASS = new float[] { 0.36f, 0.69f, 0.29f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_DIRT = new float[]{0.53f, 0.34f, 0.19f, 0.95f};
+    private static final float[] COLOR_DIRT = new float[] { 0.53f, 0.34f, 0.19f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_STONE = new float[]{0.53f, 0.53f, 0.53f, 0.95f};
+    private static final float[] COLOR_STONE = new float[] { 0.53f, 0.53f, 0.53f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_SAND = new float[]{0.85f, 0.78f, 0.56f, 0.95f};
+    private static final float[] COLOR_SAND = new float[] { 0.85f, 0.78f, 0.56f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_WATER = new float[]{0.29f, 0.48f, 0.84f, 0.95f};
+    private static final float[] COLOR_WATER = new float[] { 0.29f, 0.48f, 0.84f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_LOG = new float[]{0.59f, 0.41f, 0.24f, 0.95f};
+    private static final float[] COLOR_LOG = new float[] { 0.59f, 0.41f, 0.24f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_LEAVES = new float[]{0.23f, 0.54f, 0.26f, 0.95f};
+    private static final float[] COLOR_LEAVES = new float[] { 0.23f, 0.54f, 0.26f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_COBBLE = new float[]{0.45f, 0.45f, 0.45f, 0.95f};
+    private static final float[] COLOR_COBBLE = new float[] { 0.45f, 0.45f, 0.45f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_PLANKS = new float[]{0.72f, 0.54f, 0.30f, 0.95f};
+    private static final float[] COLOR_PLANKS = new float[] { 0.72f, 0.54f, 0.30f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_GLASS = new float[]{0.67f, 0.84f, 0.98f, 0.95f};
+    private static final float[] COLOR_GLASS = new float[] { 0.67f, 0.84f, 0.98f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_BRICKS = new float[]{0.63f, 0.31f, 0.28f, 0.95f};
+    private static final float[] COLOR_BRICKS = new float[] { 0.63f, 0.31f, 0.28f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_BEDROCK = new float[]{0.22f, 0.22f, 0.22f, 0.95f};
+    private static final float[] COLOR_BEDROCK = new float[] { 0.22f, 0.22f, 0.22f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_SNOW = new float[]{0.95f, 0.97f, 1.00f, 0.95f};
+    private static final float[] COLOR_SNOW = new float[] { 0.95f, 0.97f, 1.00f, 0.95f };
     // 說明：設定或更新變數的值。
-    private static final float[] COLOR_DEFAULT = new float[]{0.20f, 0.20f, 0.20f, 0.95f};
+    private static final float[] COLOR_DEFAULT = new float[] { 0.20f, 0.20f, 0.20f, 0.95f };
     // 說明：下一行程式碼負責執行目前步驟。
-    private static final String[] GLYPH_EMPTY = new String[]{
+    private static final String[] GLYPH_EMPTY = new String[] {
             // 說明：下一行程式碼負責執行目前步驟。
             "00000",
             // 說明：下一行程式碼負責執行目前步驟。
@@ -113,10 +125,16 @@ public final class HudRenderer implements AutoCloseable {
     private final Mesh hotbarMesh;
     // 說明：設定或更新變數的值。
     private final FloatArrayBuilder hotbarVertices = new FloatArrayBuilder(32768);
+    // 說明：暫存 OpenGL viewport，避免每次查詢時都重新配置陣列。
+    private final int[] viewport = new int[4];
     // 說明：設定或更新變數的值。
     private int cachedSelectedIndex = Integer.MIN_VALUE;
     // 說明：設定或更新變數的值。
     private int cachedHotbarSignature = Integer.MIN_VALUE;
+    // 說明：快取 viewport 尺寸，尺寸變更時需要重建 hotbar mesh。
+    private int cachedViewportWidth = Integer.MIN_VALUE;
+    // 說明：快取 viewport 尺寸，尺寸變更時需要重建 hotbar mesh。
+    private int cachedViewportHeight = Integer.MIN_VALUE;
 
     // 說明：定義對外可呼叫的方法。
     public HudRenderer() {
@@ -126,7 +144,7 @@ public final class HudRenderer implements AutoCloseable {
         // 說明：宣告並初始化變數。
         float s = 0.015f;
         // 說明：下一行程式碼負責執行目前步驟。
-        crosshair = new Mesh(new float[]{
+        crosshair = new Mesh(new float[] {
                 // 說明：下一行程式碼負責執行目前步驟。
                 -s, 0.0f, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
                 // 說明：下一行程式碼負責執行目前步驟。
@@ -135,7 +153,7 @@ public final class HudRenderer implements AutoCloseable {
                 0.0f, -s, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
                 // 說明：下一行程式碼負責執行目前步驟。
                 0.0f, s, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f
-        // 說明：下一行程式碼負責執行目前步驟。
+                // 說明：下一行程式碼負責執行目前步驟。
         }, GL_LINES, 3, 4);
 
         // 說明：設定或更新變數的值。
@@ -148,16 +166,28 @@ public final class HudRenderer implements AutoCloseable {
         glDisable(GL_DEPTH_TEST);
         // 說明：呼叫方法執行對應功能。
         shader.use();
+        // 說明：讀取目前視窗尺寸，用於修正 HUD 圖示在寬螢幕下的水平拉伸。
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        // 說明：宣告並初始化變數。
+        int viewportWidth = Math.max(1, viewport[2]);
+        // 說明：宣告並初始化變數。
+        int viewportHeight = Math.max(1, viewport[3]);
+        // 說明：宣告並初始化變數。
+        boolean viewportChanged = viewportWidth != cachedViewportWidth || viewportHeight != cachedViewportHeight;
         // 說明：宣告並初始化變數。
         int hotbarSignature = hotbarSignature(hotbar);
         // 說明：根據條件決定是否進入此邏輯分支。
-        if (hotbarSignature != cachedHotbarSignature || selectedIndex != cachedSelectedIndex) {
+        if (viewportChanged || hotbarSignature != cachedHotbarSignature || selectedIndex != cachedSelectedIndex) {
             // 說明：呼叫方法執行對應功能。
-            updateHotbarMesh(hotbar, selectedIndex);
+            updateHotbarMesh(hotbar, selectedIndex, (float) viewportWidth / (float) viewportHeight);
             // 說明：設定或更新變數的值。
             cachedHotbarSignature = hotbarSignature;
             // 說明：設定或更新變數的值。
             cachedSelectedIndex = selectedIndex;
+            // 說明：設定或更新變數的值。
+            cachedViewportWidth = viewportWidth;
+            // 說明：設定或更新變數的值。
+            cachedViewportHeight = viewportHeight;
         }
         // 說明：呼叫方法執行對應功能。
         hotbarMesh.draw();
@@ -180,27 +210,23 @@ public final class HudRenderer implements AutoCloseable {
     }
 
     // 說明：定義類別內部使用的方法。
-    private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex) {
+    private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex, float viewportAspect) {
         // 說明：呼叫方法執行對應功能。
         hotbarVertices.clear();
 
         // 說明：宣告並初始化變數。
         int slots = hotbar.length;
         // 說明：宣告並初始化變數。
-        float slotSize = 0.105f;
-        // 說明：宣告並初始化變數。
-        float gap = 0.014f;
-        // 說明：宣告並初始化變數。
-        float totalWidth = slots * slotSize + (slots - 1) * gap;
+        float totalWidth = slots * HOTBAR_SLOT_WIDTH + (slots - 1) * HOTBAR_GAP;
         // 說明：宣告並初始化變數。
         float startX = -totalWidth * 0.5f;
         // 說明：宣告並初始化變數。
-        float y = -0.90f;
+        float y = HOTBAR_Y;
 
         // 說明：使用迴圈逐一處理每個元素或區間。
         for (int i = 0; i < slots; i++) {
             // 說明：宣告並初始化變數。
-            float x = startX + i * (slotSize + gap);
+            float x = startX + i * (HOTBAR_SLOT_WIDTH + HOTBAR_GAP);
             // 說明：宣告並初始化變數。
             boolean selected = i == selectedIndex;
 
@@ -212,22 +238,27 @@ public final class HudRenderer implements AutoCloseable {
             float[] slotColor = selected ? SLOT_COLOR_SELECTED : SLOT_COLOR_NORMAL;
 
             // 說明：呼叫方法執行對應功能。
-            addRect(hotbarVertices, x - border, y - border, slotSize + border * 2.0f, slotSize + border * 2.0f, borderColor);
+            addRect(hotbarVertices, x - border, y - border,
+                    HOTBAR_SLOT_WIDTH + border * 2.0f, HOTBAR_SLOT_HEIGHT + border * 2.0f, borderColor);
             // 說明：呼叫方法執行對應功能。
-            addRect(hotbarVertices, x, y, slotSize, slotSize, slotColor);
+            addRect(hotbarVertices, x, y, HOTBAR_SLOT_WIDTH, HOTBAR_SLOT_HEIGHT, slotColor);
 
+            // 說明：以像素比例修正圖示寬度，讓寬螢幕下看起來仍接近正方體。
+            float pixelAspect = Math.max(0.5f, viewportAspect);
             // 說明：宣告並初始化變數。
-            float cubeSize = slotSize * 0.44f;
+            float cubeHeight = Math.min(HOTBAR_SLOT_WIDTH, HOTBAR_SLOT_HEIGHT) * 0.44f;
             // 說明：宣告並初始化變數。
-            float depthX = cubeSize * 0.30f;
+            float cubeWidth = cubeHeight / pixelAspect;
             // 說明：宣告並初始化變數。
-            float depthY = cubeSize * 0.22f;
+            float depthX = cubeWidth * 0.30f;
             // 說明：宣告並初始化變數。
-            float cubeX = x + (slotSize - (cubeSize + depthX)) * 0.5f;
+            float depthY = cubeHeight * 0.22f;
             // 說明：宣告並初始化變數。
-            float cubeY = y + (slotSize - (cubeSize + depthY)) * 0.5f;
+            float cubeX = x + (HOTBAR_SLOT_WIDTH - (cubeWidth + depthX)) * 0.5f;
+            // 說明：宣告並初始化變數。
+            float cubeY = y + (HOTBAR_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
             // 說明：呼叫方法執行對應功能。
-            addCubeIcon(hotbarVertices, cubeX, cubeY, cubeSize, depthX, depthY, blockColor(hotbar[i]));
+            addCubeIcon(hotbarVertices, cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY, blockColor(hotbar[i]));
         }
 
         // 說明：根據條件決定是否進入此邏輯分支。
@@ -235,7 +266,7 @@ public final class HudRenderer implements AutoCloseable {
             // 說明：宣告並初始化變數。
             String label = hotbar[selectedIndex].displayName();
             // 說明：呼叫方法執行對應功能。
-            addCenteredText(hotbarVertices, label, -0.735f);
+            addCenteredText(hotbarVertices, label, HOTBAR_Y + HOTBAR_SLOT_HEIGHT + HOTBAR_LABEL_MARGIN);
         }
 
         // 說明：呼叫方法執行對應功能。
@@ -253,15 +284,16 @@ public final class HudRenderer implements AutoCloseable {
     }
 
     // 說明：定義類別內部使用的方法。
-    private void addCubeIcon(FloatArrayBuilder out, float x, float y, float size, float depthX, float depthY, float[] baseColor) {
+    private void addCubeIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX, float depthY,
+            float[] baseColor) {
         // 說明：宣告並初始化變數。
         float x0 = x;
         // 說明：宣告並初始化變數。
         float y0 = y;
         // 說明：宣告並初始化變數。
-        float x1 = x + size;
+        float x1 = x + width;
         // 說明：宣告並初始化變數。
-        float y1 = y + size;
+        float y1 = y + height;
 
         // 說明：宣告並初始化變數。
         float r = baseColor[0];
@@ -309,16 +341,16 @@ public final class HudRenderer implements AutoCloseable {
         // 說明：宣告並初始化變數。
         int pixelColumns = charCount * FONT_GLYPH_WIDTH + Math.max(0, charCount - 1) * FONT_GLYPH_SPACING;
         // 說明：宣告並初始化變數。
-        float textWidth = pixelColumns * TEXT_PIXEL_SIZE;
+        float textWidth = pixelColumns * TEXT_PIXEL_WIDTH;
         // 說明：宣告並初始化變數。
-        float textHeight = FONT_GLYPH_HEIGHT * TEXT_PIXEL_SIZE;
+        float textHeight = FONT_GLYPH_HEIGHT * TEXT_PIXEL_HEIGHT;
         // 說明：宣告並初始化變數。
         float startX = -textWidth * 0.5f;
 
         // 說明：宣告並初始化變數。
-        float padX = TEXT_PIXEL_SIZE * 2.2f;
+        float padX = TEXT_PIXEL_WIDTH * 2.2f;
         // 說明：宣告並初始化變數。
-        float padY = TEXT_PIXEL_SIZE * 1.5f;
+        float padY = TEXT_PIXEL_HEIGHT * 1.5f;
         // 說明：呼叫方法執行對應功能。
         addRect(out, startX - padX, y - padY, textWidth + padX * 2.0f, textHeight + padY * 2.0f, TEXT_BG_COLOR);
 
@@ -331,7 +363,7 @@ public final class HudRenderer implements AutoCloseable {
             // 說明：呼叫方法執行對應功能。
             addGlyph(out, cursorX, y, glyph, TEXT_COLOR);
             // 說明：設定或更新變數的值。
-            cursorX += (FONT_GLYPH_WIDTH + FONT_GLYPH_SPACING) * TEXT_PIXEL_SIZE;
+            cursorX += (FONT_GLYPH_WIDTH + FONT_GLYPH_SPACING) * TEXT_PIXEL_WIDTH;
         }
     }
 
@@ -349,11 +381,11 @@ public final class HudRenderer implements AutoCloseable {
                     continue;
                 }
                 // 說明：宣告並初始化變數。
-                float px = x + col * TEXT_PIXEL_SIZE;
+                float px = x + col * TEXT_PIXEL_WIDTH;
                 // 說明：宣告並初始化變數。
-                float py = y + (FONT_GLYPH_HEIGHT - 1 - row) * TEXT_PIXEL_SIZE;
+                float py = y + (FONT_GLYPH_HEIGHT - 1 - row) * TEXT_PIXEL_HEIGHT;
                 // 說明：呼叫方法執行對應功能。
-                addRect(out, px, py, TEXT_PIXEL_SIZE, TEXT_PIXEL_SIZE, color);
+                addRect(out, px, py, TEXT_PIXEL_WIDTH, TEXT_PIXEL_HEIGHT, color);
             }
         }
     }

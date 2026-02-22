@@ -193,6 +193,144 @@ public final class TerrainGenerator {
         return seaLevel;
     }
 
+    // 說明：定義對外可呼叫的方法。
+    public int surfaceHeightAt(int worldX, int worldZ) {
+        // 說明：呼叫方法執行對應功能。
+        return sampleSurface(worldX, worldZ).height();
+    }
+
+    // 說明：定義對外可呼叫的方法。
+    public int forestSpawnRegionScore(int centerX, int centerZ) {
+        // 說明：宣告並初始化變數。
+        SurfaceSample center = sampleSurface(centerX, centerZ);
+        // 說明：根據條件決定是否進入此邏輯分支。
+        if (center.height() <= seaLevel + 3 || center.biome() != Biome.FOREST) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return Integer.MIN_VALUE;
+        }
+
+        // 說明：宣告並初始化變數。
+        int sampleRadius = 48;
+        // 說明：宣告並初始化變數。
+        int sampleStep = 24;
+        // 說明：宣告並初始化變數。
+        int sampleCount = 0;
+        // 說明：宣告並初始化變數。
+        int forestCount = 0;
+        // 說明：宣告並初始化變數。
+        int landCount = 0;
+        // 說明：宣告並初始化變數。
+        int coastCount = 0;
+        // 說明：宣告並初始化變數。
+        int mountainCount = 0;
+        // 說明：宣告並初始化變數。
+        int minHeight = Integer.MAX_VALUE;
+        // 說明：宣告並初始化變數。
+        int maxHeight = Integer.MIN_VALUE;
+
+        // 說明：使用粗網格估算「大片森林且遠離海岸」的程度。
+        for (int dz = -sampleRadius; dz <= sampleRadius; dz += sampleStep) {
+            // 說明：使用迴圈逐一處理每個元素或區間。
+            for (int dx = -sampleRadius; dx <= sampleRadius; dx += sampleStep) {
+                // 說明：宣告並初始化變數。
+                SurfaceSample sample = sampleSurface(centerX + dx, centerZ + dz);
+                // 說明：設定或更新變數的值。
+                sampleCount++;
+                // 說明：設定或更新變數的值。
+                minHeight = Math.min(minHeight, sample.height());
+                // 說明：設定或更新變數的值。
+                maxHeight = Math.max(maxHeight, sample.height());
+
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (sample.height() > seaLevel + 2) {
+                    // 說明：設定或更新變數的值。
+                    landCount++;
+                // 說明：下一行程式碼負責執行目前步驟。
+                } else {
+                    // 說明：設定或更新變數的值。
+                    coastCount++;
+                }
+
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (sample.biome() == Biome.FOREST) {
+                    // 說明：設定或更新變數的值。
+                    forestCount++;
+                }
+                // 說明：根據條件決定是否進入此邏輯分支。
+                if (sample.biome() == Biome.MOUNTAIN) {
+                    // 說明：設定或更新變數的值。
+                    mountainCount++;
+                }
+            }
+        }
+
+        // 說明：大片森林重生點需要大多數樣本都是陸地且森林比例夠高。
+        if (landCount < 20 || forestCount < 15) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return Integer.MIN_VALUE;
+        }
+
+        // 說明：宣告並初始化變數。
+        int heightRange = maxHeight - minHeight;
+        // 說明：宣告並初始化變數。
+        int inlandBonus = Math.round(Math.max(0.0f, center.continental() + 0.12f) * 60.0f);
+
+        // 說明：分數越高表示越像大片內陸森林，適合作為出生區中心。
+        return forestCount * 9
+                // 說明：下一行程式碼負責執行目前步驟。
+                + landCount * 6
+                // 說明：下一行程式碼負責執行目前步驟。
+                + inlandBonus
+                // 說明：下一行程式碼負責執行目前步驟。
+                - coastCount * 14
+                // 說明：下一行程式碼負責執行目前步驟。
+                - mountainCount * 8
+                // 說明：下一行程式碼負責執行目前步驟。
+                - Math.max(0, heightRange - 10) * 3;
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private SurfaceSample sampleSurface(int worldX, int worldZ) {
+        // 說明：宣告並初始化變數。
+        float continental = Noise.fbm2(worldX * 0.0019f, worldZ * 0.0019f, 5, 2.0f, 0.5f, seed + 17);
+        // 說明：宣告並初始化變數。
+        float erosion = Noise.fbm2(worldX * 0.0036f, worldZ * 0.0036f, 4, 2.0f, 0.53f, seed + 23);
+        // 說明：宣告並初始化變數。
+        float detail = Noise.fbm2(worldX * 0.0105f, worldZ * 0.0105f, 4, 2.1f, 0.50f, seed + 29);
+        // 說明：宣告並初始化變數。
+        float ridges = Math.abs(Noise.fbm2(worldX * 0.0026f, worldZ * 0.0026f, 4, 2.0f, 0.5f, seed + 37));
+        // 說明：宣告並初始化變數。
+        float temperature = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 41);
+        // 說明：宣告並初始化變數。
+        float moisture = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 47);
+        // 說明：宣告並初始化變數。
+        float weirdness = Noise.fbm2(worldX * 0.0048f, worldZ * 0.0048f, 3, 2.0f, 0.5f, seed + 53);
+
+        // 說明：宣告並初始化變數。
+        float baseHeight = 57.0f
+                // 說明：下一行程式碼負責執行目前步驟。
+                + continental * 20.0f
+                // 說明：下一行程式碼負責執行目前步驟。
+                + detail * 7.5f
+                // 說明：下一行程式碼負責執行目前步驟。
+                - Math.max(0.0f, -continental) * 8.0f
+                // 說明：呼叫方法執行對應功能。
+                - Math.max(0.0f, -erosion) * 3.0f;
+        // 說明：宣告並初始化變數。
+        float mountainMask = Math.max(0.0f, ridges - 0.27f) / 0.73f;
+        // 說明：宣告並初始化變數。
+        float mountainBoost = mountainMask * mountainMask * (30.0f + Math.max(0.0f, weirdness) * 18.0f);
+        // 說明：宣告並初始化變數。
+        int height = Math.round(baseHeight + mountainBoost);
+        // 說明：設定或更新變數的值。
+        height = Math.max(6, Math.min(GameConfig.CHUNK_HEIGHT - 4, height));
+
+        // 說明：宣告並初始化變數。
+        Biome biome = pickBiome(height, continental, ridges, temperature, moisture);
+        // 說明：呼叫方法執行對應功能。
+        return new SurfaceSample(height, biome, continental);
+    }
+
     // 說明：定義類別內部使用的方法。
     private Biome pickBiome(int height, float continental, float ridges, float temperature, float moisture) {
         // 說明：根據條件決定是否進入此邏輯分支。
@@ -271,16 +409,22 @@ public final class TerrainGenerator {
             return null;
         }
 
+        // 說明：用格網抖動控制樹木間距，避免森林樹冠過度重疊看起來像超大樹。
+        if (!matchesTreeGridSlot(biome, worldX, worldZ)) {
+            // 說明：下一行程式碼負責執行目前步驟。
+            return null;
+        }
+
         // 說明：宣告並初始化變數。
         int hash = Noise.hashInt(worldX, 0, worldZ, seed + 191);
         // 說明：宣告並初始化變數。
         int chance = switch (biome) {
             // 說明：宣告 switch 的其中一個分支。
-            case FOREST -> 56;
+            case FOREST -> 34;
             // 說明：宣告 switch 的其中一個分支。
             case SNOW -> 10;
             // 說明：宣告 switch 的其中一個分支。
-            case PLAINS -> 18;
+            case PLAINS -> 12;
             // 說明：下一行程式碼負責執行目前步驟。
             default -> 0;
         };
@@ -292,7 +436,7 @@ public final class TerrainGenerator {
         }
 
         // 說明：宣告並初始化變數。
-        int trunkHeight = 4 + Math.abs(hash % 3);
+        int trunkHeight = 3 + Math.abs(hash % 3);
         // 說明：宣告並初始化變數。
         int topY = baseY + trunkHeight;
 
@@ -319,6 +463,28 @@ public final class TerrainGenerator {
 
         // 說明：呼叫方法執行對應功能。
         return new TreeSpec(lx, lz, baseY, trunkHeight);
+    }
+
+    // 說明：定義類別內部使用的方法。
+    private boolean matchesTreeGridSlot(Biome biome, int worldX, int worldZ) {
+        // 說明：森林使用較大格網降低密度，其他地形保留較小格網。
+        int cellSize = biome == Biome.FOREST ? 5 : 6;
+        // 說明：宣告並初始化變數。
+        int cellX = Math.floorDiv(worldX, cellSize);
+        // 說明：宣告並初始化變數。
+        int cellZ = Math.floorDiv(worldZ, cellSize);
+        // 說明：宣告並初始化變數。
+        int localX = Math.floorMod(worldX, cellSize);
+        // 說明：宣告並初始化變數。
+        int localZ = Math.floorMod(worldZ, cellSize);
+        // 說明：宣告並初始化變數。
+        int cellHash = Noise.hashInt(cellX, 97, cellZ, seed + 173);
+        // 說明：宣告並初始化變數。
+        int slotX = Math.floorMod(cellHash, cellSize);
+        // 說明：宣告並初始化變數。
+        int slotZ = Math.floorMod(cellHash >>> 8, cellSize);
+        // 說明：下一行程式碼負責執行目前步驟。
+        return localX == slotX && localZ == slotZ;
     }
 
     // 說明：定義類別內部使用的方法。
@@ -443,5 +609,9 @@ public final class TerrainGenerator {
             // 說明：下一行程式碼負責執行目前步驟。
             return baseY + trunkHeight;
         }
+    }
+
+    // 說明：定義地表採樣結果，供出生點搜尋等邏輯重複使用。
+    private record SurfaceSample(int height, Biome biome, float continental) {
     }
 }

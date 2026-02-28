@@ -1,5 +1,8 @@
 # Minecraftin
 
+![Minecraftin](https://img.shields.io/badge/Minecraftin-v2.0-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 這是一個以 Java + LWJGL 製作，受經典 Minecraft 啟發的小遊戲。
 
 這份 README 用容易理解的方式寫給：

@@ -1,5 +1,8 @@
 # Minecraftin
 
+![Minecraftin](https://img.shields.io/badge/Minecraftin-v2.0-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 A beginner-friendly Java + LWJGL voxel sandbox inspired by classic Minecraft.
 
 This project is currently focused on a solid **creative-mode foundation**:

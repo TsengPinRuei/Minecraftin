@@ -566,6 +566,11 @@ public final class World {
         int fallbackX = 0;
         // 宣告並初始化變數。
         int fallbackZ = 0;
+        // 根據條件決定是否進入此邏輯分支。
+        if (trySpawnAt(out, fallbackX, fallbackZ) || tryFindNearestSafeSpawn(out, fallbackX, fallbackZ, 64, 4)) {
+            // 下一行程式碼負責執行目前步驟。
+            return out;
+        }
         // 宣告並初始化變數。
         int fallbackY = topSolidY(fallbackX, fallbackZ);
         // 呼叫方法執行對應功能。
@@ -577,137 +582,95 @@ public final class World {
     // 定義類別內部使用的方法。
     private boolean trySpawnInLargeForest(Vector3f out) {
         // 宣告並初始化變數。
-        int bestScore = Integer.MIN_VALUE;
+        int[] bestScore = new int[]{Integer.MIN_VALUE};
         // 宣告並初始化變數。
-        int bestX = 0;
+        int[] bestX = new int[]{0};
         // 宣告並初始化變數。
-        int bestZ = 0;
+        int[] bestZ = new int[]{0};
         // 宣告並初始化變數。
-        boolean foundForestRegion = false;
+        boolean[] foundForestRegion = new boolean[]{false};
 
         // 使用粗略搜尋先找出「大片森林中心」。
         for (int radius = 0; radius <= FOREST_SPAWN_SEARCH_MAX_RADIUS; radius += FOREST_SPAWN_SEARCH_STEP) {
-            // 根據條件決定是否進入此邏輯分支。
-            if (considerForestSpawnRegion(-radius, -radius, bestScore)) {
-                // 宣告並初始化變數。
-                int score = terrainGenerator.forestSpawnRegionScore(-radius, -radius);
-                // 設定或更新變數的值。
-                bestScore = score;
-                // 設定或更新變數的值。
-                bestX = -radius;
-                // 設定或更新變數的值。
-                bestZ = -radius;
-                // 設定或更新變數的值。
-                foundForestRegion = true;
-            }
-            // 根據條件決定是否進入此邏輯分支。
-            if (considerForestSpawnRegion(radius, radius, bestScore)) {
-                // 宣告並初始化變數。
-                int score = terrainGenerator.forestSpawnRegionScore(radius, radius);
-                // 設定或更新變數的值。
-                bestScore = score;
-                // 設定或更新變數的值。
-                bestX = radius;
-                // 設定或更新變數的值。
-                bestZ = radius;
-                // 設定或更新變數的值。
-                foundForestRegion = true;
-            }
+            // 呼叫方法執行對應功能。
+            evaluateForestSpawnCandidate(-radius, -radius, bestScore, bestX, bestZ, foundForestRegion);
+            // 呼叫方法執行對應功能。
+            evaluateForestSpawnCandidate(radius, radius, bestScore, bestX, bestZ, foundForestRegion);
 
             // 使用迴圈逐一處理每個元素或區間。
             for (int x = -radius; x <= radius; x += FOREST_SPAWN_SEARCH_STEP) {
-                // 根據條件決定是否進入此邏輯分支。
-                if (considerForestSpawnRegion(x, -radius, bestScore)) {
-                    // 宣告並初始化變數。
-                    int score = terrainGenerator.forestSpawnRegionScore(x, -radius);
-                    // 根據條件決定是否進入此邏輯分支。
-                    if (score > bestScore) {
-                        // 設定或更新變數的值。
-                        bestScore = score;
-                        // 設定或更新變數的值。
-                        bestX = x;
-                        // 設定或更新變數的值。
-                        bestZ = -radius;
-                        // 設定或更新變數的值。
-                        foundForestRegion = true;
-                    }
-                }
-                // 根據條件決定是否進入此邏輯分支。
-                if (considerForestSpawnRegion(x, radius, bestScore)) {
-                    // 宣告並初始化變數。
-                    int score = terrainGenerator.forestSpawnRegionScore(x, radius);
-                    // 根據條件決定是否進入此邏輯分支。
-                    if (score > bestScore) {
-                        // 設定或更新變數的值。
-                        bestScore = score;
-                        // 設定或更新變數的值。
-                        bestX = x;
-                        // 設定或更新變數的值。
-                        bestZ = radius;
-                        // 設定或更新變數的值。
-                        foundForestRegion = true;
-                    }
-                }
+                // 呼叫方法執行對應功能。
+                evaluateForestSpawnCandidate(x, -radius, bestScore, bestX, bestZ, foundForestRegion);
+                // 呼叫方法執行對應功能。
+                evaluateForestSpawnCandidate(x, radius, bestScore, bestX, bestZ, foundForestRegion);
             }
             // 使用迴圈逐一處理每個元素或區間。
             for (int z = -radius + FOREST_SPAWN_SEARCH_STEP; z <= radius - FOREST_SPAWN_SEARCH_STEP; z += FOREST_SPAWN_SEARCH_STEP) {
-                // 根據條件決定是否進入此邏輯分支。
-                if (considerForestSpawnRegion(-radius, z, bestScore)) {
-                    // 宣告並初始化變數。
-                    int score = terrainGenerator.forestSpawnRegionScore(-radius, z);
-                    // 根據條件決定是否進入此邏輯分支。
-                    if (score > bestScore) {
-                        // 設定或更新變數的值。
-                        bestScore = score;
-                        // 設定或更新變數的值。
-                        bestX = -radius;
-                        // 設定或更新變數的值。
-                        bestZ = z;
-                        // 設定或更新變數的值。
-                        foundForestRegion = true;
-                    }
-                }
-                // 根據條件決定是否進入此邏輯分支。
-                if (considerForestSpawnRegion(radius, z, bestScore)) {
-                    // 宣告並初始化變數。
-                    int score = terrainGenerator.forestSpawnRegionScore(radius, z);
-                    // 根據條件決定是否進入此邏輯分支。
-                    if (score > bestScore) {
-                        // 設定或更新變數的值。
-                        bestScore = score;
-                        // 設定或更新變數的值。
-                        bestX = radius;
-                        // 設定或更新變數的值。
-                        bestZ = z;
-                        // 設定或更新變數的值。
-                        foundForestRegion = true;
-                    }
-                }
+                // 呼叫方法執行對應功能。
+                evaluateForestSpawnCandidate(-radius, z, bestScore, bestX, bestZ, foundForestRegion);
+                // 呼叫方法執行對應功能。
+                evaluateForestSpawnCandidate(radius, z, bestScore, bestX, bestZ, foundForestRegion);
             }
 
             // 若已找到高分內陸森林區，可提早結束降低開局等待時間。
-            if (foundForestRegion && bestScore >= 290) {
+            if (foundForestRegion[0] && bestScore[0] >= 290) {
                 // 跳出迴圈以結束目前流程。
                 break;
             }
         }
 
         // 根據條件決定是否進入此邏輯分支。
-        if (!foundForestRegion) {
+        if (!foundForestRegion[0]) {
             // 下一行程式碼負責執行目前步驟。
             return false;
         }
 
         // 在森林中心附近找一個安全且附近看得到樹木的實際出生點。
-        return trySpawnNearForestCenter(out, bestX, bestZ);
+        return trySpawnNearForestCenter(out, bestX[0], bestZ[0]);
     }
 
     // 定義類別內部使用的方法。
-    private boolean considerForestSpawnRegion(int x, int z, int currentBestScore) {
+    private void evaluateForestSpawnCandidate(
+            int x, int z, int[] bestScore, int[] bestX, int[] bestZ, boolean[] foundForestRegion
+    ) {
         // 宣告並初始化變數。
         int score = terrainGenerator.forestSpawnRegionScore(x, z);
+        // 根據條件決定是否進入此邏輯分支。
+        if (score > bestScore[0]) {
+            // 設定或更新變數的值。
+            bestScore[0] = score;
+            // 設定或更新變數的值。
+            bestX[0] = x;
+            // 設定或更新變數的值。
+            bestZ[0] = z;
+            // 設定或更新變數的值。
+            foundForestRegion[0] = true;
+        }
+    }
+
+    // 定義類別內部使用的方法。
+    private boolean tryFindNearestSafeSpawn(Vector3f out, int centerX, int centerZ, int maxRadius, int step) {
+        // 使用迴圈逐一處理每個元素或區間。
+        for (int radius = step; radius <= maxRadius; radius += step) {
+            // 使用迴圈逐一處理每個元素或區間。
+            for (int x = centerX - radius; x <= centerX + radius; x += step) {
+                // 根據條件決定是否進入此邏輯分支。
+                if (trySpawnAt(out, x, centerZ - radius) || trySpawnAt(out, x, centerZ + radius)) {
+                    // 下一行程式碼負責執行目前步驟。
+                    return true;
+                }
+            }
+            // 使用迴圈逐一處理每個元素或區間。
+            for (int z = centerZ - radius + step; z <= centerZ + radius - step; z += step) {
+                // 根據條件決定是否進入此邏輯分支。
+                if (trySpawnAt(out, centerX - radius, z) || trySpawnAt(out, centerX + radius, z)) {
+                    // 下一行程式碼負責執行目前步驟。
+                    return true;
+                }
+            }
+        }
         // 下一行程式碼負責執行目前步驟。
-        return score > currentBestScore;
+        return false;
     }
 
     // 定義類別內部使用的方法。

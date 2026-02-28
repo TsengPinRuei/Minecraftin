@@ -63,44 +63,12 @@ public final class TerrainGenerator {
                 int worldX = worldMinX + lx;
                 // 宣告並初始化變數。
                 int worldZ = worldMinZ + lz;
-
+                // 使用統一採樣函式，避免地形生成與出生點評分邏輯出現偏差。
+                SurfaceSample surface = sampleSurface(worldX, worldZ);
                 // 宣告並初始化變數。
-                float continental = Noise.fbm2(worldX * 0.0019f, worldZ * 0.0019f, 5, 2.0f, 0.5f, seed + 17);
+                int height = surface.height();
                 // 宣告並初始化變數。
-                float erosion = Noise.fbm2(worldX * 0.0036f, worldZ * 0.0036f, 4, 2.0f, 0.53f, seed + 23);
-                // 宣告並初始化變數。
-                float detail = Noise.fbm2(worldX * 0.0105f, worldZ * 0.0105f, 4, 2.1f, 0.50f, seed + 29);
-                // 宣告並初始化變數。
-                float ridges = Math.abs(Noise.fbm2(worldX * 0.0026f, worldZ * 0.0026f, 4, 2.0f, 0.5f, seed + 37));
-                // 宣告並初始化變數。
-                float temperature = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 41);
-                // 宣告並初始化變數。
-                float moisture = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 47);
-                // 宣告並初始化變數。
-                float weirdness = Noise.fbm2(worldX * 0.0048f, worldZ * 0.0048f, 3, 2.0f, 0.5f, seed + 53);
-
-                // 宣告並初始化變數。
-                float baseHeight = 57.0f
-                        // 下一行程式碼負責執行目前步驟。
-                        + continental * 20.0f
-                        // 下一行程式碼負責執行目前步驟。
-                        + detail * 7.5f
-                        // 下一行程式碼負責執行目前步驟。
-                        - Math.max(0.0f, -continental) * 8.0f
-                        // 呼叫方法執行對應功能。
-                        - Math.max(0.0f, -erosion) * 3.0f;
-
-                // 宣告並初始化變數。
-                float mountainMask = Math.max(0.0f, ridges - 0.27f) / 0.73f;
-                // 宣告並初始化變數。
-                float mountainBoost = mountainMask * mountainMask * (30.0f + Math.max(0.0f, weirdness) * 18.0f);
-                // 宣告並初始化變數。
-                int height = Math.round(baseHeight + mountainBoost);
-                // 設定或更新變數的值。
-                height = Math.max(6, Math.min(GameConfig.CHUNK_HEIGHT - 4, height));
-
-                // 宣告並初始化變數。
-                Biome biome = pickBiome(height, continental, ridges, temperature, moisture);
+                Biome biome = surface.biome();
                 // 宣告並初始化變數。
                 int topDepth = biome == Biome.DESERT || biome == Biome.BADLANDS ? 5 : 4;
                 // 設定或更新變數的值。
@@ -214,8 +182,6 @@ public final class TerrainGenerator {
         // 宣告並初始化變數。
         int sampleStep = 24;
         // 宣告並初始化變數。
-        int sampleCount = 0;
-        // 宣告並初始化變數。
         int forestCount = 0;
         // 宣告並初始化變數。
         int landCount = 0;
@@ -234,8 +200,6 @@ public final class TerrainGenerator {
             for (int dx = -sampleRadius; dx <= sampleRadius; dx += sampleStep) {
                 // 宣告並初始化變數。
                 SurfaceSample sample = sampleSurface(centerX + dx, centerZ + dz);
-                // 設定或更新變數的值。
-                sampleCount++;
                 // 設定或更新變數的值。
                 minHeight = Math.min(minHeight, sample.height());
                 // 設定或更新變數的值。

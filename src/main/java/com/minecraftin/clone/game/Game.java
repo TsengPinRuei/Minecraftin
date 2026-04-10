@@ -1,526 +1,387 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.game;
 
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.config.GameConfig;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.Camera;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.InputState;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.Window;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.gameplay.Player;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.render.HudRenderer;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.render.WorldRenderer;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.world.BlockType;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.world.RaycastHit;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.world.World;
-// 匯入後續會使用到的型別或函式。
 import org.joml.Vector3f;
 
-// 匯入後續會使用到的型別或函式。
 import java.nio.file.Paths;
 
-// 匯入後續會使用到的型別或函式。
 import static org.lwjgl.glfw.GLFW.*;
-// 匯入後續會使用到的型別或函式。
 import static org.lwjgl.opengl.GL33C.*;
 
-// 定義主要型別與其結構。
 public final class Game {
-    // 設定或更新變數的值。
+    // 顯示目前遊戲模式的文字
     private static final String MODE_LABEL = GameConfig.CREATIVE_MODE_ONLY ? "CREATIVE" : "SURVIVAL";
-    // 設定或更新變數的值。
+
+    // 角色走路時，鏡頭上下左右晃動用的參數
     private static final float WALK_BOB_VERTICAL_BASE = 0.020f;
-    // 設定或更新變數的值。
     private static final float WALK_BOB_VERTICAL_SCALE = 0.024f;
-    // 設定或更新變數的值。
     private static final float WALK_BOB_HORIZONTAL_FACTOR = 0.60f;
-    // 設定或更新變數的值。
     private static final float WALK_BOB_RESET_SPEED = 8.0f;
 
-    // 下一行程式碼負責執行目前步驟。
+    // 快捷欄中可選擇的方塊
     private final BlockType[] hotbar = {
-            // 下一行程式碼負責執行目前步驟。
             BlockType.RED_BLOCK,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.ORANGE_BLOCK,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.YELLOW_BLOCK,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.GREEN_BLOCK,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.BLUE_BLOCK,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.PURPLE_BLOCK,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.DIRT,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.STONE,
-            // 下一行程式碼負責執行目前步驟。
             BlockType.GLASS
     };
 
-    // 設定或更新變數的值。
+    // 遊戲會用到的核心物件
     private final Window window = new Window();
-    // 設定或更新變數的值。
     private final InputState input = new InputState();
-    // 設定或更新變數的值。
     private final Camera camera = new Camera();
-    // 設定或更新變數的值。
     private final Player player = new Player();
-    // 設定或更新變數的值。
     private final World world = new World(Paths.get(GameConfig.WORLD_FILE), GameConfig.DEFAULT_WORLD_SEED);
-    // 設定或更新變數的值。
+
+    // 暫存向量，避免重複建立物件
     private final Vector3f tmpCameraRight = new Vector3f();
-    // 設定或更新變數的值。
     private final Vector3f tmpRayOrigin = new Vector3f();
-    // 設定或更新變數的值。
     private final Vector3f tmpRayDirection = new Vector3f();
 
-    // 下一行程式碼負責執行目前步驟。
+    // 負責世界與 HUD 的渲染器
     private WorldRenderer worldRenderer;
-    // 下一行程式碼負責執行目前步驟。
     private HudRenderer hudRenderer;
 
-    // 設定或更新變數的值。
+    // 是否已鎖定滑鼠到遊戲視窗內
     private boolean cursorCaptured = false;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 目前快捷欄選到的方塊索引
     private int hotbarIndex;
 
-    // 下一行程式碼負責執行目前步驟。
+    // 破壞、放置方塊與自動存檔的冷卻或計時
     private float breakCooldown;
-    // 下一行程式碼負責執行目前步驟。
     private float placeCooldown;
-    // 下一行程式碼負責執行目前步驟。
     private float autosaveTimer;
 
-    // 下一行程式碼負責執行目前步驟。
+    // 目前準星指向的方塊資訊
     private RaycastHit targetedBlock;
 
-    // 下一行程式碼負責執行目前步驟。
+    // FPS 計算用
     private double fpsTimer;
-    // 下一行程式碼負責執行目前步驟。
     private int fpsFrames;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 用來確認世界與玩家出生點是否已完成初始化
     private boolean worldInitialized;
-    // 下一行程式碼負責執行目前步驟。
     private boolean playerSpawnInitialized;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 走路時鏡頭晃動的狀態
     private float walkBobPhase;
-    // 下一行程式碼負責執行目前步驟。
     private float walkBobVertical;
-    // 下一行程式碼負責執行目前步驟。
     private float walkBobHorizontal;
 
-    // 定義對外可呼叫的方法。
     public void run() {
-        // 下一行程式碼負責執行目前步驟。
         try {
-            // 呼叫方法執行對應功能。
+            // 建立視窗並綁定輸入控制
             window.create();
-            // 呼叫方法執行對應功能。
             input.attach(window.handle());
 
-            // 呼叫方法執行對應功能。
+            // 初始化 OpenGL 狀態
             initGraphicsState();
 
-            // 呼叫方法執行對應功能。
+            // 載入或建立世界
             world.initialize();
-            // 設定或更新變數的值。
             worldInitialized = true;
-            // 設定或更新變數的值。
+
+            // 建立渲染器
             worldRenderer = new WorldRenderer();
-            // 設定或更新變數的值。
             hudRenderer = new HudRenderer();
 
-            // 宣告並初始化變數。
-            // 優先使用關閉遊戲時存下的重生點，舊存檔或新世界則退回地形出生點搜尋。
+            // 先嘗試讀取上次離開時的重生點，失敗則使用預設出生點
             Vector3f spawn = new Vector3f();
-            // 根據條件決定是否進入此邏輯分支。
             if (!world.tryGetSavedRespawnPosition(spawn)) {
-                // 呼叫方法執行對應功能。
                 world.defaultSpawn(spawn);
             }
-            // 呼叫方法執行對應功能。
+
+            // 設定玩家初始位置與鏡頭角度
             player.setPosition(spawn.x, spawn.y, spawn.z);
-            // 設定或更新變數的值。
             playerSpawnInitialized = true;
-            // 呼叫方法執行對應功能。
             camera.setRotation(-90.0f, -15.0f);
-            // 呼叫方法執行對應功能。
             updateCameraFromPlayer(0.0f);
 
-            // 呼叫方法執行對應功能。
+            // 一開始不鎖定滑鼠
             window.captureCursor(false);
-            // 呼叫方法執行對應功能。
             input.resetMouseTracking();
 
-            // 呼叫方法執行對應功能。
+            // 進入遊戲主迴圈
             loop();
-        // 下一行程式碼負責執行目前步驟。
         } finally {
-            // 根據條件決定是否進入此邏輯分支。
+            // 結束前記錄玩家目前位置，作為下次重生點
             if (worldInitialized && playerSpawnInitialized) {
-                // 將關閉遊戲當下玩家位置存成下次開啟時的重生點。
                 world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
             }
-            // 根據條件決定是否進入此邏輯分支。
+
+            // 若世界有尚未存檔的變更，離開前先存檔
             if (worldInitialized && world.hasPendingSave()) {
-                // 呼叫方法執行對應功能。
                 safeSaveWorld();
             }
-            // 根據條件決定是否進入此邏輯分支。
+
+            // 依序釋放資源
             if (hudRenderer != null) {
-                // 呼叫方法執行對應功能。
                 hudRenderer.close();
             }
-            // 根據條件決定是否進入此邏輯分支。
             if (worldRenderer != null) {
-                // 呼叫方法執行對應功能。
                 worldRenderer.close();
             }
-            // 呼叫方法執行對應功能。
             window.close();
         }
     }
 
-    // 定義類別內部使用的方法。
     private void initGraphicsState() {
-        // 呼叫方法執行對應功能。
+        // 開啟深度測試，讓前後物體能正確遮擋
         glEnable(GL_DEPTH_TEST);
-        // 呼叫方法執行對應功能。
         glDepthFunc(GL_LEQUAL);
 
-        // 呼叫方法執行對應功能。
+        // 開啟透明混合
         glEnable(GL_BLEND);
-        // 呼叫方法執行對應功能。
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // 呼叫方法執行對應功能。
+        // 關閉背面剔除，並開啟多重採樣抗鋸齒
         glDisable(GL_CULL_FACE);
-        // 呼叫方法執行對應功能。
         glEnable(GL_MULTISAMPLE);
     }
 
-    // 定義類別內部使用的方法。
     private void loop() {
-        // 宣告並初始化變數。
+        // 記錄上一幀時間，用來計算 delta time
         double lastTime = glfwGetTime();
 
-        // 在條件成立時重複執行此區塊。
         while (!window.shouldClose()) {
-            // 宣告並初始化變數。
             double now = glfwGetTime();
-            // 宣告並初始化變數。
+
+            // 計算這一幀經過的秒數，並限制最大值避免卡頓時數值過大
             float delta = (float) Math.min(0.05, now - lastTime);
-            // 設定或更新變數的值。
             lastTime = now;
 
-            // 呼叫方法執行對應功能。
+            // 處理視窗事件與輸入
             window.pollEvents();
-            // 呼叫方法執行對應功能。
             handleInputState();
 
-            // 宣告並初始化變數。
+            // 根據玩家所在區塊，確保附近的地圖區塊都有載入
             int playerChunkX = Math.floorDiv((int) Math.floor(player.position().x), GameConfig.CHUNK_SIZE);
-            // 宣告並初始化變數。
             int playerChunkZ = Math.floorDiv((int) Math.floor(player.position().z), GameConfig.CHUNK_SIZE);
-            // Load one extra ring so rendered chunks always have neighbor data at the edges.
-            // 呼叫方法執行對應功能。
             world.ensureChunksAround(playerChunkX, playerChunkZ, GameConfig.RENDER_DISTANCE_CHUNKS + 1);
 
-            // 根據條件決定是否進入此邏輯分支。
+            // 只有在滑鼠被鎖定時，才允許玩家控制鏡頭與移動
             if (cursorCaptured) {
-                // 呼叫方法執行對應功能。
                 applyLookFromMouse();
-                // 呼叫方法執行對應功能。
                 player.update(input, camera, world, delta);
             }
 
-            // 呼叫方法執行對應功能。
+            // 更新鏡頭位置、目標方塊與互動
             updateCameraFromPlayer(delta);
-            // 呼叫方法執行對應功能。
             updateTargetBlock();
-            // 根據條件決定是否進入此邏輯分支。
             if (cursorCaptured) {
-                // 呼叫方法執行對應功能。
                 updateBlockInteraction(delta);
             }
 
-            // 呼叫方法執行對應功能。
+            // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
-            // 呼叫方法執行對應功能。
             hudRenderer.render(hotbar, hotbarIndex);
 
-            // 呼叫方法執行對應功能。
+            // 更新視窗標題中的偵錯資訊
             updateDebugTitle(now);
 
-            // 呼叫方法執行對應功能。
+            // 顯示畫面並結束本幀輸入狀態
             window.swapBuffers();
-            // 呼叫方法執行對應功能。
             input.endFrame();
 
-            // 設定或更新變數的值。
+            // 每隔一段時間自動存檔一次
             autosaveTimer += delta;
-            // 根據條件決定是否進入此邏輯分支。
             if (autosaveTimer >= 20.0f) {
-                // 根據條件決定是否進入此邏輯分支。
                 if (world.hasModifiedChunks()) {
-                    // 呼叫方法執行對應功能。
                     safeSaveWorld();
                 }
-                // 設定或更新變數的值。
                 autosaveTimer = 0.0f;
             }
         }
     }
 
-    // 定義類別內部使用的方法。
     private void handleInputState() {
-        // 根據條件決定是否進入此邏輯分支。
+        // 按 ESC 時解除滑鼠鎖定
         if (input.wasKeyPressed(GLFW_KEY_ESCAPE) && cursorCaptured) {
-            // 設定或更新變數的值。
             cursorCaptured = false;
-            // 呼叫方法執行對應功能。
             window.captureCursor(false);
-            // 呼叫方法執行對應功能。
             input.resetMouseTracking();
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 尚未鎖定滑鼠時，點左鍵可進入遊戲控制模式
         if (!cursorCaptured && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
-            // 設定或更新變數的值。
             cursorCaptured = true;
-            // 呼叫方法執行對應功能。
             window.captureCursor(true);
-            // 呼叫方法執行對應功能。
             input.resetMouseTracking();
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 按 Q 關閉遊戲
         if (input.wasKeyPressed(GLFW_KEY_Q)) {
-            // 呼叫方法執行對應功能。
             window.requestClose();
         }
 
-        // 使用迴圈逐一處理每個元素或區間。
+        // 按數字鍵 1 到 9 切換快捷欄
         for (int i = 0; i < hotbar.length && i < 9; i++) {
-            // 宣告並初始化變數。
             int key = GLFW_KEY_1 + i;
-            // 根據條件決定是否進入此邏輯分支。
             if (input.wasKeyPressed(key)) {
-                // 設定或更新變數的值。
                 hotbarIndex = i;
             }
         }
 
-        // 宣告並初始化變數。
+        // 滑鼠滾輪可切換快捷欄
         double scroll = input.consumeScrollDeltaY();
-        // 根據條件決定是否進入此邏輯分支。
         if (scroll != 0.0) {
-            // 宣告並初始化變數。
             int direction = scroll > 0.0 ? -1 : 1;
-            // 設定或更新變數的值。
             hotbarIndex = Math.floorMod(hotbarIndex + direction, hotbar.length);
         }
     }
 
-    // 定義類別內部使用的方法。
     private void applyLookFromMouse() {
-        // 宣告並初始化變數。
+        // 根據滑鼠移動距離調整鏡頭角度
         float yawDelta = (float) input.mouseDeltaX() * GameConfig.MOUSE_SENSITIVITY;
-        // 宣告並初始化變數。
         float pitchDelta = (float) -input.mouseDeltaY() * GameConfig.MOUSE_SENSITIVITY;
-        // 呼叫方法執行對應功能。
         camera.rotate(yawDelta, pitchDelta);
     }
 
-    // 定義類別內部使用的方法。
     private void updateCameraFromPlayer(float deltaSeconds) {
-        // 呼叫方法執行對應功能。
+        // 先更新走路晃動效果
         updateWalkBob(deltaSeconds);
 
-        // 宣告並初始化變數。
+        // 鏡頭位置跟著玩家移動，並套用上下左右晃動
         Vector3f right = camera.right(tmpCameraRight);
-        // 下一行程式碼負責執行目前步驟。
         camera.setPosition(
-                // 下一行程式碼負責執行目前步驟。
                 player.position().x + right.x * walkBobHorizontal,
-                // 下一行程式碼負責執行目前步驟。
                 player.position().y + GameConfig.PLAYER_EYE_HEIGHT + walkBobVertical,
-                // 下一行程式碼負責執行目前步驟。
-                player.position().z + right.z * walkBobHorizontal
-        // 下一行程式碼負責執行目前步驟。
-        );
+                player.position().z + right.z * walkBobHorizontal);
     }
 
-    // 定義類別內部使用的方法。
     private void updateWalkBob(float deltaSeconds) {
-        // 根據條件決定是否進入此邏輯分支。
+        // 沒有時間差時，不需要更新晃動
         if (deltaSeconds <= 0.0f) {
-            // 設定或更新變數的值。
             walkBobVertical = 0.0f;
-            // 設定或更新變數的值。
             walkBobHorizontal = 0.0f;
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 未進入控制模式、正在飛行或不在地面時，晃動逐漸回到 0
         if (!cursorCaptured || player.isFlying() || !player.isOnGround()) {
-            // 設定或更新變數的值。
             walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
-            // 設定或更新變數的值。
             walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 宣告並初始化變數。
+        // 用玩家水平移動速度決定晃動強度
         float speedRatio = Math.min(player.horizontalSpeed() / Math.max(GameConfig.WALK_SPEED, 0.001f), 1.6f);
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 幾乎沒在移動時，晃動逐漸回到 0
         if (speedRatio < 0.06f) {
-            // 設定或更新變數的值。
             walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
-            // 設定或更新變數的值。
             walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 設定或更新變數的值。
+        // 更新晃動週期
         walkBobPhase += deltaSeconds * (8.0f + 4.0f * speedRatio);
-        // 根據條件決定是否進入此邏輯分支。
         if (walkBobPhase > (float) (Math.PI * 2.0)) {
-            // 設定或更新變數的值。
             walkBobPhase -= (float) (Math.PI * 2.0);
         }
 
-        // 宣告並初始化變數。
+        // 根據週期計算上下與左右的晃動量
         float amplitude = WALK_BOB_VERTICAL_BASE + WALK_BOB_VERTICAL_SCALE * speedRatio;
-        // 設定或更新變數的值。
         walkBobVertical = (float) Math.sin(walkBobPhase * 2.0f) * amplitude;
-        // 設定或更新變數的值。
         walkBobHorizontal = (float) Math.cos(walkBobPhase) * amplitude * WALK_BOB_HORIZONTAL_FACTOR;
     }
 
-    // 定義類別內部使用的方法。
     private void updateTargetBlock() {
-        // 呼叫方法執行對應功能。
+        // 從鏡頭位置往前發射射線，找出玩家目前指到的方塊
         tmpRayOrigin.set(camera.position());
-        // 呼叫方法執行對應功能。
         camera.forward(tmpRayDirection);
-        // 設定或更新變數的值。
         targetedBlock = world.raycast(tmpRayOrigin, tmpRayDirection, GameConfig.BLOCK_REACH);
     }
 
-    // 定義類別內部使用的方法。
     private void updateBlockInteraction(float deltaSeconds) {
-        // 設定或更新變數的值。
+        // 更新破壞與放置方塊的冷卻時間
         breakCooldown -= deltaSeconds;
-        // 設定或更新變數的值。
         placeCooldown -= deltaSeconds;
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 左鍵破壞方塊，但不能破壞基岩
         if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
-            // 根據條件決定是否進入此邏輯分支。
             if (targetedBlock.block() != BlockType.BEDROCK) {
-                // 呼叫方法執行對應功能。
                 world.setBlock(targetedBlock.x(), targetedBlock.y(), targetedBlock.z(), BlockType.AIR);
             }
-            // 設定或更新變數的值。
             breakCooldown = GameConfig.BREAK_COOLDOWN_SECONDS;
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 右鍵在目標方塊旁邊放置新方塊
         if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
-            // 宣告並初始化變數。
             int px = targetedBlock.x() + targetedBlock.normalX();
-            // 宣告並初始化變數。
             int py = targetedBlock.y() + targetedBlock.normalY();
-            // 宣告並初始化變數。
             int pz = targetedBlock.z() + targetedBlock.normalZ();
 
-            // 宣告並初始化變數。
             BlockType current = world.getBlock(px, py, pz);
-            // 根據條件決定是否進入此邏輯分支。
+
+            // 只能放在空氣或水的位置，且不能和玩家身體重疊
             if ((current == BlockType.AIR || current == BlockType.WATER) && !player.intersectsBlock(px, py, pz)) {
-                // 呼叫方法執行對應功能。
                 world.setBlock(px, py, pz, hotbar[hotbarIndex]);
             }
-            // 設定或更新變數的值。
+
             placeCooldown = GameConfig.PLACE_COOLDOWN_SECONDS;
         }
     }
 
-    // 定義類別內部使用的方法。
     private void updateDebugTitle(double now) {
-        // 下一行程式碼負責執行目前步驟。
+        // 每幀都累計一次，用來計算 FPS
         fpsFrames++;
-        // 根據條件決定是否進入此邏輯分支。
+
         if (fpsTimer == 0.0) {
-            // 設定或更新變數的值。
             fpsTimer = now;
         }
 
-        // 宣告並初始化變數。
         double elapsed = now - fpsTimer;
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 每秒更新一次視窗標題
         if (elapsed >= 1.0) {
-            // 宣告並初始化變數。
             int fps = (int) Math.round(fpsFrames / elapsed);
-            // 宣告並初始化變數。
             BlockType selected = hotbar[hotbarIndex];
-            // 宣告並初始化變數。
+
             String title = GameConfig.WINDOW_TITLE
-                    // 下一行程式碼負責執行目前步驟。
                     + " | " + MODE_LABEL
-                    // 下一行程式碼負責執行目前步驟。
                     + " | Flight: " + (player.isFlying() ? "ON" : "OFF")
-                    // 下一行程式碼負責執行目前步驟。
                     + " | FPS: " + fps
-                    // 下一行程式碼負責執行目前步驟。
                     + " | Chunks: " + world.chunkCount()
-                    // 呼叫方法執行對應功能。
                     + " | Block: " + selected.displayName();
-            // 呼叫方法執行對應功能。
+
             glfwSetWindowTitle(window.handle(), title);
 
-            // 設定或更新變數的值。
+            // 重設 FPS 計算
             fpsFrames = 0;
-            // 設定或更新變數的值。
             fpsTimer = now;
         }
     }
 
-    // 定義類別內部使用的方法。
     private void safeSaveWorld() {
-        // 下一行程式碼負責執行目前步驟。
+        // 儲存世界時若發生錯誤，避免讓遊戲直接崩潰
         try {
-            // 呼叫方法執行對應功能。
             world.save();
-        // 下一行程式碼負責執行目前步驟。
         } catch (Exception e) {
-            // 呼叫方法執行對應功能。
             System.err.println("World save failed: " + e.getMessage());
         }
     }
 
-    // 定義類別內部使用的方法。
     private float approach(float current, float target, float delta) {
-        // 根據條件決定是否進入此邏輯分支。
+        // 讓 current 逐步接近 target，但每次最多只改變 delta
         if (current < target) {
-            // 呼叫方法執行對應功能。
             return Math.min(current + delta, target);
         }
-        // 呼叫方法執行對應功能。
         return Math.max(current - delta, target);
     }
 }

@@ -1,129 +1,120 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.engine;
 
-// 匯入後續會使用到的型別或函式。
 import static org.lwjgl.opengl.GL33C.*;
 
-// 定義主要型別與其結構。
 public final class Mesh implements AutoCloseable {
-    // 下一行程式碼負責執行目前步驟。
+    // 記錄這個模型的頂點設定方式。
     private final int vao;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 存放實際的頂點資料。
     private final int vbo;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 繪圖模式，例如三角形、線段等。
     private final int mode;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 目前總共有多少個頂點可以被拿來繪製。
     private int vertexCount;
 
-    // 定義對外可呼叫的方法。
+    // 建立 Mesh，並把頂點資料與屬性格式一起設定到 OpenGL。
     public Mesh(float[] vertices, int mode, int... attributeSizes) {
-        // 根據條件決定是否進入此邏輯分支。
+        // 至少要提供一種頂點屬性格式，否則無法知道資料怎麼切分。
         if (attributeSizes.length == 0) {
-            // 呼叫方法執行對應功能。
             throw new IllegalArgumentException("attributeSizes must not be empty");
         }
 
-        // 設定或更新變數的值。
         this.mode = mode;
-        // 設定或更新變數的值。
         vao = glGenVertexArrays();
-        // 設定或更新變數的值。
         vbo = glGenBuffers();
 
-        // 呼叫方法執行對應功能。
+        // 綁定 VAO 與 VBO，準備設定頂點資料。
         glBindVertexArray(vao);
-        // 呼叫方法執行對應功能。
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        // 呼叫方法執行對應功能。
+
+        // 把頂點資料送進顯示卡，並標記為之後可能會更新。
         glBufferData(GL_ARRAY_BUFFER, vertices, GL_DYNAMIC_DRAW);
 
-        // 宣告並初始化變數。
+        // 計算一個頂點總共包含幾個 float。
         int strideFloats = 0;
-        // 使用迴圈逐一處理每個元素或區間。
         for (int size : attributeSizes) {
-            // 根據條件決定是否進入此邏輯分支。
+            // 每個屬性的大小都必須大於 0。
             if (size <= 0) {
-                // 呼叫方法執行對應功能。
                 throw new IllegalArgumentException("attributeSizes must be positive");
             }
-            // 設定或更新變數的值。
             strideFloats += size;
         }
-        // 呼叫方法執行對應功能。
+
+        // 檢查頂點資料長度是否符合頂點格式。
         validateVertexLayout(vertices, strideFloats);
 
-        // 宣告並初始化變數。
+        // 依序設定每個頂點屬性的位置與大小。
         int offsetFloats = 0;
-        // 使用迴圈逐一處理每個元素或區間。
         for (int i = 0; i < attributeSizes.length; i++) {
-            // 宣告並初始化變數。
             int size = attributeSizes[i];
-            // 呼叫方法執行對應功能。
+
+            // 啟用第 i 個頂點屬性。
             glEnableVertexAttribArray(i);
-            // 呼叫方法執行對應功能。
-            glVertexAttribPointer(i, size, GL_FLOAT, false, strideFloats * Float.BYTES, (long) offsetFloats * Float.BYTES);
-            // 設定或更新變數的值。
+
+            // 告訴 OpenGL 第 i 個屬性要從哪裡開始讀、一次讀幾個 float。
+            glVertexAttribPointer(
+                    i,
+                    size,
+                    GL_FLOAT,
+                    false,
+                    strideFloats * Float.BYTES,
+                    (long) offsetFloats * Float.BYTES);
+
             offsetFloats += size;
         }
 
-        // 呼叫方法執行對應功能。
+        // 設定完成後解除綁定。
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        // 呼叫方法執行對應功能。
         glBindVertexArray(0);
 
-        // 設定或更新變數的值。
+        // 根據總資料量與每個頂點大小，算出頂點數量。
         vertexCount = vertices.length / strideFloats;
     }
 
-    // 定義對外可呼叫的方法。
+    // 更新 VBO 內的頂點資料。
     public void update(float[] vertices, int strideFloats) {
-        // 呼叫方法執行對應功能。
+        // 先確認新資料長度仍然符合原本的頂點格式。
         validateVertexLayout(vertices, strideFloats);
-        // 呼叫方法執行對應功能。
+
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        // 呼叫方法執行對應功能。
         glBufferData(GL_ARRAY_BUFFER, vertices, GL_DYNAMIC_DRAW);
-        // 呼叫方法執行對應功能。
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        // 設定或更新變數的值。
+
+        // 重新計算更新後的頂點數量。
         vertexCount = vertices.length / strideFloats;
     }
 
-    // 定義對外可呼叫的方法。
+    // 使用目前的 VAO 與 VBO 資料進行繪製。
     public void draw() {
-        // 根據條件決定是否進入此邏輯分支。
+        // 沒有頂點時就不需要畫。
         if (vertexCount <= 0) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
-        // 呼叫方法執行對應功能。
+
         glBindVertexArray(vao);
-        // 呼叫方法執行對應功能。
         glDrawArrays(mode, 0, vertexCount);
-        // 呼叫方法執行對應功能。
         glBindVertexArray(0);
     }
 
-    // 宣告註解標記，提供編譯器或框架額外資訊。
     @Override
-    // 定義對外可呼叫的方法。
+    // 釋放 OpenGL 資源，避免記憶體或顯示卡資源洩漏。
     public void close() {
-        // 呼叫方法執行對應功能。
         glDeleteBuffers(vbo);
-        // 呼叫方法執行對應功能。
         glDeleteVertexArrays(vao);
     }
 
-    // 定義類別內部使用的方法。
+    // 檢查頂點資料是否能正確依照 stride 切成一筆一筆頂點。
     private static void validateVertexLayout(float[] vertices, int strideFloats) {
-        // 根據條件決定是否進入此邏輯分支。
+        // stride 必須大於 0，否則代表頂點格式不合法。
         if (strideFloats <= 0) {
-            // 呼叫方法執行對應功能。
             throw new IllegalArgumentException("strideFloats must be positive");
         }
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 頂點資料總長度必須剛好能被 stride 整除。
         if (vertices.length % strideFloats != 0) {
-            // 呼叫方法執行對應功能。
             throw new IllegalArgumentException("vertices length must be divisible by stride");
         }
     }

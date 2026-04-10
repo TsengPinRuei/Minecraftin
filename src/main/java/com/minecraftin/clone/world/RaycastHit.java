@@ -1,24 +1,28 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.world;
 
-// 定義主要型別與其結構。
+// 用來表示射線檢測命中的結果。
 public record RaycastHit(
-        // 下一行程式碼負責執行目前步驟。
-        int x,
-        // 下一行程式碼負責執行目前步驟。
-        int y,
-        // 下一行程式碼負責執行目前步驟。
-        int z,
-        // 下一行程式碼負責執行目前步驟。
-        int normalX,
-        // 下一行程式碼負責執行目前步驟。
-        int normalY,
-        // 下一行程式碼負責執行目前步驟。
-        int normalZ,
-        // 下一行程式碼負責執行目前步驟。
-        float distance,
-        // 下一行程式碼負責執行目前步驟。
-        BlockType block
-// 下一行程式碼負責執行目前步驟。
-) {
+                // 命中的方塊 X 座標。
+                int x,
+
+                // 命中的方塊 Y 座標。
+                int y,
+
+                // 命中的方塊 Z 座標。
+                int z,
+
+                // 命中表面的法線在 X 軸上的方向。
+                int normalX,
+
+                // 命中表面的法線在 Y 軸上的方向。
+                int normalY,
+
+                // 命中表面的法線在 Z 軸上的方向。
+                int normalZ,
+
+                // 從起點到命中位置的距離。
+                float distance,
+
+                // 命中的方塊種類。
+                BlockType block) {
 }

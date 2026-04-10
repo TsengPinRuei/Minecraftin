@@ -1,581 +1,432 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.world;
 
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.config.GameConfig;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.util.Noise;
 
-// 匯入後續會使用到的型別或函式。
 import java.util.ArrayList;
-// 匯入後續會使用到的型別或函式。
 import java.util.List;
 
-// 定義主要型別與其結構。
+// 負責依照種子產生地形、地表材質與樹木。
 public final class TerrainGenerator {
-    // 定義主要型別與其結構。
+
+    // 表示不同的地形區域種類。
     private enum Biome {
-        // 下一行程式碼負責執行目前步驟。
         PLAINS,
-        // 下一行程式碼負責執行目前步驟。
         FOREST,
-        // 下一行程式碼負責執行目前步驟。
         DESERT,
-        // 下一行程式碼負責執行目前步驟。
         SNOW,
-        // 下一行程式碼負責執行目前步驟。
         MOUNTAIN,
-        // 下一行程式碼負責執行目前步驟。
         BADLANDS
     }
 
-    // 下一行程式碼負責執行目前步驟。
+    // 讓同一個世界可重現相同地形。
     private final long seed;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 海平面高度。
     private final int seaLevel;
 
-    // 定義對外可呼叫的方法。
+    // 建立地形產生器。
     public TerrainGenerator(long seed, int seaLevel) {
-        // 設定或更新變數的值。
         this.seed = seed;
-        // 設定或更新變數的值。
         this.seaLevel = seaLevel;
     }
 
-    // 定義對外可呼叫的方法。
+    // 產生一個 Chunk 的所有地形資料。
     public void generate(Chunk chunk) {
-        // 宣告並初始化變數。
         int worldMinX = chunk.worldMinX();
-        // 宣告並初始化變數。
         int worldMinZ = chunk.worldMinZ();
-        // 宣告並初始化變數。
+
+        // 記錄每個位置的地表高度。
         int[][] heights = new int[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
-        // 宣告並初始化變數。
+
+        // 記錄每個位置的生態區。
         Biome[][] biomes = new Biome[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
-        // 宣告並初始化變數。
+
+        // 先記下要生成的樹，等地形都完成後再放置。
         List<TreeSpec> plannedTrees = new ArrayList<>();
 
-        // 使用迴圈逐一處理每個元素或區間。
+        // 先產生方塊地形。
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
-            // 使用迴圈逐一處理每個元素或區間。
             for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
-                // 宣告並初始化變數。
                 int worldX = worldMinX + lx;
-                // 宣告並初始化變數。
                 int worldZ = worldMinZ + lz;
-                // 使用統一採樣函式，避免地形生成與出生點評分邏輯出現偏差。
+
+                // 取得這個座標的地表資訊。
                 SurfaceSample surface = sampleSurface(worldX, worldZ);
-                // 宣告並初始化變數。
                 int height = surface.height();
-                // 宣告並初始化變數。
                 Biome biome = surface.biome();
-                // 宣告並初始化變數。
+
+                // 沙漠與惡地的表層較厚。
                 int topDepth = biome == Biome.DESERT || biome == Biome.BADLANDS ? 5 : 4;
-                // 設定或更新變數的值。
+
                 heights[lx][lz] = height;
-                // 設定或更新變數的值。
                 biomes[lx][lz] = biome;
 
-                // 使用迴圈逐一處理每個元素或區間。
                 for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
-                    // 下一行程式碼負責執行目前步驟。
                     BlockType block;
 
-                    // 根據條件決定是否進入此邏輯分支。
+                    // 最底層固定為基岩。
                     if (y == 0) {
-                        // 設定或更新變數的值。
                         block = BlockType.BEDROCK;
-                    // 下一行程式碼負責執行目前步驟。
+
+                        // 高於地表時，海平面以下填水，海平面以上填空氣。
                     } else if (y > height) {
-                        // 設定或更新變數的值。
                         block = y <= seaLevel ? BlockType.WATER : BlockType.AIR;
-                    // 下一行程式碼負責執行目前步驟。
+
                     } else {
-                        // 宣告並初始化變數。
+                        // 在地底加入洞穴噪音。
                         float cave = Noise.fbm3(worldX * 0.055f, y * 0.090f, worldZ * 0.055f, 3, 2.0f, 0.5f, seed + 73);
-                        // 宣告並初始化變數。
                         float caveThreshold = biome == Biome.MOUNTAIN ? 0.58f : 0.64f;
-                        // 根據條件決定是否進入此邏輯分支。
+
+                        // 符合條件時把該位置挖空成洞穴。
                         if (y > 5 && y < height - 3 && cave > caveThreshold) {
-                            // 設定或更新變數的值。
                             block = y <= seaLevel ? BlockType.WATER : BlockType.AIR;
-                        // 下一行程式碼負責執行目前步驟。
                         } else {
-                            // 設定或更新變數的值。
+                            // 根據生態區與深度決定地層方塊。
                             block = selectStrataBlock(biome, y, height, topDepth, seaLevel);
                         }
                     }
 
-                    // 呼叫方法執行對應功能。
                     chunk.setRaw(lx, y, lz, (short) block.id());
                 }
             }
         }
 
-        // 使用迴圈逐一處理每個元素或區間。
+        // 再規劃樹木要長在哪裡。
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
-            // 使用迴圈逐一處理每個元素或區間。
             for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
-                // 宣告並初始化變數。
                 int height = heights[lx][lz];
-                // 根據條件決定是否進入此邏輯分支。
+
+                // 海平面太低的地方不生成樹。
                 if (height <= seaLevel + 1) {
-                    // 跳過本次迴圈剩餘邏輯，直接進入下一次迭代。
                     continue;
                 }
 
-                // 宣告並初始化變數。
                 int worldX = worldMinX + lx;
-                // 宣告並初始化變數。
                 int worldZ = worldMinZ + lz;
-                // 宣告並初始化變數。
+
                 TreeSpec tree = planTree(chunk, biomes[lx][lz], lx, height + 1, lz, worldX, worldZ);
-                // 根據條件決定是否進入此邏輯分支。
                 if (tree != null) {
-                    // 呼叫方法執行對應功能。
                     plannedTrees.add(tree);
                 }
             }
         }
 
-        // 使用迴圈逐一處理每個元素或區間。
+        // 先放樹幹，再放樹葉。
         for (TreeSpec tree : plannedTrees) {
-            // 呼叫方法執行對應功能。
             placeTrunk(chunk, tree);
         }
-        // 使用迴圈逐一處理每個元素或區間。
         for (TreeSpec tree : plannedTrees) {
-            // 呼叫方法執行對應功能。
             placeCanopy(chunk, tree);
         }
 
-        // 呼叫方法執行對應功能。
+        // 生成完後要重新建立模型，但不算玩家修改。
         chunk.markMeshDirty();
-        // 呼叫方法執行對應功能。
         chunk.clearModified();
     }
 
-    // 定義對外可呼叫的方法。
+    // 回傳海平面高度。
     public int seaLevel() {
-        // 下一行程式碼負責執行目前步驟。
         return seaLevel;
     }
 
-    // 定義對外可呼叫的方法。
+    // 回傳指定世界座標的地表高度。
     public int surfaceHeightAt(int worldX, int worldZ) {
-        // 呼叫方法執行對應功能。
         return sampleSurface(worldX, worldZ).height();
     }
 
-    // 定義對外可呼叫的方法。
+    // 計算某個位置是否適合當作大片森林出生區中心。
     public int forestSpawnRegionScore(int centerX, int centerZ) {
-        // 宣告並初始化變數。
         SurfaceSample center = sampleSurface(centerX, centerZ);
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 中心點必須是森林，且不能太接近海面。
         if (center.height() <= seaLevel + 3 || center.biome() != Biome.FOREST) {
-            // 下一行程式碼負責執行目前步驟。
             return Integer.MIN_VALUE;
         }
 
-        // 宣告並初始化變數。
         int sampleRadius = 48;
-        // 宣告並初始化變數。
         int sampleStep = 24;
-        // 宣告並初始化變數。
+
         int forestCount = 0;
-        // 宣告並初始化變數。
         int landCount = 0;
-        // 宣告並初始化變數。
         int coastCount = 0;
-        // 宣告並初始化變數。
         int mountainCount = 0;
-        // 宣告並初始化變數。
         int minHeight = Integer.MAX_VALUE;
-        // 宣告並初始化變數。
         int maxHeight = Integer.MIN_VALUE;
 
-        // 使用粗網格估算「大片森林且遠離海岸」的程度。
+        // 在周圍取樣，評估這片區域是否夠大、夠平穩、夠像森林內陸。
         for (int dz = -sampleRadius; dz <= sampleRadius; dz += sampleStep) {
-            // 使用迴圈逐一處理每個元素或區間。
             for (int dx = -sampleRadius; dx <= sampleRadius; dx += sampleStep) {
-                // 宣告並初始化變數。
                 SurfaceSample sample = sampleSurface(centerX + dx, centerZ + dz);
-                // 設定或更新變數的值。
+
                 minHeight = Math.min(minHeight, sample.height());
-                // 設定或更新變數的值。
                 maxHeight = Math.max(maxHeight, sample.height());
 
-                // 根據條件決定是否進入此邏輯分支。
                 if (sample.height() > seaLevel + 2) {
-                    // 設定或更新變數的值。
                     landCount++;
-                // 下一行程式碼負責執行目前步驟。
                 } else {
-                    // 設定或更新變數的值。
                     coastCount++;
                 }
 
-                // 根據條件決定是否進入此邏輯分支。
                 if (sample.biome() == Biome.FOREST) {
-                    // 設定或更新變數的值。
                     forestCount++;
                 }
-                // 根據條件決定是否進入此邏輯分支。
+
                 if (sample.biome() == Biome.MOUNTAIN) {
-                    // 設定或更新變數的值。
                     mountainCount++;
                 }
             }
         }
 
-        // 大片森林重生點需要大多數樣本都是陸地且森林比例夠高。
+        // 陸地與森林比例不足時，直接視為不適合。
         if (landCount < 20 || forestCount < 15) {
-            // 下一行程式碼負責執行目前步驟。
             return Integer.MIN_VALUE;
         }
 
-        // 宣告並初始化變數。
         int heightRange = maxHeight - minHeight;
-        // 宣告並初始化變數。
+
+        // 大陸性越高，代表越偏內陸，分數越高。
         int inlandBonus = Math.round(Math.max(0.0f, center.continental() + 0.12f) * 60.0f);
 
-        // 分數越高表示越像大片內陸森林，適合作為出生區中心。
         return forestCount * 9
-                // 下一行程式碼負責執行目前步驟。
                 + landCount * 6
-                // 下一行程式碼負責執行目前步驟。
                 + inlandBonus
-                // 下一行程式碼負責執行目前步驟。
                 - coastCount * 14
-                // 下一行程式碼負責執行目前步驟。
                 - mountainCount * 8
-                // 下一行程式碼負責執行目前步驟。
                 - Math.max(0, heightRange - 10) * 3;
     }
 
-    // 定義類別內部使用的方法。
+    // 取樣某個座標的地表高度、生態區與大陸性。
     private SurfaceSample sampleSurface(int worldX, int worldZ) {
-        // 宣告並初始化變數。
         float continental = Noise.fbm2(worldX * 0.0019f, worldZ * 0.0019f, 5, 2.0f, 0.5f, seed + 17);
-        // 宣告並初始化變數。
         float erosion = Noise.fbm2(worldX * 0.0036f, worldZ * 0.0036f, 4, 2.0f, 0.53f, seed + 23);
-        // 宣告並初始化變數。
         float detail = Noise.fbm2(worldX * 0.0105f, worldZ * 0.0105f, 4, 2.1f, 0.50f, seed + 29);
-        // 宣告並初始化變數。
         float ridges = Math.abs(Noise.fbm2(worldX * 0.0026f, worldZ * 0.0026f, 4, 2.0f, 0.5f, seed + 37));
-        // 宣告並初始化變數。
         float temperature = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 41);
-        // 宣告並初始化變數。
         float moisture = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 47);
-        // 宣告並初始化變數。
         float weirdness = Noise.fbm2(worldX * 0.0048f, worldZ * 0.0048f, 3, 2.0f, 0.5f, seed + 53);
 
-        // 宣告並初始化變數。
+        // 先用多組噪音決定基礎高度。
         float baseHeight = 57.0f
-                // 下一行程式碼負責執行目前步驟。
                 + continental * 20.0f
-                // 下一行程式碼負責執行目前步驟。
                 + detail * 7.5f
-                // 下一行程式碼負責執行目前步驟。
                 - Math.max(0.0f, -continental) * 8.0f
-                // 呼叫方法執行對應功能。
                 - Math.max(0.0f, -erosion) * 3.0f;
-        // 宣告並初始化變數。
+
+        // 山地地形會額外抬高高度。
         float mountainMask = Math.max(0.0f, ridges - 0.27f) / 0.73f;
-        // 宣告並初始化變數。
         float mountainBoost = mountainMask * mountainMask * (30.0f + Math.max(0.0f, weirdness) * 18.0f);
-        // 宣告並初始化變數。
+
         int height = Math.round(baseHeight + mountainBoost);
-        // 設定或更新變數的值。
         height = Math.max(6, Math.min(GameConfig.CHUNK_HEIGHT - 4, height));
 
-        // 宣告並初始化變數。
         Biome biome = pickBiome(height, continental, ridges, temperature, moisture);
-        // 呼叫方法執行對應功能。
         return new SurfaceSample(height, biome, continental);
     }
 
-    // 定義類別內部使用的方法。
+    // 根據高度與多種噪音值決定這裡屬於哪種生態區。
     private Biome pickBiome(int height, float continental, float ridges, float temperature, float moisture) {
-        // 根據條件決定是否進入此邏輯分支。
         if (ridges > 0.72f && continental > -0.20f) {
-            // 下一行程式碼負責執行目前步驟。
             return Biome.MOUNTAIN;
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (temperature > 0.45f && moisture < -0.05f) {
-            // 下一行程式碼負責執行目前步驟。
             return Biome.DESERT;
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (temperature < -0.40f && continental > -0.25f) {
-            // 下一行程式碼負責執行目前步驟。
             return Biome.SNOW;
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (temperature > 0.18f && moisture < -0.24f && height > seaLevel + 3) {
-            // 下一行程式碼負責執行目前步驟。
             return Biome.BADLANDS;
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (moisture > 0.26f) {
-            // 下一行程式碼負責執行目前步驟。
             return Biome.FOREST;
         }
-        // 下一行程式碼負責執行目前步驟。
         return Biome.PLAINS;
     }
 
-    // 定義類別內部使用的方法。
+    // 根據生態區與深度決定某一層應該用哪種方塊。
     private BlockType selectStrataBlock(Biome biome, int y, int height, int topDepth, int seaLevel) {
-        // 根據條件決定是否進入此邏輯分支。
+        // 最上層通常是地表。
         if (y == height) {
-            // 下一行程式碼負責執行目前步驟。
             return switch (biome) {
-                // 宣告 switch 的其中一個分支。
                 case DESERT, BADLANDS -> BlockType.SAND;
-                // 宣告 switch 的其中一個分支。
                 case SNOW -> height > seaLevel + 1 ? BlockType.SNOW : BlockType.SAND;
-                // 宣告 switch 的其中一個分支。
                 case MOUNTAIN -> height > 88 ? BlockType.SNOW : BlockType.STONE;
-                // 設定或更新變數的值。
                 default -> height <= seaLevel + 1 ? BlockType.SAND : BlockType.GRASS;
             };
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 接近地表的幾層通常是泥土或沙。
         if (y >= height - topDepth) {
-            // 下一行程式碼負責執行目前步驟。
             return switch (biome) {
-                // 宣告 switch 的其中一個分支。
                 case DESERT, BADLANDS -> BlockType.SAND;
-                // 宣告 switch 的其中一個分支。
                 case MOUNTAIN -> (height > 82 && y >= height - 2) ? BlockType.STONE : BlockType.DIRT;
-                // 下一行程式碼負責執行目前步驟。
                 default -> BlockType.DIRT;
             };
         }
 
-        // 下一行程式碼負責執行目前步驟。
+        // 更深處大多是石頭，惡地偶爾混入泥土。
         return switch (biome) {
-            // 宣告 switch 的其中一個分支。
             case BADLANDS -> (y % 6 == 0) ? BlockType.DIRT : BlockType.STONE;
-            // 下一行程式碼負責執行目前步驟。
             default -> BlockType.STONE;
         };
     }
 
-    // 定義類別內部使用的方法。
+    // 規劃某個位置是否要長一棵樹，以及樹的基本資訊。
     private TreeSpec planTree(Chunk chunk, Biome biome, int lx, int baseY, int lz, int worldX, int worldZ) {
-        // 根據條件決定是否進入此邏輯分支。
+        // 某些生態區不長樹。
         if (biome == Biome.DESERT || biome == Biome.BADLANDS || biome == Biome.MOUNTAIN) {
-            // 下一行程式碼負責執行目前步驟。
             return null;
         }
 
-        // 用格網抖動控制樹木間距，避免森林樹冠過度重疊看起來像超大樹。
+        // 只有符合格網位置的座標才有機會生成樹，避免太密。
         if (!matchesTreeGridSlot(biome, worldX, worldZ)) {
-            // 下一行程式碼負責執行目前步驟。
             return null;
         }
 
-        // 宣告並初始化變數。
         int hash = Noise.hashInt(worldX, 0, worldZ, seed + 191);
-        // 宣告並初始化變數。
+
+        // 不同生態區有不同機率長樹。
         int chance = switch (biome) {
-            // 宣告 switch 的其中一個分支。
             case FOREST -> 34;
-            // 宣告 switch 的其中一個分支。
             case SNOW -> 10;
-            // 宣告 switch 的其中一個分支。
             case PLAINS -> 12;
-            // 下一行程式碼負責執行目前步驟。
             default -> 0;
         };
 
-        // 根據條件決定是否進入此邏輯分支。
         if ((hash & 0xFF) > chance) {
-            // 下一行程式碼負責執行目前步驟。
             return null;
         }
 
-        // 宣告並初始化變數。
         int trunkHeight = 3 + Math.abs(hash % 3);
-        // 宣告並初始化變數。
         int topY = baseY + trunkHeight;
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 樹太高會超出世界高度時，不生成。
         if (topY + 3 >= GameConfig.CHUNK_HEIGHT) {
-            // 下一行程式碼負責執行目前步驟。
             return null;
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 太靠近 Chunk 邊界時不生成，避免樹冠被切掉。
         if (lx < 2 || lx >= GameConfig.CHUNK_SIZE - 2 || lz < 2 || lz >= GameConfig.CHUNK_SIZE - 2) {
-            // 下一行程式碼負責執行目前步驟。
             return null;
         }
 
-        // 使用迴圈逐一處理每個元素或區間。
+        // 樹幹位置必須是空氣。
         for (int y = 0; y < trunkHeight; y++) {
-            // 根據條件決定是否進入此邏輯分支。
             if (chunk.get(lx, baseY + y, lz) != BlockType.AIR) {
-                // 下一行程式碼負責執行目前步驟。
                 return null;
             }
         }
 
-        // 呼叫方法執行對應功能。
         return new TreeSpec(lx, lz, baseY, trunkHeight);
     }
 
-    // 定義類別內部使用的方法。
+    // 用格網加上隨機偏移，控制樹木分布位置。
     private boolean matchesTreeGridSlot(Biome biome, int worldX, int worldZ) {
-        // 森林使用較大格網降低密度，其他地形保留較小格網。
         int cellSize = biome == Biome.FOREST ? 5 : 6;
-        // 宣告並初始化變數。
+
         int cellX = Math.floorDiv(worldX, cellSize);
-        // 宣告並初始化變數。
         int cellZ = Math.floorDiv(worldZ, cellSize);
-        // 宣告並初始化變數。
         int localX = Math.floorMod(worldX, cellSize);
-        // 宣告並初始化變數。
         int localZ = Math.floorMod(worldZ, cellSize);
-        // 宣告並初始化變數。
+
         int cellHash = Noise.hashInt(cellX, 97, cellZ, seed + 173);
-        // 宣告並初始化變數。
         int slotX = Math.floorMod(cellHash, cellSize);
-        // 宣告並初始化變數。
         int slotZ = Math.floorMod(cellHash >>> 8, cellSize);
-        // 下一行程式碼負責執行目前步驟。
+
         return localX == slotX && localZ == slotZ;
     }
 
-    // 定義類別內部使用的方法。
+    // 放置樹幹。
     private void placeTrunk(Chunk chunk, TreeSpec tree) {
-        // 使用迴圈逐一處理每個元素或區間。
         for (int y = 0; y < tree.trunkHeight(); y++) {
-            // 呼叫方法執行對應功能。
             chunk.setRaw(tree.lx(), tree.baseY() + y, tree.lz(), (short) BlockType.LOG.id());
         }
     }
 
-    // 定義類別內部使用的方法。
+    // 放置樹冠。
     private void placeCanopy(Chunk chunk, TreeSpec tree) {
-        // 宣告並初始化變數。
         int topY = tree.topY();
-        // 宣告並初始化變數。
+
+        // 樹葉從樹幹上半部開始包覆。
         int canopyBaseY = tree.baseY() + Math.max(1, tree.trunkHeight() - 4);
 
-        // 使用迴圈逐一處理每個元素或區間。
         for (int y = canopyBaseY; y <= topY + 2; y++) {
-            // 宣告並初始化變數。
             int rel = y - topY;
-            // 下一行程式碼負責執行目前步驟。
             int radius;
-            // 下一行程式碼負責執行目前步驟。
             boolean trimCorners;
 
-            // 根據條件決定是否進入此邏輯分支。
+            // 不同高度使用不同的葉層半徑，讓樹冠看起來較自然。
             if (rel <= -3) {
-                // 設定或更新變數的值。
                 radius = 1;
-                // 設定或更新變數的值。
                 trimCorners = false;
-            // 下一行程式碼負責執行目前步驟。
             } else if (rel <= 0) {
-                // 設定或更新變數的值。
                 radius = 2;
-                // 設定或更新變數的值。
                 trimCorners = rel == 0;
-            // 下一行程式碼負責執行目前步驟。
             } else if (rel == 1) {
-                // 設定或更新變數的值。
                 radius = 1;
-                // 設定或更新變數的值。
                 trimCorners = false;
-            // 下一行程式碼負責執行目前步驟。
             } else {
-                // 設定或更新變數的值。
                 radius = 0;
-                // 設定或更新變數的值。
                 trimCorners = false;
             }
 
-            // 呼叫方法執行對應功能。
             placeLeafLayer(chunk, tree.lx(), y, tree.lz(), radius, trimCorners);
         }
 
-        // 宣告並初始化變數。
+        // 在樹幹周圍再補一圈樹葉，讓外觀看起來更厚實。
         int wrapStart = Math.max(tree.baseY() + 1, topY - 3);
-        // 使用迴圈逐一處理每個元素或區間。
         for (int y = wrapStart; y <= topY - 1; y++) {
-            // 呼叫方法執行對應功能。
             trySetLeaf(chunk, tree.lx() + 1, y, tree.lz());
-            // 呼叫方法執行對應功能。
             trySetLeaf(chunk, tree.lx() - 1, y, tree.lz());
-            // 呼叫方法執行對應功能。
             trySetLeaf(chunk, tree.lx(), y, tree.lz() + 1);
-            // 呼叫方法執行對應功能。
             trySetLeaf(chunk, tree.lx(), y, tree.lz() - 1);
         }
     }
 
-    // 定義類別內部使用的方法。
+    // 放置某一層的樹葉。
     private void placeLeafLayer(Chunk chunk, int centerX, int y, int centerZ, int radius, boolean trimCorners) {
-        // 根據條件決定是否進入此邏輯分支。
         if (radius <= 0) {
-            // 呼叫方法執行對應功能。
             trySetLeaf(chunk, centerX, y, centerZ);
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 使用迴圈逐一處理每個元素或區間。
         for (int dx = -radius; dx <= radius; dx++) {
-            // 使用迴圈逐一處理每個元素或區間。
             for (int dz = -radius; dz <= radius; dz++) {
-                // 根據條件決定是否進入此邏輯分支。
+                // 需要時把四個角落去掉，避免樹冠太方。
                 if (trimCorners && Math.abs(dx) == radius && Math.abs(dz) == radius) {
-                    // 跳過本次迴圈剩餘邏輯，直接進入下一次迭代。
                     continue;
                 }
-                // 呼叫方法執行對應功能。
                 trySetLeaf(chunk, centerX + dx, y, centerZ + dz);
             }
         }
     }
 
-    // 定義類別內部使用的方法。
+    // 嘗試在指定位置放置樹葉。
     private void trySetLeaf(Chunk chunk, int x, int y, int z) {
-        // 根據條件決定是否進入此邏輯分支。
         if (x < 0 || x >= GameConfig.CHUNK_SIZE || z < 0 || z >= GameConfig.CHUNK_SIZE) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (y < 1 || y >= GameConfig.CHUNK_HEIGHT) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 只在空氣位置放樹葉，不覆蓋其他方塊。
         if (chunk.get(x, y, z) == BlockType.AIR) {
-            // 呼叫方法執行對應功能。
             chunk.setRaw(x, y, z, (short) BlockType.LEAVES.id());
         }
     }
 
-    // 定義主要型別與其結構。
+    // 記錄一棵樹的基本生成資訊。
     private record TreeSpec(int lx, int lz, int baseY, int trunkHeight) {
-        // 下一行程式碼負責執行目前步驟。
+
+        // 回傳樹幹頂端高度。
         int topY() {
-            // 下一行程式碼負責執行目前步驟。
             return baseY + trunkHeight;
         }
     }
 
-    // 定義地表採樣結果，供出生點搜尋等邏輯重複使用。
+    // 記錄某個地表位置的取樣結果。
     private record SurfaceSample(int height, Biome biome, float continental) {
     }
 }

@@ -1,494 +1,382 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.gameplay;
 
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.config.GameConfig;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.Camera;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.engine.InputState;
-// 匯入後續會使用到的型別或函式。
 import com.minecraftin.clone.world.World;
-// 匯入後續會使用到的型別或函式。
 import org.joml.Vector3f;
 
-// 匯入後續會使用到的型別或函式。
 import static org.lwjgl.glfw.GLFW.*;
 
-// 定義主要型別與其結構。
 public final class Player {
-    // 設定或更新變數的值。
+    // 每次位移切成更小的步驟，讓碰撞判定更穩定
     private static final float COLLISION_STEP = 0.04f;
-    // 設定或更新變數的值。
+
+    // 避免浮點數誤差造成角色卡牆或誤判碰撞
     private static final float EPSILON = 0.001f;
-    // 設定或更新變數的值。
+
+    // 兩次按空白鍵的最大間隔，超過就不算雙擊
     private static final float DOUBLE_TAP_SECONDS = 0.28f;
 
-    // 設定或更新變數的值。
+    // 角色目前位置
     private final Vector3f position = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 角色目前速度
     private final Vector3f velocity = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 暫存玩家想移動的方向，避免一直建立新物件
     private final Vector3f tmpWish = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 暫存相機前方方向
     private final Vector3f tmpForward = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 暫存相機右方方向
     private final Vector3f tmpRight = new Vector3f();
 
-    // 設定或更新變數的值。
+    // 是否啟用創造模式
     private final boolean creativeMode = GameConfig.CREATIVE_MODE_ONLY;
 
-    // 下一行程式碼負責執行目前步驟。
+    // 是否站在地面上
     private boolean onGround;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 是否正在飛行
     private boolean flying;
-    // 設定或更新變數的值。
+
+    // 距離上次按下空白鍵已經過了多久
     private float timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
-    // 定義對外可呼叫的方法。
+    // 回傳角色目前位置
     public Vector3f position() {
-        // 下一行程式碼負責執行目前步驟。
         return position;
     }
 
-    // 定義對外可呼叫的方法。
+    // 回傳角色是否正在飛行
     public boolean isFlying() {
-        // 下一行程式碼負責執行目前步驟。
         return flying;
     }
 
-    // 定義對外可呼叫的方法。
+    // 回傳角色是否站在地面
     public boolean isOnGround() {
-        // 下一行程式碼負責執行目前步驟。
         return onGround;
     }
 
-    // 定義對外可呼叫的方法。
+    // 計算水平移動速度，只看 x 和 z，不看上下速度
     public float horizontalSpeed() {
-        // 呼叫方法執行對應功能。
         return (float) Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     }
 
-    // 定義對外可呼叫的方法。
+    // 直接設定角色位置，並重置移動狀態
     public void setPosition(float x, float y, float z) {
-        // 呼叫方法執行對應功能。
         position.set(x, y, z);
-        // 呼叫方法執行對應功能。
         velocity.zero();
-        // 設定或更新變數的值。
         onGround = false;
-        // 設定或更新變數的值。
         flying = false;
-        // 設定或更新變數的值。
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
     }
 
-    // 定義對外可呼叫的方法。
+    // 取得角色眼睛位置，通常用於相機或視角起點
     public Vector3f eyePosition(Vector3f out) {
-        // 呼叫方法執行對應功能。
         out.set(position.x, position.y + GameConfig.PLAYER_EYE_HEIGHT, position.z);
-        // 下一行程式碼負責執行目前步驟。
         return out;
     }
 
-    // 定義對外可呼叫的方法。
+    // 每一幀更新角色狀態
     public void update(InputState input, Camera camera, World world, float deltaSeconds) {
-        // 呼叫方法執行對應功能。
+        // 先嘗試把角色從方塊內推出來，避免出生或移動後卡進牆裡
         resolveIntersections(world);
-        // 設定或更新變數的值。
+
+        // 累加距離上次按空白鍵的時間
         timeSinceLastSpaceTap += deltaSeconds;
 
-        // 宣告並初始化變數。
         boolean spacePressed = input.wasKeyPressed(GLFW_KEY_SPACE);
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 創造模式下，雙擊空白鍵可切換飛行
         if (creativeMode && spacePressed) {
-            // 根據條件決定是否進入此邏輯分支。
             if (timeSinceLastSpaceTap <= DOUBLE_TAP_SECONDS) {
-                // 設定或更新變數的值。
                 flying = !flying;
-                // 設定或更新變數的值。
                 timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
-                // 根據條件決定是否進入此邏輯分支。
+
+                // 進入飛行時，取消落地狀態並清除上下速度
                 if (flying) {
-                    // 設定或更新變數的值。
                     onGround = false;
-                    // 設定或更新變數的值。
                     velocity.y = 0.0f;
                 }
-            // 下一行程式碼負責執行目前步驟。
             } else {
-                // 設定或更新變數的值。
+                // 第一次按空白鍵，開始計時等待第二次點擊
                 timeSinceLastSpaceTap = 0.0f;
             }
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 飛行模式和一般地面模式分開處理
         if (creativeMode && flying) {
-            // 呼叫方法執行對應功能。
             updateCreative(input, camera, world, deltaSeconds);
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 呼叫方法執行對應功能。
         updateGrounded(input, camera, world, deltaSeconds, spacePressed);
     }
 
-    // 定義類別內部使用的方法。
+    // 如果角色一開始就卡進方塊，往上嘗試移動直到脫離碰撞
     private void resolveIntersections(World world) {
-        // 根據條件決定是否進入此邏輯分支。
         if (!collides(world, position.x, position.y, position.z)) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 宣告並初始化變數。
         float originalY = position.y;
-        // 使用迴圈逐一處理每個元素或區間。
+
+        // 最多往上嘗試 24 次，每次抬高 0.125
         for (int i = 1; i <= 24; i++) {
-            // 宣告並初始化變數。
             float candidateY = originalY + i * 0.125f;
-            // 根據條件決定是否進入此邏輯分支。
+
             if (!collides(world, position.x, candidateY, position.z)) {
-                // 設定或更新變數的值。
                 position.y = candidateY;
-                // 設定或更新變數的值。
                 velocity.y = 0.0f;
-                // 設定或更新變數的值。
                 onGround = false;
-                // 下一行程式碼負責執行目前步驟。
                 return;
             }
         }
     }
 
-    // 定義類別內部使用的方法。
+    // 飛行模式下的移動更新
     private void updateCreative(InputState input, Camera camera, World world, float deltaSeconds) {
-        // 宣告並初始化變數。
         Vector3f wish = tmpWish.zero();
-        // 宣告並初始化變數。
         Vector3f forward = camera.forward(tmpForward);
-        // 宣告並初始化變數。
         Vector3f right = camera.right(tmpRight);
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 根據按鍵累加想移動的方向
         if (input.isKeyDown(GLFW_KEY_W)) {
-            // 呼叫方法執行對應功能。
             wish.add(forward);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_S)) {
-            // 呼叫方法執行對應功能。
             wish.sub(forward);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_D)) {
-            // 呼叫方法執行對應功能。
             wish.add(right);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_A)) {
-            // 呼叫方法執行對應功能。
             wish.sub(right);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_SPACE)) {
-            // 呼叫方法執行對應功能。
             wish.add(0.0f, 1.0f, 0.0f);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) {
-            // 呼叫方法執行對應功能。
             wish.add(0.0f, -1.0f, 0.0f);
         }
 
-        // 宣告並初始化變數。
+        // 預設飛行速度，按住 Ctrl 可加速
         float targetSpeed = GameConfig.FLY_SPEED;
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL)) {
-            // 設定或更新變數的值。
             targetSpeed *= GameConfig.SPRINT_MULTIPLIER;
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 將方向向量正規化後乘上目標速度
         if (wish.lengthSquared() > 0.0001f) {
-            // 呼叫方法執行對應功能。
             wish.normalize(targetSpeed);
-        // 下一行程式碼負責執行目前步驟。
         } else {
-            // 呼叫方法執行對應功能。
             wish.zero();
         }
 
-        // 宣告並初始化變數。
+        // 讓目前速度逐漸接近目標速度，避免瞬間改變太生硬
         float accel = 28.0f;
-        // 設定或更新變數的值。
         velocity.x = approach(velocity.x, wish.x, accel * deltaSeconds);
-        // 設定或更新變數的值。
         velocity.y = approach(velocity.y, wish.y, accel * deltaSeconds);
-        // 設定或更新變數的值。
         velocity.z = approach(velocity.z, wish.z, accel * deltaSeconds);
 
-        // 呼叫方法執行對應功能。
+        // 分三個軸移動，方便逐軸做碰撞處理
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
-        // 呼叫方法執行對應功能。
         moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
-        // 呼叫方法執行對應功能。
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
-        // 設定或更新變數的值。
+
+        // 飛行時不算站在地面
         onGround = false;
     }
 
-    // 定義類別內部使用的方法。
-    private void updateGrounded(InputState input, Camera camera, World world, float deltaSeconds, boolean spacePressed) {
-        // 宣告並初始化變數。
+    // 一般走路、跳躍、重力模式下的移動更新
+    private void updateGrounded(InputState input, Camera camera, World world, float deltaSeconds,
+            boolean spacePressed) {
         Vector3f wish = tmpWish.zero();
 
-        // 宣告並初始化變數。
+        // 取得相機前方方向，但只保留水平分量
         Vector3f forward = camera.forward(tmpForward);
-        // 設定或更新變數的值。
         forward.y = 0.0f;
-        // 根據條件決定是否進入此邏輯分支。
         if (forward.lengthSquared() > 0.0001f) {
-            // 呼叫方法執行對應功能。
             forward.normalize();
         }
 
-        // 宣告並初始化變數。
+        // 取得相機右方方向，但只保留水平分量
         Vector3f right = camera.right(tmpRight);
-        // 設定或更新變數的值。
         right.y = 0.0f;
-        // 根據條件決定是否進入此邏輯分支。
         if (right.lengthSquared() > 0.0001f) {
-            // 呼叫方法執行對應功能。
             right.normalize();
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 根據按鍵決定角色想前後左右移動的方向
         if (input.isKeyDown(GLFW_KEY_W)) {
-            // 呼叫方法執行對應功能。
             wish.add(forward);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_S)) {
-            // 呼叫方法執行對應功能。
             wish.sub(forward);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_D)) {
-            // 呼叫方法執行對應功能。
             wish.add(right);
         }
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_A)) {
-            // 呼叫方法執行對應功能。
             wish.sub(right);
         }
 
-        // 宣告並初始化變數。
+        // 預設走路速度，按住 Ctrl 可加速
         float targetSpeed = GameConfig.WALK_SPEED;
-        // 根據條件決定是否進入此邏輯分支。
         if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL)) {
-            // 設定或更新變數的值。
             targetSpeed *= GameConfig.SPRINT_MULTIPLIER;
         }
 
-        // 根據條件決定是否進入此邏輯分支。
         if (wish.lengthSquared() > 0.0001f) {
-            // 呼叫方法執行對應功能。
+            // 有移動輸入時，把方向轉成固定速度
             wish.normalize(targetSpeed);
-            // 宣告並初始化變數。
+
+            // 在地上加速比較快，空中加速比較慢
             float accel = onGround ? 34.0f : 10.0f;
-            // 設定或更新變數的值。
             velocity.x = approach(velocity.x, wish.x, accel * deltaSeconds);
-            // 設定或更新變數的值。
             velocity.z = approach(velocity.z, wish.z, accel * deltaSeconds);
-        // 下一行程式碼負責執行目前步驟。
         } else if (onGround) {
-            // 宣告並初始化變數。
+            // 沒有輸入而且在地上時，套用摩擦力讓角色慢慢停下來
             float friction = 20.0f * deltaSeconds;
-            // 設定或更新變數的值。
             velocity.x = approach(velocity.x, 0.0f, friction);
-            // 設定或更新變數的值。
             velocity.z = approach(velocity.z, 0.0f, friction);
         }
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 在地面按空白鍵時跳躍
         if (onGround && spacePressed) {
-            // 設定或更新變數的值。
             velocity.y = GameConfig.JUMP_VELOCITY;
-            // 設定或更新變數的值。
             onGround = false;
         }
 
-        // 設定或更新變數的值。
+        // 套用重力
         velocity.y -= GameConfig.GRAVITY * deltaSeconds;
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 限制最大下落速度，避免掉太快
         if (velocity.y < -65.0f) {
-            // 設定或更新變數的值。
             velocity.y = -65.0f;
         }
 
-        // 呼叫方法執行對應功能。
+        // 先處理 x 軸移動
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
 
-        // 設定或更新變數的值。
+        // 先重設為不在地面，之後由 y 軸碰撞重新判定
         onGround = false;
-        // 呼叫方法執行對應功能。
+
+        // 再處理 y 軸移動
         moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
 
-        // 呼叫方法執行對應功能。
+        // 最後處理 z 軸移動
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 防止角色掉到地圖底部以下
         if (position.y < 1.1f) {
-            // 設定或更新變數的值。
             position.y = 1.1f;
-            // 設定或更新變數的值。
             velocity.y = Math.max(0.0f, velocity.y);
-            // 設定或更新變數的值。
             onGround = true;
         }
     }
 
-    // 定義對外可呼叫的方法。
+    // 判斷角色碰撞箱是否和指定方塊相交
     public boolean intersectsBlock(int x, int y, int z) {
-        // 宣告並初始化變數。
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
-        // 宣告並初始化變數。
         float minX = position.x - half;
-        // 宣告並初始化變數。
         float maxX = position.x + half;
-        // 宣告並初始化變數。
         float minY = position.y;
-        // 宣告並初始化變數。
         float maxY = position.y + GameConfig.PLAYER_HEIGHT;
-        // 宣告並初始化變數。
         float minZ = position.z - half;
-        // 宣告並初始化變數。
         float maxZ = position.z + half;
 
-        // 下一行程式碼負責執行目前步驟。
         return maxX > x && minX < x + 1
-                // 下一行程式碼負責執行目前步驟。
                 && maxY > y && minY < y + 1
-                // 下一行程式碼負責執行目前步驟。
                 && maxZ > z && minZ < z + 1;
     }
 
-    // 定義類別內部使用的方法。
+    // 沿著單一軸移動，並在過程中逐步檢查碰撞
     private void moveOnAxis(World world, float dx, float dy, float dz) {
-        // 宣告並初始化變數。
         float distance = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 位移太小就直接略過
         if (distance < 1e-6f) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
 
-        // 宣告並初始化變數。
+        // 把整段位移切成多小步，減少穿牆問題
         int steps = Math.max(1, (int) Math.ceil(distance / COLLISION_STEP));
-        // 宣告並初始化變數。
         float stepX = dx / steps;
-        // 宣告並初始化變數。
         float stepY = dy / steps;
-        // 宣告並初始化變數。
         float stepZ = dz / steps;
 
-        // 使用迴圈逐一處理每個元素或區間。
         for (int i = 0; i < steps; i++) {
-            // 宣告並初始化變數。
             float targetX = position.x + stepX;
-            // 宣告並初始化變數。
             float targetY = position.y + stepY;
-            // 宣告並初始化變數。
             float targetZ = position.z + stepZ;
 
-            // 根據條件決定是否進入此邏輯分支。
+            // 沒撞到就走到下一小步
             if (!collides(world, targetX, targetY, targetZ)) {
-                // 呼叫方法執行對應功能。
                 position.set(targetX, targetY, targetZ);
-                // 跳過本次迴圈剩餘邏輯，直接進入下一次迭代。
                 continue;
             }
 
-            // 根據條件決定是否進入此邏輯分支。
+            // 撞到牆或方塊時，把對應方向速度清掉
             if (stepX != 0.0f) {
-                // 設定或更新變數的值。
                 velocity.x = 0.0f;
             }
-            // 根據條件決定是否進入此邏輯分支。
             if (stepY != 0.0f) {
-                // 根據條件決定是否進入此邏輯分支。
+                // 往下撞到地面時，標記為站在地上
                 if (stepY < 0.0f) {
-                    // 設定或更新變數的值。
                     onGround = true;
                 }
-                // 設定或更新變數的值。
                 velocity.y = 0.0f;
             }
-            // 根據條件決定是否進入此邏輯分支。
             if (stepZ != 0.0f) {
-                // 設定或更新變數的值。
                 velocity.z = 0.0f;
             }
-            // 下一行程式碼負責執行目前步驟。
+
+            // 這個軸一旦撞到就停止移動
             return;
         }
     }
 
-    // 定義類別內部使用的方法。
+    // 判斷角色碰撞箱在指定位置時，是否會碰到實心方塊
     private boolean collides(World world, float x, float y, float z) {
-        // 宣告並初始化變數。
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
 
-        // 宣告並初始化變數。
+        // 算出角色碰撞箱涵蓋到哪些方塊座標
         int minX = fastFloor(x - half + EPSILON);
-        // 宣告並初始化變數。
         int maxX = fastFloor(x + half - EPSILON);
-        // 宣告並初始化變數。
         int minY = fastFloor(y + EPSILON);
-        // 宣告並初始化變數。
         int maxY = fastFloor(y + GameConfig.PLAYER_HEIGHT - EPSILON);
-        // 宣告並初始化變數。
         int minZ = fastFloor(z - half + EPSILON);
-        // 宣告並初始化變數。
         int maxZ = fastFloor(z + half - EPSILON);
 
-        // 使用迴圈逐一處理每個元素或區間。
+        // 逐一檢查碰撞箱範圍內的所有方塊，只要有實心方塊就算碰撞
         for (int by = minY; by <= maxY; by++) {
-            // 使用迴圈逐一處理每個元素或區間。
             for (int bz = minZ; bz <= maxZ; bz++) {
-                // 使用迴圈逐一處理每個元素或區間。
                 for (int bx = minX; bx <= maxX; bx++) {
-                    // 根據條件決定是否進入此邏輯分支。
                     if (world.getBlock(bx, by, bz).isSolid()) {
-                        // 下一行程式碼負責執行目前步驟。
                         return true;
                     }
                 }
             }
         }
-        // 下一行程式碼負責執行目前步驟。
+
         return false;
     }
 
-    // 定義類別內部使用的方法。
+    // 讓 current 以固定步長慢慢接近 target
     private float approach(float current, float target, float delta) {
-        // 根據條件決定是否進入此邏輯分支。
         if (current < target) {
-            // 呼叫方法執行對應功能。
             return Math.min(current + delta, target);
         }
-        // 呼叫方法執行對應功能。
         return Math.max(current - delta, target);
     }
 
-    // 定義類別內部使用的方法。
+    // 比 Math.floor 更快的版本，專門把浮點數轉成較小的整數格子座標
     private int fastFloor(float value) {
-        // 宣告並初始化變數。
         int i = (int) value;
-        // 下一行程式碼負責執行目前步驟。
         return value < i ? i - 1 : i;
     }
 }

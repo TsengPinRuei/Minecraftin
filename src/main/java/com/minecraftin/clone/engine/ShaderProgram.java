@@ -1,187 +1,157 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.engine;
 
-// 匯入後續會使用到的型別或函式。
 import org.joml.Matrix4f;
-// 匯入後續會使用到的型別或函式。
 import org.joml.Vector3f;
-// 匯入後續會使用到的型別或函式。
 import org.lwjgl.system.MemoryStack;
 
-// 匯入後續會使用到的型別或函式。
 import java.io.IOException;
-// 匯入後續會使用到的型別或函式。
 import java.io.InputStream;
-// 匯入後續會使用到的型別或函式。
 import java.nio.FloatBuffer;
-// 匯入後續會使用到的型別或函式。
 import java.nio.charset.StandardCharsets;
-// 匯入後續會使用到的型別或函式。
 import java.util.HashMap;
-// 匯入後續會使用到的型別或函式。
 import java.util.Map;
 
-// 匯入後續會使用到的型別或函式。
 import static org.lwjgl.opengl.GL33C.*;
 
-// 定義主要型別與其結構。
 public final class ShaderProgram implements AutoCloseable {
-    // 下一行程式碼負責執行目前步驟。
+    // OpenGL shader program 的 ID，用來代表已建立完成的 shader 程式。
     private final int id;
-    // 設定或更新變數的值。
+
+    // 快取 uniform 變數的位置，避免每次設定值時都重新查詢。
     private final Map<String, Integer> uniformLocations = new HashMap<>();
 
-    // 定義對外可呼叫的方法。
+    // 建立 shader program，並載入頂點著色器與片段著色器。
     public ShaderProgram(String vertexResource, String fragmentResource) {
-        // 宣告並初始化變數。
+        // 先編譯頂點著色器與片段著色器。
         int vertexShader = compile(GL_VERTEX_SHADER, loadResource(vertexResource));
-        // 宣告並初始化變數。
         int fragmentShader = compile(GL_FRAGMENT_SHADER, loadResource(fragmentResource));
-        // 宣告並初始化變數。
+
+        // 建立 OpenGL program。
         int programId = glCreateProgram();
-        // 下一行程式碼負責執行目前步驟。
+
         try {
-            // 呼叫方法執行對應功能。
+            // 把兩個 shader 掛到同一個 program 上。
             glAttachShader(programId, vertexShader);
-            // 呼叫方法執行對應功能。
             glAttachShader(programId, fragmentShader);
-            // 呼叫方法執行對應功能。
+
+            // 將 shader 連結成可執行的 program。
             glLinkProgram(programId);
 
-            // 根據條件決定是否進入此邏輯分支。
+            // 如果連結失敗，就取出錯誤訊息並拋出例外。
             if (glGetProgrami(programId, GL_LINK_STATUS) == GL_FALSE) {
-                // 宣告並初始化變數。
                 String log = glGetProgramInfoLog(programId);
-                // 呼叫方法執行對應功能。
                 throw new IllegalStateException("Program link failed: " + log);
             }
-        // 下一行程式碼負責執行目前步驟。
         } catch (RuntimeException e) {
-            // 呼叫方法執行對應功能。
+            // 如果中途失敗，記得刪除已建立的 program，避免資源洩漏。
             glDeleteProgram(programId);
-            // 下一行程式碼負責執行目前步驟。
             throw e;
-        // 下一行程式碼負責執行目前步驟。
         } finally {
-            // 呼叫方法執行對應功能。
+            // 無論成功或失敗，shader 物件本身都可以刪除。
+            // 因為成功連結後，program 內部已經保留需要的內容。
             glDeleteShader(vertexShader);
-            // 呼叫方法執行對應功能。
             glDeleteShader(fragmentShader);
         }
-        // 設定或更新變數的值。
+
         id = programId;
     }
 
-    // 定義類別內部使用的方法。
+    // 編譯單一 shader，type 可能是頂點著色器或片段著色器。
     private static int compile(int type, String source) {
-        // 宣告並初始化變數。
         int shader = glCreateShader(type);
-        // 呼叫方法執行對應功能。
+
+        // 把 GLSL 原始碼交給 OpenGL。
         glShaderSource(shader, source);
-        // 呼叫方法執行對應功能。
+
+        // 開始編譯 shader。
         glCompileShader(shader);
 
-        // 根據條件決定是否進入此邏輯分支。
+        // 如果編譯失敗，就取得錯誤訊息並丟出例外。
         if (glGetShaderi(shader, GL_COMPILE_STATUS) == GL_FALSE) {
-            // 宣告並初始化變數。
             String log = glGetShaderInfoLog(shader);
-            // 呼叫方法執行對應功能。
             glDeleteShader(shader);
-            // 呼叫方法執行對應功能。
             throw new IllegalStateException("Shader compile failed: " + log);
         }
-        // 下一行程式碼負責執行目前步驟。
+
         return shader;
     }
 
-    // 定義類別內部使用的方法。
+    // 從 resources 讀取 shader 檔案內容。
     private static String loadResource(String resourcePath) {
-        // 下一行程式碼負責執行目前步驟。
         try (InputStream inputStream = ShaderProgram.class.getResourceAsStream(resourcePath)) {
-            // 根據條件決定是否進入此邏輯分支。
+            // 找不到資源檔時直接拋出錯誤。
             if (inputStream == null) {
-                // 呼叫方法執行對應功能。
                 throw new IllegalArgumentException("Missing shader resource: " + resourcePath);
             }
-            // 呼叫方法執行對應功能。
+
+            // 讀取整個檔案，並用 UTF-8 轉成字串。
             return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-        // 下一行程式碼負責執行目前步驟。
         } catch (IOException e) {
-            // 呼叫方法執行對應功能。
+            // 讀取失敗時包成執行期例外。
             throw new IllegalStateException("Failed to read shader: " + resourcePath, e);
         }
     }
 
-    // 定義對外可呼叫的方法。
+    // 啟用這個 shader program，之後的繪圖就會使用它。
     public void use() {
-        // 呼叫方法執行對應功能。
         glUseProgram(id);
     }
 
-    // 定義對外可呼叫的方法。
+    // 設定 int 型別的 uniform 變數。
     public void setInt(String name, int value) {
-        // 宣告並初始化變數。
         int location = uniformLocation(name);
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 如果找得到這個 uniform，才進行設定。
         if (location >= 0) {
-            // 呼叫方法執行對應功能。
             glUniform1i(location, value);
         }
     }
 
-    // 定義對外可呼叫的方法。
+    // 設定 float 型別的 uniform 變數。
     public void setFloat(String name, float value) {
-        // 宣告並初始化變數。
         int location = uniformLocation(name);
-        // 根據條件決定是否進入此邏輯分支。
+
         if (location >= 0) {
-            // 呼叫方法執行對應功能。
             glUniform1f(location, value);
         }
     }
 
-    // 定義對外可呼叫的方法。
+    // 設定 vec3 型別的 uniform 變數。
     public void setVec3(String name, Vector3f vec) {
-        // 宣告並初始化變數。
         int location = uniformLocation(name);
-        // 根據條件決定是否進入此邏輯分支。
+
         if (location >= 0) {
-            // 呼叫方法執行對應功能。
             glUniform3f(location, vec.x, vec.y, vec.z);
         }
     }
 
-    // 定義對外可呼叫的方法。
+    // 設定 mat4 型別的 uniform 變數。
     public void setMat4(String name, Matrix4f matrix) {
-        // 宣告並初始化變數。
         int location = uniformLocation(name);
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 如果 shader 中沒有這個 uniform，就直接略過。
         if (location < 0) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
-        // 下一行程式碼負責執行目前步驟。
+
+        // 使用 MemoryStack 暫時配置一塊記憶體來存放 4x4 矩陣資料。
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            // 宣告並初始化變數。
             FloatBuffer buffer = stack.mallocFloat(16);
-            // 呼叫方法執行對應功能。
+
+            // 把矩陣內容寫入 buffer，再傳給 OpenGL。
             matrix.get(buffer);
-            // 呼叫方法執行對應功能。
             glUniformMatrix4fv(location, false, buffer);
         }
     }
 
-    // 定義類別內部使用的方法。
+    // 取得 uniform 位置，並把查詢結果快取起來。
     private int uniformLocation(String name) {
-        // 呼叫方法執行對應功能。
         return uniformLocations.computeIfAbsent(name, key -> glGetUniformLocation(id, key));
     }
 
-    // 宣告註解標記，提供編譯器或框架額外資訊。
     @Override
-    // 定義對外可呼叫的方法。
+    // 釋放 shader program 佔用的 OpenGL 資源。
     public void close() {
-        // 呼叫方法執行對應功能。
         glDeleteProgram(id);
     }
 }

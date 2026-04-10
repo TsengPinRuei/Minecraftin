@@ -1,110 +1,121 @@
-// 下一行程式碼負責執行目前步驟。
 plugins {
-    // 下一行程式碼負責執行目前步驟。
+    // 啟用 Java 專案支援，讓 Gradle 知道這是 Java 專案。
     id 'java'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 啟用 application 外掛，方便執行主程式。
     id 'application'
 }
 
-// 下一行程式碼負責執行目前步驟。
+// 設定專案所屬群組。
 group = 'com.minecraftin'
-// 下一行程式碼負責執行目前步驟。
+
+// 設定目前專案的版本號。
 version = '0.1.0'
 
-// 下一行程式碼負責執行目前步驟。
 repositories {
-    // 下一行程式碼負責執行目前步驟。
+    // 使用 Maven Central 作為下載函式庫的來源。
     mavenCentral()
 }
 
-// 宣告並初始化變數。
+// 取得目前執行環境的作業系統資訊。
 def os = org.gradle.internal.os.OperatingSystem.current()
-// 宣告並初始化變數。
+
+// 取得目前電腦 CPU 架構，例如 x86_64、aarch64。
 def arch = System.getProperty('os.arch')
-// 下一行程式碼負責執行目前步驟。
+
+// 宣告一個變數，稍後用來儲存對應平台的 LWJGL 原生函式庫名稱。
 def lwjglNatives
 
-// 根據條件決定是否進入此邏輯分支。
+// 如果目前系統是 Windows。
 if (os.isWindows()) {
-    // 下一行程式碼負責執行目前步驟。
+    // 根據 CPU 是否為 64 位元，選擇對應的 Windows 原生函式庫。
     lwjglNatives = arch.contains('64') ? 'natives-windows' : 'natives-windows-x86'
-// 下一行程式碼負責執行目前步驟。
+
+// 如果目前系統是 macOS。
 } else if (os.isMacOsX()) {
-    // 下一行程式碼負責執行目前步驟。
+    // 根據是否為 Apple Silicon 或 ARM 架構，選擇對應的 macOS 原生函式庫。
     lwjglNatives = arch.contains('aarch64') || arch.contains('arm') ? 'natives-macos-arm64' : 'natives-macos'
-// 下一行程式碼負責執行目前步驟。
+
+// 如果目前系統是 Linux。
 } else if (os.isLinux()) {
-    // 下一行程式碼負責執行目前步驟。
+    // 根據 CPU 是否為 64 位元，選擇對應的 Linux 原生函式庫。
     lwjglNatives = arch.contains('64') ? 'natives-linux' : 'natives-linux-arm32'
-// 下一行程式碼負責執行目前步驟。
+
+// 如果不是以上支援的作業系統。
 } else {
-    // 下一行程式碼負責執行目前步驟。
+    // 拋出錯誤，表示這個作業系統目前不支援。
     throw new GradleException("Unsupported OS: ${os}")
 }
 
-// 下一行程式碼負責執行目前步驟。
 ext {
-    // 下一行程式碼負責執行目前步驟。
+    // 設定 LWJGL 的版本，後面相依套件會共用這個版本。
     lwjglVersion = '3.3.3'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 設定 JOML 的版本。
     jomlVersion = '1.10.5'
 }
 
-// 宣告並初始化變數。
+// 建立 JVM 預設啟動參數，設定最小與最大記憶體大小。
 def defaultJvmArgs = ['-Xms1g', '-Xmx2g']
-// 根據條件決定是否進入此邏輯分支。
+
+// 如果目前系統是 macOS。
 if (os.isMacOsX()) {
-    // 下一行程式碼負責執行目前步驟。
+    // macOS 上執行圖形程式時，需要加上這個參數才能正常啟動視窗。
     defaultJvmArgs += '-XstartOnFirstThread'
 }
 
-// 下一行程式碼負責執行目前步驟。
 dependencies {
-    // 下一行程式碼負責執行目前步驟。
+    // 匯入 LWJGL 的 BOM，統一管理 LWJGL 相關套件版本。
     implementation platform("org.lwjgl:lwjgl-bom:${lwjglVersion}")
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 LWJGL 核心函式庫。
     implementation 'org.lwjgl:lwjgl'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 GLFW 函式庫，用來建立視窗與處理輸入。
     implementation 'org.lwjgl:lwjgl-glfw'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 OpenGL 函式庫，用來進行圖形渲染。
     implementation 'org.lwjgl:lwjgl-opengl'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 STB 函式庫，常用於圖片載入等功能。
     implementation 'org.lwjgl:lwjgl-stb'
 
-    // 下一行程式碼負責執行目前步驟。
+    // 加入 LWJGL 核心的原生函式庫，依作業系統自動選擇版本。
     runtimeOnly "org.lwjgl:lwjgl::${lwjglNatives}"
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 GLFW 的原生函式庫。
     runtimeOnly "org.lwjgl:lwjgl-glfw::${lwjglNatives}"
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 OpenGL 的原生函式庫。
     runtimeOnly "org.lwjgl:lwjgl-opengl::${lwjglNatives}"
-    // 下一行程式碼負責執行目前步驟。
+
+    // 加入 STB 的原生函式庫。
     runtimeOnly "org.lwjgl:lwjgl-stb::${lwjglNatives}"
 
-    // 下一行程式碼負責執行目前步驟。
+    // 加入 JOML 函式庫，用來處理向量與矩陣等數學運算。
     implementation "org.joml:joml:${jomlVersion}"
 
-    // 下一行程式碼負責執行目前步驟。
+    // 加入 JUnit 5，提供單元測試功能。
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
-// 下一行程式碼負責執行目前步驟。
 application {
-    // 下一行程式碼負責執行目前步驟。
+    // 指定程式的主類別，也就是執行時的入口點。
     mainClass = 'com.minecraftin.clone.MinecraftClone'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 設定執行應用程式時要帶入的 JVM 預設參數。
     applicationDefaultJvmArgs = defaultJvmArgs
 }
 
-// 下一行程式碼負責執行目前步驟。
 tasks.withType(JavaCompile).configureEach {
-    // 下一行程式碼負責執行目前步驟。
+    // 指定 Java 原始碼編譯時使用 UTF-8 編碼，避免中文亂碼。
     options.encoding = 'UTF-8'
-    // 下一行程式碼負責執行目前步驟。
+
+    // 指定編譯出的 Java 版本為 17。
     options.release.set(17)
 }
 
-// 下一行程式碼負責執行目前步驟。
 test {
-    // 下一行程式碼負責執行目前步驟。
+    // 指定使用 JUnit Platform 來執行測試。
     useJUnitPlatform()
 }

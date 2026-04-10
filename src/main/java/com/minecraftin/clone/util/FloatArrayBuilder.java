@@ -1,115 +1,91 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.util;
 
-// 匯入後續會使用到的型別或函式。
 import java.util.Arrays;
 
-// 定義主要型別與其結構。
+// 用來動態累積 float 資料，類似專門給 float 使用的可變長度陣列。
 public final class FloatArrayBuilder {
-    // 下一行程式碼負責執行目前步驟。
+
+    // 真正儲存資料的陣列。
     private float[] data;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 目前已經放入多少筆資料。
     private int size;
 
-    // 定義對外可呼叫的方法。
+    // 建立物件時，使用預設初始容量。
     public FloatArrayBuilder() {
-        // 呼叫方法執行對應功能。
         this(1024);
     }
 
-    // 定義對外可呼叫的方法。
+    // 建立物件時，可自行指定初始容量。
     public FloatArrayBuilder(int initialCapacity) {
-        // 設定或更新變數的值。
         data = new float[Math.max(16, initialCapacity)];
     }
 
-    // 定義對外可呼叫的方法。
+    // 加入一個 float 值。
     public void add(float value) {
-        // 呼叫方法執行對應功能。
         ensure(size + 1);
-        // 設定或更新變數的值。
         data[size++] = value;
     }
 
-    // 定義對外可呼叫的方法。
+    // 一次加入三個 float 值。
     public void add(float a, float b, float c) {
-        // 呼叫方法執行對應功能。
         ensure(size + 3);
-        // 設定或更新變數的值。
         data[size++] = a;
-        // 設定或更新變數的值。
         data[size++] = b;
-        // 設定或更新變數的值。
         data[size++] = c;
     }
 
-    // 定義對外可呼叫的方法。
+    // 一次加入六個 float 值。
     public void add(float a, float b, float c, float d, float e, float f) {
-        // 呼叫方法執行對應功能。
         ensure(size + 6);
-        // 設定或更新變數的值。
         data[size++] = a;
-        // 設定或更新變數的值。
         data[size++] = b;
-        // 設定或更新變數的值。
         data[size++] = c;
-        // 設定或更新變數的值。
         data[size++] = d;
-        // 設定或更新變數的值。
         data[size++] = e;
-        // 設定或更新變數的值。
         data[size++] = f;
     }
 
-    // 定義對外可呼叫的方法。
+    // 一次加入多個 float 值。
     public void add(float... values) {
-        // 呼叫方法執行對應功能。
         ensure(size + values.length);
-        // 呼叫方法執行對應功能。
         System.arraycopy(values, 0, data, size, values.length);
-        // 設定或更新變數的值。
         size += values.length;
     }
 
-    // 定義對外可呼叫的方法。
+    // 回傳目前儲存了多少個 float。
     public int size() {
-        // 下一行程式碼負責執行目前步驟。
         return size;
     }
 
-    // 定義對外可呼叫的方法。
+    // 檢查目前是否沒有任何資料。
     public boolean isEmpty() {
-        // 宣告並初始化變數。
         return size == 0;
     }
 
-    // 定義對外可呼叫的方法。
+    // 回傳一個剛好符合資料長度的新陣列。
     public float[] toArray() {
-        // 呼叫方法執行對應功能。
         return Arrays.copyOf(data, size);
     }
 
-    // 定義對外可呼叫的方法。
+    // 清空目前資料，但保留原本陣列空間，方便重複使用。
     public void clear() {
-        // 設定或更新變數的值。
         size = 0;
     }
 
-    // 定義類別內部使用的方法。
+    // 確保陣列容量足夠放入指定數量的資料。
     private void ensure(int needed) {
-        // 根據條件決定是否進入此邏輯分支。
         if (needed <= data.length) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
-        // 宣告並初始化變數。
+
         int newCap = data.length;
-        // 在條件成立時重複執行此區塊。
+
+        // 容量不足時，持續擴大為原本的兩倍，直到足夠為止。
         while (newCap < needed) {
-            // 設定或更新變數的值。
             newCap *= 2;
         }
-        // 設定或更新變數的值。
+
         data = Arrays.copyOf(data, newCap);
     }
 }

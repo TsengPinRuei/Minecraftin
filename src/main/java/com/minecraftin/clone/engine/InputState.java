@@ -1,172 +1,141 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.engine;
 
-// 匯入後續會使用到的型別或函式。
 import org.lwjgl.glfw.GLFWCursorPosCallbackI;
-// 匯入後續會使用到的型別或函式。
 import org.lwjgl.glfw.GLFWKeyCallbackI;
-// 匯入後續會使用到的型別或函式。
 import org.lwjgl.glfw.GLFWMouseButtonCallbackI;
-// 匯入後續會使用到的型別或函式。
 import org.lwjgl.glfw.GLFWScrollCallbackI;
 
-// 匯入後續會使用到的型別或函式。
 import java.util.Arrays;
 
-// 匯入後續會使用到的型別或函式。
 import static org.lwjgl.glfw.GLFW.*;
 
-// 定義主要型別與其結構。
 public final class InputState {
-    // 設定或更新變數的值。
+    // 記錄每個鍵盤按鍵目前是否正在被按住。
     private final boolean[] keys = new boolean[GLFW_KEY_LAST + 1];
-    // 設定或更新變數的值。
+
+    // 記錄每個按鍵在「這一幀是否剛被按下」。
     private final boolean[] keysPressed = new boolean[GLFW_KEY_LAST + 1];
-    // 設定或更新變數的值。
+
+    // 記錄滑鼠按鍵在「這一幀是否剛被按下」。
     private final boolean[] mousePressed = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
 
-    // 設定或更新變數的值。
+    // 用來判斷滑鼠是否第一次移動，避免第一次就產生很大的位移量。
     private boolean firstMouse = true;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 記錄上一個滑鼠座標。
     private double lastMouseX;
-    // 下一行程式碼負責執行目前步驟。
     private double lastMouseY;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 記錄這一幀滑鼠總共移動了多少距離。
     private double mouseDeltaX;
-    // 下一行程式碼負責執行目前步驟。
     private double mouseDeltaY;
-    // 下一行程式碼負責執行目前步驟。
+
+    // 記錄滑鼠滾輪在這段時間內的垂直滾動量。
     private double scrollDeltaY;
 
-    // 定義類別內部使用的方法。
+    // 鍵盤事件發生時會呼叫這段邏輯。
     private final GLFWKeyCallbackI keyCallback = (window, key, scancode, action, mods) -> {
-        // 根據條件決定是否進入此邏輯分支。
+        // 如果按鍵代碼超出陣列範圍，就直接忽略。
         if (key < 0 || key >= keys.length) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 按鍵被按下時，記錄為持續按住，並標記為本幀剛按下。
         if (action == GLFW_PRESS) {
-            // 設定或更新變數的值。
             keys[key] = true;
-            // 設定或更新變數的值。
             keysPressed[key] = true;
-        // 下一行程式碼負責執行目前步驟。
+            // 按鍵放開時，只更新為沒有按住。
         } else if (action == GLFW_RELEASE) {
-            // 設定或更新變數的值。
             keys[key] = false;
         }
     };
 
-    // 定義類別內部使用的方法。
+    // 滑鼠按鍵事件發生時會呼叫這段邏輯。
     private final GLFWMouseButtonCallbackI mouseCallback = (window, button, action, mods) -> {
-        // 根據條件決定是否進入此邏輯分支。
+        // 如果按鍵編號超出範圍，就直接忽略。
         if (button < 0 || button >= mousePressed.length) {
-            // 下一行程式碼負責執行目前步驟。
             return;
         }
-        // 根據條件決定是否進入此邏輯分支。
+
+        // 只在按下當下記錄一次。
         if (action == GLFW_PRESS) {
-            // 設定或更新變數的值。
             mousePressed[button] = true;
         }
     };
 
-    // 定義類別內部使用的方法。
+    // 滑鼠移動時會呼叫這段邏輯。
     private final GLFWCursorPosCallbackI cursorCallback = (window, xpos, ypos) -> {
-        // 根據條件決定是否進入此邏輯分支。
+        // 第一次接收到滑鼠位置時，只初始化座標，不計算位移。
         if (firstMouse) {
-            // 設定或更新變數的值。
             lastMouseX = xpos;
-            // 設定或更新變數的值。
             lastMouseY = ypos;
-            // 設定或更新變數的值。
             firstMouse = false;
         }
-        // 設定或更新變數的值。
+
+        // 累加滑鼠本幀的移動距離。
         mouseDeltaX += xpos - lastMouseX;
-        // 設定或更新變數的值。
         mouseDeltaY += ypos - lastMouseY;
-        // 設定或更新變數的值。
+
+        // 更新最新座標，供下一次移動時計算差值。
         lastMouseX = xpos;
-        // 設定或更新變數的值。
         lastMouseY = ypos;
     };
 
-    // 設定或更新變數的值。
+    // 滾輪滾動時，把垂直方向的變化量累加起來。
     private final GLFWScrollCallbackI scrollCallback = (window, xOffset, yOffset) -> scrollDeltaY += yOffset;
 
-    // 定義對外可呼叫的方法。
+    // 把這個輸入狀態物件綁定到指定視窗上。
     public void attach(long windowHandle) {
-        // 呼叫方法執行對應功能。
         glfwSetKeyCallback(windowHandle, keyCallback);
-        // 呼叫方法執行對應功能。
         glfwSetCursorPosCallback(windowHandle, cursorCallback);
-        // 呼叫方法執行對應功能。
         glfwSetMouseButtonCallback(windowHandle, mouseCallback);
-        // 呼叫方法執行對應功能。
         glfwSetScrollCallback(windowHandle, scrollCallback);
     }
 
-    // 定義對外可呼叫的方法。
+    // 檢查某個按鍵目前是否正在被按住。
     public boolean isKeyDown(int keyCode) {
-        // 設定或更新變數的值。
         return keyCode >= 0 && keyCode < keys.length && keys[keyCode];
     }
 
-    // 定義對外可呼叫的方法。
+    // 檢查某個按鍵是否在這一幀剛被按下。
     public boolean wasKeyPressed(int keyCode) {
-        // 設定或更新變數的值。
         return keyCode >= 0 && keyCode < keysPressed.length && keysPressed[keyCode];
     }
 
-    // 定義對外可呼叫的方法。
+    // 檢查某個滑鼠按鍵是否在這一幀剛被按下。
     public boolean wasMousePressed(int button) {
-        // 設定或更新變數的值。
         return button >= 0 && button < mousePressed.length && mousePressed[button];
     }
 
-    // 定義對外可呼叫的方法。
+    // 取得這一幀滑鼠在 X 軸上的移動量。
     public double mouseDeltaX() {
-        // 下一行程式碼負責執行目前步驟。
         return mouseDeltaX;
     }
 
-    // 定義對外可呼叫的方法。
+    // 取得這一幀滑鼠在 Y 軸上的移動量。
     public double mouseDeltaY() {
-        // 下一行程式碼負責執行目前步驟。
         return mouseDeltaY;
     }
 
-    // 定義對外可呼叫的方法。
+    // 取得目前累積的滾輪垂直位移，並在取出後清空。
     public double consumeScrollDeltaY() {
-        // 宣告並初始化變數。
         double value = scrollDeltaY;
-        // 設定或更新變數的值。
         scrollDeltaY = 0.0;
-        // 下一行程式碼負責執行目前步驟。
         return value;
     }
 
-    // 定義對外可呼叫的方法。
+    // 每一幀結束時呼叫，清除只需要記錄一幀的輸入資料。
     public void endFrame() {
-        // 呼叫方法執行對應功能。
         Arrays.fill(keysPressed, false);
-        // 呼叫方法執行對應功能。
         Arrays.fill(mousePressed, false);
-        // 設定或更新變數的值。
         mouseDeltaX = 0.0;
-        // 設定或更新變數的值。
         mouseDeltaY = 0.0;
     }
 
-    // 定義對外可呼叫的方法。
+    // 重新初始化滑鼠追蹤狀態。
     public void resetMouseTracking() {
-        // 設定或更新變數的值。
         firstMouse = true;
-        // 設定或更新變數的值。
         mouseDeltaX = 0.0;
-        // 設定或更新變數的值。
         mouseDeltaY = 0.0;
     }
 }

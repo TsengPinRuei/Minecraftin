@@ -1,6 +1,5 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.world;
 
-// 定義主要型別與其結構。
+// 表示一個 Chunk 在世界中的座標位置。
 public record ChunkPos(int x, int z) {
 }

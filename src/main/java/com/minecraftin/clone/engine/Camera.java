@@ -1,107 +1,99 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.engine;
 
-// 匯入後續會使用到的型別或函式。
 import org.joml.Matrix4f;
-// 匯入後續會使用到的型別或函式。
 import org.joml.Vector3f;
 
-// 定義主要型別與其結構。
 public final class Camera {
-    // 設定或更新變數的值。
+    // 世界座標中的「上方」方向，通常是 Y 軸正方向。
     private static final Vector3f WORLD_UP = new Vector3f(0.0f, 1.0f, 0.0f);
 
-    // 設定或更新變數的值。
+    // 攝影機目前所在的位置。
     private final Vector3f position = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 暫存前方方向，避免每次都建立新物件。
     private final Vector3f tmpForward = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 暫存攝影機注視的目標點，避免重複建立物件。
     private final Vector3f tmpCenter = new Vector3f();
-    // 設定或更新變數的值。
+
+    // 左右轉動角度。預設 -90 度，讓攝影機一開始朝向 Z 軸負方向。
     private float yaw = -90.0f;
-    // 設定或更新變數的值。
+
+    // 上下轉動角度。0 度代表水平看出去。
     private float pitch = 0.0f;
 
-    // 定義對外可呼叫的方法。
+    // 取得攝影機目前的位置。
     public Vector3f position() {
-        // 下一行程式碼負責執行目前步驟。
         return position;
     }
 
-    // 定義對外可呼叫的方法。
+    // 取得目前的左右轉動角度。
     public float yaw() {
-        // 下一行程式碼負責執行目前步驟。
         return yaw;
     }
 
-    // 定義對外可呼叫的方法。
+    // 取得目前的上下轉動角度。
     public float pitch() {
-        // 下一行程式碼負責執行目前步驟。
         return pitch;
     }
 
-    // 定義對外可呼叫的方法。
+    // 直接設定攝影機的位置。
     public void setPosition(float x, float y, float z) {
-        // 呼叫方法執行對應功能。
         position.set(x, y, z);
     }
 
-    // 定義對外可呼叫的方法。
+    // 直接設定攝影機的旋轉角度。
+    // pitch 會被限制在合理範圍內，避免視角翻轉。
     public void setRotation(float yawDegrees, float pitchDegrees) {
-        // 設定或更新變數的值。
         yaw = yawDegrees;
-        // 設定或更新變數的值。
         pitch = clampPitch(pitchDegrees);
     }
 
-    // 定義對外可呼叫的方法。
+    // 在目前角度基礎上繼續旋轉。
+    // yawDelta 控制左右轉，pitchDelta 控制上下轉。
     public void rotate(float yawDelta, float pitchDelta) {
-        // 設定或更新變數的值。
         yaw += yawDelta;
-        // 設定或更新變數的值。
         pitch = clampPitch(pitch + pitchDelta);
     }
 
-    // 定義對外可呼叫的方法。
+    // 計算攝影機目前「往前看」的方向。
+    // 結果會寫入傳入的 out，並回傳同一個物件。
     public Vector3f forward(Vector3f out) {
-        // 宣告並初始化變數。
+        // 將角度轉成弧度，因為三角函數使用的是弧度。
         float yawRad = (float) Math.toRadians(yaw);
-        // 宣告並初始化變數。
         float pitchRad = (float) Math.toRadians(pitch);
 
-        // 設定或更新變數的值。
+        // 根據 yaw 和 pitch 計算 3D 方向向量。
         out.x = (float) (Math.cos(yawRad) * Math.cos(pitchRad));
-        // 設定或更新變數的值。
         out.y = (float) Math.sin(pitchRad);
-        // 設定或更新變數的值。
         out.z = (float) (Math.sin(yawRad) * Math.cos(pitchRad));
-        // 呼叫方法執行對應功能。
+
+        // 正規化後回傳，讓向量長度固定為 1。
         return out.normalize();
     }
 
-    // 定義對外可呼叫的方法。
+    // 計算攝影機右手邊的方向。
+    // 做法是用前方方向與世界上方向做叉積。
     public Vector3f right(Vector3f out) {
-        // 呼叫方法執行對應功能。
         forward(out);
-        // 呼叫方法執行對應功能。
         out.cross(WORLD_UP).normalize();
-        // 下一行程式碼負責執行目前步驟。
         return out;
     }
 
-    // 定義對外可呼叫的方法。
+    // 建立攝影機的視角矩陣，用來決定畫面是從哪裡往哪裡看。
     public Matrix4f viewMatrix(Matrix4f out) {
-        // 呼叫方法執行對應功能。
+        // 先算出前方方向。
         forward(tmpForward);
-        // 呼叫方法執行對應功能。
+
+        // 目標點 = 目前位置 + 前方方向。
         tmpCenter.set(position).add(tmpForward);
-        // 呼叫方法執行對應功能。
+
+        // 產生 LookAt 視角矩陣。
         return out.identity().lookAt(position, tmpCenter, WORLD_UP);
     }
 
-    // 定義類別內部使用的方法。
+    // 限制 pitch 的範圍，避免接近 90 度時造成視角翻轉或數學問題。
     private float clampPitch(float angle) {
-        // 呼叫方法執行對應功能。
         return Math.max(-89.9f, Math.min(89.9f, angle));
     }
 }

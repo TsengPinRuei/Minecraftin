@@ -1,66 +1,81 @@
-// 宣告此檔案所屬的套件。
 package com.minecraftin.clone.config;
 
-// 定義主要型別與其結構。
+// 集中管理遊戲中會用到的各種固定設定值。
 public final class GameConfig {
-    // 設定或更新變數的值。
+
+    // 視窗預設寬度。
     public static final int WINDOW_WIDTH = 1600;
-    // 設定或更新變數的值。
+
+    // 視窗預設高度。
     public static final int WINDOW_HEIGHT = 900;
-    // 設定或更新變數的值。
+
+    // 視窗標題文字。
     public static final String WINDOW_TITLE = "Minecraftin Java Clone";
 
-    // 設定或更新變數的值。
+    // 相機視野角度。
     public static final float FOV_DEGREES = 75.0f;
-    // 設定或更新變數的值。
+
+    // 相機可看到的最近距離。
     public static final float NEAR_PLANE = 0.05f;
-    // 設定或更新變數的值。
+
+    // 相機可看到的最遠距離。
     public static final float FAR_PLANE = 1200.0f;
 
-    // 設定或更新變數的值。
+    // 每個 Chunk 在 X、Z 方向的邊長。
     public static final int CHUNK_SIZE = 16;
-    // 設定或更新變數的值。
+
+    // 每個 Chunk 的高度。
     public static final int CHUNK_HEIGHT = 128;
-    // 設定或更新變數的值。
+
+    // 世界渲染距離，以 Chunk 為單位。
     public static final int RENDER_DISTANCE_CHUNKS = 10;
 
-    // 設定或更新變數的值。
+    // 是否只啟用創造模式玩法。
     public static final boolean CREATIVE_MODE_ONLY = true;
 
-    // 設定或更新變數的值。
+    // 滑鼠靈敏度。
     public static final float MOUSE_SENSITIVITY = 0.12f;
-    // 設定或更新變數的值。
+
+    // 一般行走速度。
     public static final float WALK_SPEED = 4.5f;
-    // 設定或更新變數的值。
+
+    // 飛行速度，設定為步行速度的 3 倍。
     public static final float FLY_SPEED = WALK_SPEED * 3.0f;
-    // 設定或更新變數的值。
+
+    // 衝刺時的速度倍率。
     public static final float SPRINT_MULTIPLIER = 1.65f;
-    // 設定或更新變數的值。
+
+    // 跳躍時向上的初速度。
     public static final float JUMP_VELOCITY = 6.8f;
-    // 設定或更新變數的值。
+
+    // 重力大小。
     public static final float GRAVITY = 22.0f;
 
-    // 設定或更新變數的值。
+    // 玩家碰撞箱寬度。
     public static final float PLAYER_WIDTH = 0.6f;
-    // 設定或更新變數的值。
+
+    // 玩家碰撞箱高度。
     public static final float PLAYER_HEIGHT = 1.8f;
-    // 設定或更新變數的值。
+
+    // 玩家視角高度，也就是眼睛位置高度。
     public static final float PLAYER_EYE_HEIGHT = 1.62f;
 
-    // 設定或更新變數的值。
+    // 玩家可互動方塊的最遠距離。
     public static final float BLOCK_REACH = 6.0f;
-    // 設定或更新變數的值。
+
+    // 破壞方塊的冷卻時間。
     public static final float BREAK_COOLDOWN_SECONDS = 0.05f;
-    // 設定或更新變數的值。
+
+    // 放置方塊的冷卻時間。
     public static final float PLACE_COOLDOWN_SECONDS = 0.05f;
 
-    // 設定或更新變數的值。
+    // 世界存檔檔案位置。
     public static final String WORLD_FILE = "saves/world.dat";
 
-    // 設定或更新變數的值。
+    // 預設世界種子。
     public static final long DEFAULT_WORLD_SEED = 20260219L;
 
-    // 定義類別內部使用的方法。
+    // 這個類別只提供設定值，不需要建立物件。
     private GameConfig() {
     }
 }

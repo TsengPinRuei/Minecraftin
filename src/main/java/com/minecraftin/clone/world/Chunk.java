@@ -4,6 +4,7 @@ import com.minecraftin.clone.config.GameConfig;
 import java.util.Arrays;
 
 // Chunk 代表世界中的一小塊區域，負責儲存該區域內所有方塊資料。
+// 它只知道本地座標與 dirty 狀態；跨 Chunk 的生成、存檔與 mesh 管理由 World/WorldRenderer 協調。
 public final class Chunk {
 
     // 這個 Chunk 在世界中的 X 座標位置。
@@ -12,13 +13,13 @@ public final class Chunk {
     // 這個 Chunk 在世界中的 Z 座標位置。
     private final int chunkZ;
 
-    // 用一維陣列儲存 Chunk 內所有方塊的 id。
+    // 用一維陣列儲存 Chunk 內所有方塊 id，排序為 y -> z -> x，需與存檔讀寫保持一致。
     private final short[] blocks;
 
-    // 表示這個 Chunk 的模型是否需要重新生成。
+    // 表示這個 Chunk 的模型是否需要重新生成；方塊改變或鄰近 Chunk 邊界改變時都要標記。
     private boolean meshDirty = true;
 
-    // 表示這個 Chunk 是否曾被修改過。
+    // 表示這個 Chunk 是否曾被玩家或水流等遊戲行為修改過，用來判斷是否需要存檔。
     private boolean modified;
 
     // 建立一個新的 Chunk，並將所有方塊初始化為 AIR。
@@ -49,7 +50,7 @@ public final class Chunk {
         return chunkZ * GameConfig.CHUNK_SIZE;
     }
 
-    // 直接回傳內部的方塊資料陣列。
+    // 直接回傳內部的方塊資料陣列，僅供存檔讀寫使用；呼叫端必須自行維護 dirty 狀態。
     public short[] rawBlocks() {
         return blocks;
     }
@@ -86,7 +87,7 @@ public final class Chunk {
     }
 
     // 直接用方塊 id 設定資料，不額外處理 modified 或 meshDirty。
-    // 通常用在載入原始資料時。
+    // 通常用在地形生成或載入原始資料時，完成後由呼叫端統一設定 dirty/modified。
     public void setRaw(int localX, int y, int localZ, short blockId) {
         if (!inBounds(localX, y, localZ)) {
             return;

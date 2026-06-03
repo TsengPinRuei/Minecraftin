@@ -1,6 +1,7 @@
 package com.minecraftin.clone.config;
 
-// 集中管理遊戲中會用到的各種固定設定值。
+// 集中管理遊戲中會用到的固定設定值。
+// 這些值會同時影響地形、碰撞、渲染距離與存檔位置，調整前要確認相關系統的假設。
 public final class GameConfig {
 
     // 視窗預設寬度。
@@ -21,7 +22,7 @@ public final class GameConfig {
     // 相機可看到的最遠距離。
     public static final float FAR_PLANE = 1200.0f;
 
-    // 每個 Chunk 在 X、Z 方向的邊長。
+    // 每個 Chunk 在 X、Z 方向的邊長；World 與 Chunk 的座標換算都依賴這個值。
     public static final int CHUNK_SIZE = 16;
 
     // 每個 Chunk 的高度。
@@ -30,7 +31,7 @@ public final class GameConfig {
     // 世界渲染距離，以 Chunk 為單位。
     public static final int RENDER_DISTANCE_CHUNKS = 10;
 
-    // 是否只啟用創造模式玩法。
+    // 是否只啟用創造模式玩法；目前玩家移動與 HUD 標示都假設這是全域開關。
     public static final boolean CREATIVE_MODE_ONLY = true;
 
     // 滑鼠靈敏度。
@@ -69,7 +70,7 @@ public final class GameConfig {
     // 放置方塊的冷卻時間。
     public static final float PLACE_COOLDOWN_SECONDS = 0.05f;
 
-    // 世界存檔檔案位置。
+    // 世界存檔檔案位置；World 會自動建立父目錄，但不會遷移舊格式以外的檔案。
     public static final String WORLD_FILE = "saves/world.dat";
 
     // 預設世界種子。

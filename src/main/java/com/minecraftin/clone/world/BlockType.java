@@ -3,7 +3,8 @@ package com.minecraftin.clone.world;
 import com.minecraftin.clone.render.AtlasTiles;
 import java.util.Locale;
 
-// 定義遊戲中的方塊種類，以及每種方塊的屬性與貼圖資訊。
+// 定義遊戲中的方塊種類，以及每種方塊的碰撞、透明度與貼圖資訊。
+// id 會直接寫入世界存檔；新增或調整方塊時不要重排既有 id，否則舊存檔會讀成錯誤方塊。
 public enum BlockType {
 
     // 空氣方塊，不可碰撞，也不遮擋視線。
@@ -66,7 +67,7 @@ public enum BlockType {
     // 紫色方塊。
     PURPLE_BLOCK(19, true, true, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK);
 
-    // 依照 id 快速查詢方塊種類的陣列。
+    // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
     private static final BlockType[] BY_ID;
 
     static {

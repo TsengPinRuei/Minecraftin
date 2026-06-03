@@ -1,14 +1,15 @@
 package com.minecraftin.clone.util;
 
-// 提供產生雜訊值的工具方法，可用來生成地形高度、洞穴形狀等隨機效果。
+// 提供可重現的 value noise 與 fBM 工具方法，用來生成地形高度、洞穴形狀等隨機效果。
+// 不使用全域 Random，確保結果只由座標與 seed 決定。
 public final class Noise {
 
     // 這個工具類別不需要被建立成物件。
     private Noise() {
     }
 
-    // 產生 2D 的 fbm 雜訊。
-    // fbm 會把多層不同頻率與振幅的雜訊疊加，讓結果更自然。
+    // 產生 2D 的 fBM 雜訊。
+    // fBM 會把多層不同頻率與振幅的雜訊疊加，讓結果更自然。
     public static float fbm2(float x, float z, int octaves, float lacunarity, float gain, long seed) {
         float amplitude = 1.0f;
         float frequency = 1.0f;
@@ -26,7 +27,7 @@ public final class Noise {
         return norm == 0.0f ? 0.0f : sum / norm;
     }
 
-    // 產生 3D 的 fbm 雜訊。
+    // 產生 3D 的 fBM 雜訊。
     // 常用在洞穴這種需要三維分布的地形。
     public static float fbm3(float x, float y, float z, int octaves, float lacunarity, float gain, long seed) {
         float amplitude = 1.0f;

@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 // 負責依照種子產生地形、地表材質與樹木。
+// 所有取樣都必須只依賴世界座標與 seed，確保同一個 Chunk 不論何時生成都得到相同結果。
 public final class TerrainGenerator {
 
     // 表示不同的地形區域種類。
@@ -32,6 +33,7 @@ public final class TerrainGenerator {
     }
 
     // 產生一個 Chunk 的所有地形資料。
+    // 流程分成地層、水/洞穴、樹木規劃、樹幹、樹葉，避免樹葉先放後被地形覆蓋。
     public void generate(Chunk chunk) {
         int worldMinX = chunk.worldMinX();
         int worldMinZ = chunk.worldMinZ();
@@ -42,7 +44,7 @@ public final class TerrainGenerator {
         // 記錄每個位置的生態區。
         Biome[][] biomes = new Biome[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
 
-        // 先記下要生成的樹，等地形都完成後再放置。
+        // 先記下要生成的樹，等地形都完成後再放置；這樣樹木不會干擾同一 Chunk 的地表高度判斷。
         List<TreeSpec> plannedTrees = new ArrayList<>();
 
         // 先產生方塊地形。
@@ -197,6 +199,7 @@ public final class TerrainGenerator {
     }
 
     // 取樣某個座標的地表高度、生態區與大陸性。
+    // 這是地形生成的核心函式，任何 seed 偏移值調整都會改變整個世界外觀。
     private SurfaceSample sampleSurface(int worldX, int worldZ) {
         float continental = Noise.fbm2(worldX * 0.0019f, worldZ * 0.0019f, 5, 2.0f, 0.5f, seed + 17);
         float erosion = Noise.fbm2(worldX * 0.0036f, worldZ * 0.0036f, 4, 2.0f, 0.53f, seed + 23);
@@ -273,6 +276,7 @@ public final class TerrainGenerator {
     }
 
     // 規劃某個位置是否要長一棵樹，以及樹的基本資訊。
+    // 目前只允許樹完整落在單一 Chunk 內，避免跨 Chunk 生成順序造成樹冠缺口或重複。
     private TreeSpec planTree(Chunk chunk, Biome biome, int lx, int baseY, int lz, int worldX, int worldZ) {
         // 某些生態區不長樹。
         if (biome == Biome.DESERT || biome == Biome.BADLANDS || biome == Biome.MOUNTAIN) {
@@ -321,7 +325,7 @@ public final class TerrainGenerator {
         return new TreeSpec(lx, lz, baseY, trunkHeight);
     }
 
-    // 用格網加上隨機偏移，控制樹木分布位置。
+    // 用格網加上隨機偏移，控制樹木分布位置；比逐格純機率更能避免樹木成片擠在一起。
     private boolean matchesTreeGridSlot(Biome biome, int worldX, int worldZ) {
         int cellSize = biome == Biome.FOREST ? 5 : 6;
 

@@ -22,6 +22,7 @@ import java.util.Set;
 import static org.lwjgl.opengl.GL33C.*;
 
 // 負責繪製整個世界，包括區塊內容與被瞄準方塊的外框。
+// 這裡也擁有所有與世界渲染相關的 OpenGL 資源，Game 結束時必須呼叫 close()。
 public final class WorldRenderer implements AutoCloseable {
 
     // 天空背景顏色。
@@ -99,6 +100,7 @@ public final class WorldRenderer implements AutoCloseable {
     }
 
     // 繪製目前可見的所有 Chunk。
+    // Mesh 快取以 ChunkPos 為 key，只有 Chunk dirty 或首次可見時才重建頂點資料。
     private void renderChunks(World world, Camera camera) {
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
@@ -164,7 +166,7 @@ public final class WorldRenderer implements AutoCloseable {
             }
         }
 
-        // 把這一幀看不到的 Chunk mesh 釋放掉，減少資源占用。
+        // 把這一幀看不到的 Chunk mesh 釋放掉，減少顯示卡資源占用；World 仍保留 Chunk 方塊資料。
         pruneChunkMeshes(visibleChunks);
     }
 

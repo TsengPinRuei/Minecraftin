@@ -13,6 +13,8 @@ import java.util.Map;
 
 import static org.lwjgl.opengl.GL33C.*;
 
+// 封裝 GLSL shader program 的載入、編譯、連結與 uniform 設定。
+// 建立與釋放都必須在有效的 OpenGL context 中進行。
 public final class ShaderProgram implements AutoCloseable {
     // OpenGL shader program 的 ID，用來代表已建立完成的 shader 程式。
     private final int id;
@@ -144,13 +146,13 @@ public final class ShaderProgram implements AutoCloseable {
         }
     }
 
-    // 取得 uniform 位置，並把查詢結果快取起來。
+    // 取得 uniform 位置，並把查詢結果快取起來；OpenGL 會用 -1 表示 shader 最佳化後不存在的 uniform。
     private int uniformLocation(String name) {
         return uniformLocations.computeIfAbsent(name, key -> glGetUniformLocation(id, key));
     }
 
-    @Override
     // 釋放 shader program 佔用的 OpenGL 資源。
+    @Override
     public void close() {
         glDeleteProgram(id);
     }

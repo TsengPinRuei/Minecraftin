@@ -5,6 +5,7 @@ import com.minecraftin.clone.engine.TextureAtlas;
 import com.minecraftin.clone.util.FloatArrayBuilder;
 
 // 負責把 Chunk 內的方塊資料轉成可用來繪製的頂點資料。
+// 輸出格式必須與 WorldRenderer 建立 Mesh 時的 attribute layout 以及 world.vert 保持一致。
 public final class ChunkMesher {
 
     // 每個頂點包含 6 個 float：x、y、z、u、v、light。
@@ -17,7 +18,7 @@ public final class ChunkMesher {
     private ChunkMesher() {
     }
 
-    // 根據 Chunk 內容建立對應的頂點資料。
+    // 根據 Chunk 內容建立對應的頂點資料；只輸出外露面，內部相鄰面會被省略以降低頂點數。
     public static float[] build(Chunk chunk, World world, TextureAtlas atlas) {
         FloatArrayBuilder vertices = new FloatArrayBuilder(16384);
 
@@ -43,7 +44,7 @@ public final class ChunkMesher {
                     for (Face face : FACES) {
                         BlockType neighbor = world.peekBlock(worldX + face.dx(), y + face.dy(), worldZ + face.dz());
 
-                        // 如果這個面不需要顯示，就跳過。
+                        // 如果這個面不需要顯示，就跳過；peekBlock 可避免 meshing 時意外生成新 Chunk。
                         if (!shouldRenderFace(block, neighbor)) {
                             continue;
                         }
@@ -72,7 +73,7 @@ public final class ChunkMesher {
             return true;
         }
 
-        // 水只在旁邊不是水時才繪製面。
+        // 水只在旁邊不是水時才繪製面，避免相鄰水格中間產生多餘透明面。
         if (current == BlockType.WATER) {
             return neighbor != BlockType.WATER;
         }
@@ -86,7 +87,7 @@ public final class ChunkMesher {
         return neighbor.isTransparent();
     }
 
-    // 根據面向，決定這個面的四個角落座標。
+    // 根據面向，決定這個面的四個角落座標；頂點順序需和目前關閉背面剔除的渲染策略相容。
     private static void addFace(
             FloatArrayBuilder out,
             float x,

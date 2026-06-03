@@ -11,6 +11,7 @@ import java.nio.IntBuffer;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
+// 封裝 GLFW 視窗與 OpenGL context 建立流程，並持續追蹤 framebuffer 實際尺寸。
 public final class Window implements AutoCloseable {
     // GLFW 建立出來的視窗控制代號。
     private long handle;
@@ -84,7 +85,7 @@ public final class Window implements AutoCloseable {
         // 把這個視窗設為目前 OpenGL 要使用的 context。
         glfwMakeContextCurrent(handle);
 
-        // 關閉垂直同步，讓畫面交換不受螢幕更新率限制。
+        // 關閉垂直同步，讓畫面交換不受螢幕更新率限制；目前 FPS 顯示會反映未鎖幀的渲染速度。
         glfwSwapInterval(0);
 
         // 建立 OpenGL 功能表，之後才能呼叫 OpenGL API。
@@ -142,8 +143,8 @@ public final class Window implements AutoCloseable {
         glfwSwapBuffers(handle);
     }
 
-    @Override
     // 釋放視窗、GLFW 與錯誤回呼資源。
+    @Override
     public void close() {
         if (handle != NULL) {
             glfwDestroyWindow(handle);

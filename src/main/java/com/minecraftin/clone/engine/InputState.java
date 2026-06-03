@@ -9,6 +9,7 @@ import java.util.Arrays;
 
 import static org.lwjgl.glfw.GLFW.*;
 
+// 將 GLFW callback 收到的事件整理成「持續按住」與「本幀剛發生」兩種輸入狀態。
 public final class InputState {
     // 記錄每個鍵盤按鍵目前是否正在被按住。
     private final boolean[] keys = new boolean[GLFW_KEY_LAST + 1];
@@ -124,7 +125,7 @@ public final class InputState {
         return value;
     }
 
-    // 每一幀結束時呼叫，清除只需要記錄一幀的輸入資料。
+    // 每一幀結束時呼叫，清除只需要記錄一幀的輸入資料；呼叫太早會讓 Game 讀不到瞬時按鍵。
     public void endFrame() {
         Arrays.fill(keysPressed, false);
         Arrays.fill(mousePressed, false);
@@ -132,7 +133,7 @@ public final class InputState {
         mouseDeltaY = 0.0;
     }
 
-    // 重新初始化滑鼠追蹤狀態。
+    // 重新初始化滑鼠追蹤狀態；切換游標鎖定時必須呼叫，避免第一次 delta 使用舊座標造成鏡頭暴衝。
     public void resetMouseTracking() {
         firstMouse = true;
         mouseDeltaX = 0.0;

@@ -17,17 +17,18 @@ import java.nio.file.Paths;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL33C.*;
 
+// 協調遊戲主流程：建立視窗、載入世界、更新玩家與互動、呼叫渲染器，最後集中釋放資源。
 public final class Game {
-    // 顯示目前遊戲模式的文字
+    // 顯示目前遊戲模式的文字。
     private static final String MODE_LABEL = GameConfig.CREATIVE_MODE_ONLY ? "CREATIVE" : "SURVIVAL";
 
-    // 角色走路時，鏡頭上下左右晃動用的參數
+    // 角色走路時的鏡頭晃動參數；只影響視覺，不參與玩家碰撞或射線起點以外的物理狀態。
     private static final float WALK_BOB_VERTICAL_BASE = 0.020f;
     private static final float WALK_BOB_VERTICAL_SCALE = 0.024f;
     private static final float WALK_BOB_HORIZONTAL_FACTOR = 0.60f;
     private static final float WALK_BOB_RESET_SPEED = 8.0f;
 
-    // 快捷欄中可選擇的方塊
+    // 快捷欄中可選擇的方塊，順序對應數字鍵 1 到 9。
     private final BlockType[] hotbar = {
             BlockType.RED_BLOCK,
             BlockType.ORANGE_BLOCK,
@@ -47,7 +48,7 @@ public final class Game {
     private final Player player = new Player();
     private final World world = new World(Paths.get(GameConfig.WORLD_FILE), GameConfig.DEFAULT_WORLD_SEED);
 
-    // 暫存向量，避免重複建立物件
+    // 主迴圈每幀都會使用的暫存向量，避免在高頻更新時製造大量短生命週期物件。
     private final Vector3f tmpCameraRight = new Vector3f();
     private final Vector3f tmpRayOrigin = new Vector3f();
     private final Vector3f tmpRayDirection = new Vector3f();
@@ -100,7 +101,7 @@ public final class Game {
             worldRenderer = new WorldRenderer();
             hudRenderer = new HudRenderer();
 
-            // 先嘗試讀取上次離開時的重生點，失敗則使用預設出生點
+            // 先嘗試讀取上次離開時的重生點；新世界或舊版存檔沒有重生點時才重新計算預設出生點。
             Vector3f spawn = new Vector3f();
             if (!world.tryGetSavedRespawnPosition(spawn)) {
                 world.defaultSpawn(spawn);
@@ -119,12 +120,12 @@ public final class Game {
             // 進入遊戲主迴圈
             loop();
         } finally {
-            // 結束前記錄玩家目前位置，作為下次重生點
+            // 結束前記錄玩家目前位置，作為下次重生點；這是離開遊戲時才更新的持久狀態。
             if (worldInitialized && playerSpawnInitialized) {
                 world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
             }
 
-            // 若世界有尚未存檔的變更，離開前先存檔
+            // 若世界或重生點有尚未存檔的變更，離開前先存檔。
             if (worldInitialized && world.hasPendingSave()) {
                 safeSaveWorld();
             }
@@ -149,7 +150,7 @@ public final class Game {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // 關閉背面剔除，並開啟多重採樣抗鋸齒
+        // 方塊面向由 mesher 控制，這裡關閉背面剔除可避免座標順序錯誤時整面消失；多重採樣則改善線框與遠處邊緣。
         glDisable(GL_CULL_FACE);
         glEnable(GL_MULTISAMPLE);
     }
@@ -161,7 +162,7 @@ public final class Game {
         while (!window.shouldClose()) {
             double now = glfwGetTime();
 
-            // 計算這一幀經過的秒數，並限制最大值避免卡頓時數值過大
+            // 計算這一幀經過的秒數，並限制最大值，避免視窗卡住後讓物理與碰撞一次跳太遠。
             float delta = (float) Math.min(0.05, now - lastTime);
             lastTime = now;
 
@@ -169,7 +170,7 @@ public final class Game {
             window.pollEvents();
             handleInputState();
 
-            // 根據玩家所在區塊，確保附近的地圖區塊都有載入
+            // 根據玩家所在區塊，先載入渲染距離外一圈，讓邊界面判定與移動互動能看到鄰近 Chunk。
             int playerChunkX = Math.floorDiv((int) Math.floor(player.position().x), GameConfig.CHUNK_SIZE);
             int playerChunkZ = Math.floorDiv((int) Math.floor(player.position().z), GameConfig.CHUNK_SIZE);
             world.ensureChunksAround(playerChunkX, playerChunkZ, GameConfig.RENDER_DISTANCE_CHUNKS + 1);
@@ -198,7 +199,7 @@ public final class Game {
             window.swapBuffers();
             input.endFrame();
 
-            // 每隔一段時間自動存檔一次
+            // 自動存檔主要處理玩家改動過的 Chunk；重生點會在離開遊戲時由 finally 區塊保證寫入。
             autosaveTimer += delta;
             if (autosaveTimer >= 20.0f) {
                 if (world.hasModifiedChunks()) {
@@ -256,7 +257,7 @@ public final class Game {
         // 先更新走路晃動效果
         updateWalkBob(deltaSeconds);
 
-        // 鏡頭位置跟著玩家移動，並套用上下左右晃動
+        // 鏡頭位置跟著玩家眼睛高度移動，左右晃動沿相機 right 向量偏移，避免與玩家碰撞箱直接耦合。
         Vector3f right = camera.right(tmpCameraRight);
         camera.setPosition(
                 player.position().x + right.x * walkBobHorizontal,
@@ -272,7 +273,7 @@ public final class Game {
             return;
         }
 
-        // 未進入控制模式、正在飛行或不在地面時，晃動逐漸回到 0
+        // 未進入控制模式、正在飛行或不在地面時，晃動逐漸回到 0，避免鏡頭在狀態切換時突然跳動。
         if (!cursorCaptured || player.isFlying() || !player.isOnGround()) {
             walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
             walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
@@ -313,7 +314,7 @@ public final class Game {
         breakCooldown -= deltaSeconds;
         placeCooldown -= deltaSeconds;
 
-        // 左鍵破壞方塊，但不能破壞基岩
+        // 左鍵破壞方塊，但不能破壞基岩；World.setBlock 會負責標記存檔與 mesh 失效。
         if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
             if (targetedBlock.block() != BlockType.BEDROCK) {
                 world.setBlock(targetedBlock.x(), targetedBlock.y(), targetedBlock.z(), BlockType.AIR);
@@ -321,7 +322,7 @@ public final class Game {
             breakCooldown = GameConfig.BREAK_COOLDOWN_SECONDS;
         }
 
-        // 右鍵在目標方塊旁邊放置新方塊
+        // 右鍵在目標方塊旁邊放置新方塊；normal 是 raycast 命中面朝外的方向。
         if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
             int px = targetedBlock.x() + targetedBlock.normalX();
             int py = targetedBlock.y() + targetedBlock.normalY();

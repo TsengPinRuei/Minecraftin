@@ -7,6 +7,8 @@ import java.nio.ByteBuffer;
 
 import static org.lwjgl.opengl.GL33C.*;
 
+// 以程式方式產生方塊材質圖集，避免專案額外依賴圖片資產。
+// tile 編號需與 AtlasTiles 與 BlockType.tileForFace() 保持一致。
 public final class TextureAtlas implements AutoCloseable {
     // 每個小貼圖的寬高都是 16 像素。
     public static final int TILE_SIZE = 16;
@@ -28,7 +30,7 @@ public final class TextureAtlas implements AutoCloseable {
         textureId = glGenTextures();
         glBindTexture(GL_TEXTURE_2D, textureId);
 
-        // 縮小時使用最近鄰 mipmap，放大時使用最近鄰取樣。
+        // 縮小時使用最近鄰 mipmap，放大時使用最近鄰取樣，保留方塊像素風格。
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -66,7 +68,7 @@ public final class TextureAtlas implements AutoCloseable {
     }
 
     // 回傳指定 tile 左上角的 U 座標。
-    // 0.01f 是留一點邊界，減少貼圖取樣時吃到隔壁 tile。
+    // 0.01f 是留一點邊界，減少 mipmap 或浮點誤差取樣到隔壁 tile。
     public float u0(int tile) {
         return ((tile % TILES_PER_ROW) + 0.01f) / TILES_PER_ROW;
     }
@@ -86,8 +88,8 @@ public final class TextureAtlas implements AutoCloseable {
         return ((tile / TILES_PER_ROW) + 0.99f) / TILES_PER_ROW;
     }
 
-    @Override
     // 刪除顯示卡中的材質資源。
+    @Override
     public void close() {
         glDeleteTextures(textureId);
     }

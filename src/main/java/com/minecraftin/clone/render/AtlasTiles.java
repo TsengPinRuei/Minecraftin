@@ -1,6 +1,7 @@
 package com.minecraftin.clone.render;
 
 // 集中管理材質圖集中各個貼圖的編號。
+// 這些索引對應 TextureAtlas.fillAtlas() 寫入的位置，新增貼圖時兩邊要同步。
 public final class AtlasTiles {
 
     // 草地方塊側面的貼圖編號。

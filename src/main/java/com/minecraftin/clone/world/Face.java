@@ -1,6 +1,7 @@
 package com.minecraftin.clone.world;
 
-// 表示方塊的六個面，並記錄每個面的方向與亮度。
+// 表示方塊的六個面，並記錄每個面的鄰格方向與簡易亮度。
+// 亮度會直接寫入 mesh 頂點，shader 只負責套用，不再重新計算法線光照。
 public enum Face {
 
     // 北面，Z 軸往負方向。

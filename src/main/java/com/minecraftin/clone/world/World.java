@@ -15,12 +15,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 // 負責管理整個世界的區塊、方塊資料、出生點、射線檢測，以及存檔與讀檔。
+// 這個類別是「世界狀態」的邊界：會生成 Chunk、標記 mesh dirty、追蹤需要持久化的變更。
 public final class World {
 
-    // 存檔檔頭，用來確認這是不是本遊戲建立的存檔。
+    // 存檔檔頭，用來確認這是不是本遊戲建立的存檔；值為 "MCLN" 的整數形式。
     private static final int SAVE_MAGIC = 0x4D434C4E;
 
-    // 目前存檔格式版本。
+    // 目前存檔格式版本；load() 仍接受版本 1，讓沒有重生點欄位的舊存檔可讀取。
     private static final int SAVE_VERSION = 2;
 
     // 玩家出生時，腳底上方的偏移量，避免卡進地面。
@@ -70,7 +71,7 @@ public final class World {
     }
 
     // 初始化世界。
-    // 若有舊存檔就嘗試讀取，否則建立新世界狀態。
+    // 若有舊存檔就嘗試讀取，否則建立新世界狀態；讀檔失敗會回到乾淨的新世界而不是中止遊戲。
     public void initialize() {
         try {
             Path parent = worldFile.getParent();
@@ -163,7 +164,7 @@ public final class World {
     }
 
     // 取得指定座標的 Chunk。
-    // 若不存在，會先建立並生成地形。
+    // 若不存在，會先建立並生成地形；這是會改變世界快取內容的讀取操作。
     public Chunk getOrCreateChunk(int chunkX, int chunkZ) {
         ChunkPos key = new ChunkPos(chunkX, chunkZ);
         Chunk existing = chunks.get(key);
@@ -185,7 +186,7 @@ public final class World {
     }
 
     // 取得世界座標上的方塊。
-    // 若超出高度範圍，回傳床岩或空氣。
+    // 若超出高度範圍，回傳床岩或空氣；合法高度內會自動生成缺少的 Chunk。
     public BlockType getBlock(int worldX, int y, int worldZ) {
         if (y < 0) {
             return BlockType.BEDROCK;
@@ -205,7 +206,7 @@ public final class World {
     }
 
     // 讀取世界座標上的方塊，但不主動建立新的 Chunk。
-    // 常用在只想查看周圍狀態、避免額外生成地形的情況。
+    // 常用於渲染鄰面、水流擴散等「只看已載入狀態」的流程，避免查詢本身造成地形生成。
     public BlockType peekBlock(int worldX, int y, int worldZ) {
         if (y < 0) {
             return BlockType.BEDROCK;
@@ -284,6 +285,7 @@ public final class World {
     }
 
     // 當玩家挖出海平面以下的空腔時，嘗試讓附近的水填進來。
+    // 只在已載入 Chunk 內擴散，避免一次挖方塊就生成大片未知地形。
     private void floodWaterIntoAirPocket(int worldX, int y, int worldZ) {
         // 只處理海平面以下的情況。
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || y > seaLevel()) {
@@ -300,7 +302,7 @@ public final class World {
             return;
         }
 
-        // 用 BFS 方式向外擴散補水。
+        // 用 BFS 方式向外擴散補水，並用 WATER_FLOOD_MAX_BLOCKS 防止大型空腔造成長時間卡頓。
         ArrayDeque<int[]> queue = new ArrayDeque<>();
 
         if (!setBlockInternal(worldX, y, worldZ, BlockType.WATER, false)) {
@@ -394,7 +396,7 @@ public final class World {
     }
 
     // 計算預設出生點。
-    // 優先找大片森林，找不到再退回一般安全地面。
+    // 優先找大片森林，找不到再退回一般安全地面；這會生成搜尋路徑上的 Chunk。
     public Vector3f defaultSpawn(Vector3f out) {
         if (trySpawnInLargeForest(out)) {
             return out;
@@ -435,7 +437,7 @@ public final class World {
         return out;
     }
 
-    // 先用較大範圍搜尋，找出適合出生的大片森林區域。
+    // 先用較大範圍搜尋，找出適合出生的大片森林區域；只評分地表取樣，不立即要求每格都可站立。
     private boolean trySpawnInLargeForest(Vector3f out) {
         int[] bestScore = new int[] { Integer.MIN_VALUE };
         int[] bestX = new int[] { 0 };
@@ -470,7 +472,7 @@ public final class World {
         return trySpawnNearForestCenter(out, bestX[0], bestZ[0]);
     }
 
-    // 評估某個位置是否適合作為森林出生區候選點。
+    // 評估某個位置是否適合作為森林出生區候選點；用陣列包裝是為了在 helper 中更新目前最佳結果。
     private void evaluateForestSpawnCandidate(
             int x, int z, int[] bestScore, int[] bestX, int[] bestZ, boolean[] foundForestRegion) {
         int score = terrainGenerator.forestSpawnRegionScore(x, z);
@@ -594,6 +596,7 @@ public final class World {
     }
 
     // 從 origin 沿著 direction 發射射線，找出第一個碰到的方塊。
+    // 使用 3D DDA 逐格前進，可直接得到命中面 normal，供放置方塊判斷相鄰位置。
     public RaycastHit raycast(Vector3f origin, Vector3f direction, float maxDistance) {
         float dx = direction.x;
         float dy = direction.y;
@@ -670,6 +673,7 @@ public final class World {
     }
 
     // 將目前世界資料寫入存檔。
+    // 格式順序為 magic/version/seed/respawn/chunkCount/chunk資料；BlockType.id 必須保持穩定。
     public void save() {
         try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(worldFile)))) {
             out.writeInt(SAVE_MAGIC);
@@ -706,7 +710,7 @@ public final class World {
     }
 
     // 從存檔讀取世界資料。
-    // 讀取成功回傳 true，失敗回傳 false。
+    // 讀取成功回傳 true，失敗回傳 false；呼叫端會用 false 建立新世界，避免半讀取狀態留下來。
     private boolean load() {
         if (!Files.exists(worldFile)) {
             return false;
@@ -756,7 +760,7 @@ public final class World {
                     data[j] = in.readShort();
                 }
 
-                // 讀入後需要重建 mesh，但不算新的修改。
+                // 讀入後需要重建 mesh，但不算新的修改，否則每次啟動後都會立刻要求重存所有 Chunk。
                 chunk.markMeshDirty();
                 chunk.clearModified();
                 loadedChunks.put(new ChunkPos(chunkX, chunkZ), chunk);

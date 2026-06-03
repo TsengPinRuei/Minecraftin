@@ -3,6 +3,7 @@ package com.minecraftin.clone.util;
 import java.util.Arrays;
 
 // 用來動態累積 float 資料，類似專門給 float 使用的可變長度陣列。
+// 主要服務 mesh 產生流程，避免在熱路徑中頻繁建立 Float 包裝物件或 List。
 public final class FloatArrayBuilder {
 
     // 真正儲存資料的陣列。

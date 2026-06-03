@@ -23,7 +23,8 @@ def os = org.gradle.internal.os.OperatingSystem.current()
 // 取得目前電腦 CPU 架構，例如 x86_64、aarch64。
 def arch = System.getProperty('os.arch')
 
-// 宣告一個變數，稍後用來儲存對應平台的 LWJGL 原生函式庫名稱。
+// 宣告一個變數，稍後用來儲存對應平台的 LWJGL 原生函式庫 classifier。
+// LWJGL 的 Java jar 與原生函式庫分開發布，classifier 選錯會導致視窗或 OpenGL 啟動失敗。
 def lwjglNatives
 
 // 如果目前系統是 Windows。
@@ -60,7 +61,7 @@ def defaultJvmArgs = ['-Xms1g', '-Xmx2g']
 
 // 如果目前系統是 macOS。
 if (os.isMacOsX()) {
-    // macOS 上執行圖形程式時，需要加上這個參數才能正常啟動視窗。
+    // macOS 上 GLFW 必須在第一個執行緒建立視窗，否則可能無法正常顯示或接收事件。
     defaultJvmArgs += '-XstartOnFirstThread'
 }
 

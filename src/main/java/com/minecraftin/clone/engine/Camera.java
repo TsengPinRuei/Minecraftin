@@ -3,6 +3,7 @@ package com.minecraftin.clone.engine;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+// 保存第一人稱相機的位置與 yaw/pitch，並提供方向向量與 view matrix 給玩家控制及渲染使用。
 public final class Camera {
     // 世界座標中的「上方」方向，通常是 Y 軸正方向。
     private static final Vector3f WORLD_UP = new Vector3f(0.0f, 1.0f, 0.0f);
@@ -73,7 +74,7 @@ public final class Camera {
     }
 
     // 計算攝影機右手邊的方向。
-    // 做法是用前方方向與世界上方向做叉積。
+    // 做法是用前方方向與世界上方向做叉積，因此 pitch 接近垂直時需要被 clamp。
     public Vector3f right(Vector3f out) {
         forward(out);
         out.cross(WORLD_UP).normalize();

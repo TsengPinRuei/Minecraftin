@@ -1,6 +1,6 @@
 package com.minecraftin.clone.world;
 
-// 用來表示射線檢測命中的結果。
+// 用來表示射線檢測命中的結果；normal 指向被命中方塊外側，放置方塊時會用它找相鄰格。
 public record RaycastHit(
                 // 命中的方塊 X 座標。
                 int x,

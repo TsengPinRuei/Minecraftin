@@ -8,11 +8,12 @@ import org.joml.Vector3f;
 
 import static org.lwjgl.glfw.GLFW.*;
 
+// 維護玩家位置、速度與碰撞箱，並把輸入轉成地面移動或創造模式飛行。
 public final class Player {
-    // 每次位移切成更小的步驟，讓碰撞判定更穩定
+    // 每次位移切成更小的步驟，避免高速度或低 FPS 時直接穿過一格方塊。
     private static final float COLLISION_STEP = 0.04f;
 
-    // 避免浮點數誤差造成角色卡牆或誤判碰撞
+    // 碰撞箱取樣時的微小邊界，避免剛好貼齊方塊邊界時因浮點誤差卡牆。
     private static final float EPSILON = 0.001f;
 
     // 兩次按空白鍵的最大間隔，超過就不算雙擊
@@ -80,7 +81,7 @@ public final class Player {
         return out;
     }
 
-    // 每一幀更新角色狀態
+    // 每一幀更新角色狀態；呼叫前 Game 已經確保附近 Chunk 載入，碰撞查詢才不會邊移動邊生成遠處地形。
     public void update(InputState input, Camera camera, World world, float deltaSeconds) {
         // 先嘗試把角色從方塊內推出來，避免出生或移動後卡進牆裡
         resolveIntersections(world);
@@ -107,7 +108,7 @@ public final class Player {
             }
         }
 
-        // 飛行模式和一般地面模式分開處理
+        // 飛行模式和一般地面模式分開處理，因為飛行可使用相機完整 3D 方向，地面移動只取水平分量。
         if (creativeMode && flying) {
             updateCreative(input, camera, world, deltaSeconds);
             return;
@@ -116,7 +117,7 @@ public final class Player {
         updateGrounded(input, camera, world, deltaSeconds, spacePressed);
     }
 
-    // 如果角色一開始就卡進方塊，往上嘗試移動直到脫離碰撞
+    // 如果角色一開始就卡進方塊，往上嘗試移動直到脫離碰撞；常見於載入舊存檔或地形重新生成後。
     private void resolveIntersections(World world) {
         if (!collides(world, position.x, position.y, position.z)) {
             return;
@@ -182,7 +183,7 @@ public final class Player {
         velocity.y = approach(velocity.y, wish.y, accel * deltaSeconds);
         velocity.z = approach(velocity.z, wish.z, accel * deltaSeconds);
 
-        // 分三個軸移動，方便逐軸做碰撞處理
+        // 分三個軸移動，讓碰撞後只清掉撞到方向的速度，而不影響其他方向的滑動。
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
         moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
@@ -259,16 +260,13 @@ public final class Player {
             velocity.y = -65.0f;
         }
 
-        // 先處理 x 軸移動
+        // 依序處理各軸，讓碰撞行為接近 AABB 滑牆：某一軸被擋住時，其他軸仍可繼續前進。
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
 
-        // 先重設為不在地面，之後由 y 軸碰撞重新判定
+        // 每幀先重設落地狀態，只有向下移動時真的撞到方塊才重新標記為在地面。
         onGround = false;
 
-        // 再處理 y 軸移動
         moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
-
-        // 最後處理 z 軸移動
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
 
         // 防止角色掉到地圖底部以下
@@ -294,7 +292,7 @@ public final class Player {
                 && maxZ > z && minZ < z + 1;
     }
 
-    // 沿著單一軸移動，並在過程中逐步檢查碰撞
+    // 沿著單一軸移動，並在過程中逐步檢查碰撞；呼叫端保證同一時間只傳入一個非零軸。
     private void moveOnAxis(World world, float dx, float dy, float dz) {
         float distance = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
 
@@ -344,7 +342,7 @@ public final class Player {
     private boolean collides(World world, float x, float y, float z) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
 
-        // 算出角色碰撞箱涵蓋到哪些方塊座標
+        // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
         int minX = fastFloor(x - half + EPSILON);
         int maxX = fastFloor(x + half - EPSILON);
         int minY = fastFloor(y + EPSILON);

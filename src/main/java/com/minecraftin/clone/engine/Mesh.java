@@ -2,6 +2,7 @@ package com.minecraftin.clone.engine;
 
 import static org.lwjgl.opengl.GL33C.*;
 
+// 封裝一組 OpenGL VAO/VBO 與頂點格式；呼叫端仍需確保 OpenGL context 已建立且最後呼叫 close()。
 public final class Mesh implements AutoCloseable {
     // 記錄這個模型的頂點設定方式。
     private final int vao;
@@ -16,6 +17,7 @@ public final class Mesh implements AutoCloseable {
     private int vertexCount;
 
     // 建立 Mesh，並把頂點資料與屬性格式一起設定到 OpenGL。
+    // attributeSizes 的順序必須與 shader 的 layout(location=...) 對齊。
     public Mesh(float[] vertices, int mode, int... attributeSizes) {
         // 至少要提供一種頂點屬性格式，否則無法知道資料怎麼切分。
         if (attributeSizes.length == 0) {
@@ -99,8 +101,8 @@ public final class Mesh implements AutoCloseable {
         glBindVertexArray(0);
     }
 
-    @Override
     // 釋放 OpenGL 資源，避免記憶體或顯示卡資源洩漏。
+    @Override
     public void close() {
         glDeleteBuffers(vbo);
         glDeleteVertexArrays(vao);

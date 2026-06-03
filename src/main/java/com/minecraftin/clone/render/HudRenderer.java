@@ -11,6 +11,7 @@ import java.util.Map;
 import static org.lwjgl.opengl.GL33C.*;
 
 // 負責繪製 HUD，例如準星、hotbar，以及目前選取方塊的名稱。
+// HUD 使用 NDC 座標直接繪製 2D mesh，不經由相機矩陣，因此頂點資料與螢幕比例處理都在這裡完成。
 public final class HudRenderer implements AutoCloseable {
 
     // 每個頂點包含 7 個 float：位置 xyz + 顏色 rgba。
@@ -106,7 +107,7 @@ public final class HudRenderer implements AutoCloseable {
     // 畫面中央的準星 mesh。
     private final Mesh crosshair;
 
-    // hotbar 與文字共用的 mesh。
+    // hotbar 與文字共用的 mesh；只有內容、選取狀態或 viewport 改變時才重建。
     private final Mesh hotbarMesh;
 
     // 用來累積 hotbar 與文字頂點資料。
@@ -118,7 +119,7 @@ public final class HudRenderer implements AutoCloseable {
     // 快取上一次選取的格子索引，若沒變就可避免重建 mesh。
     private int cachedSelectedIndex = Integer.MIN_VALUE;
 
-    // 快取上一次 hotbar 內容的簽章。
+    // 快取上一次 hotbar 內容的簽章，避免每幀重建完全相同的 HUD 頂點資料。
     private int cachedHotbarSignature = Integer.MIN_VALUE;
 
     // 快取上一次 viewport 寬度。
@@ -150,7 +151,7 @@ public final class HudRenderer implements AutoCloseable {
         glDisable(GL_DEPTH_TEST);
         shader.use();
 
-        // 取得目前視窗大小，讓圖示在不同畫面比例下維持正常外觀。
+        // 取得目前 viewport 大小，讓圖示在不同畫面比例下維持正常外觀；HUD 不依賴 Window 尺寸參數。
         glGetIntegerv(GL_VIEWPORT, viewport);
         int viewportWidth = Math.max(1, viewport[2]);
         int viewportHeight = Math.max(1, viewport[3]);
@@ -322,7 +323,7 @@ public final class HudRenderer implements AutoCloseable {
         return glyph != null ? glyph : GLYPH_EMPTY;
     }
 
-    // 建立內建點陣字型表。
+    // 建立內建點陣字型表；目前只涵蓋 hotbar 顯示名稱需要的字元。
     private static Map<Character, String[]> createFont() {
         Map<Character, String[]> font = new HashMap<>();
         putGlyph(font, ' ', GLYPH_EMPTY);

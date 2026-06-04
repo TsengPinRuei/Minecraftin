@@ -22,6 +22,12 @@ public final class Window implements AutoCloseable {
     // 目前 framebuffer 的高度。
     private int height;
 
+    // 目前 GLFW 視窗邏輯寬度；滑鼠座標使用這個座標系。
+    private int windowWidth;
+
+    // 目前 GLFW 視窗邏輯高度；滑鼠座標使用這個座標系。
+    private int windowHeight;
+
     // 記錄 GLFW 是否已成功初始化，方便關閉時正確釋放資源。
     private boolean glfwInitialized;
 
@@ -69,6 +75,9 @@ public final class Window implements AutoCloseable {
             height = GameConfig.WINDOW_HEIGHT;
         }
 
+        windowWidth = width;
+        windowHeight = height;
+
         // 建立 GLFW 視窗。
         handle = glfwCreateWindow(width, height, GameConfig.WINDOW_TITLE, NULL, NULL);
         if (handle == NULL) {
@@ -93,11 +102,17 @@ public final class Window implements AutoCloseable {
 
         // 先同步一次 framebuffer 的實際大小。
         refreshFramebufferSize();
+        refreshWindowSize();
 
         // 當 framebuffer 大小改變時，同步更新寬高。
         glfwSetFramebufferSizeCallback(handle, (w, newWidth, newHeight) -> {
             width = Math.max(newWidth, 1);
             height = Math.max(newHeight, 1);
+        });
+
+        glfwSetWindowSizeCallback(handle, (w, newWidth, newHeight) -> {
+            windowWidth = Math.max(newWidth, 1);
+            windowHeight = Math.max(newHeight, 1);
         });
     }
 
@@ -114,6 +129,16 @@ public final class Window implements AutoCloseable {
     // 取得目前高度。
     public int height() {
         return height;
+    }
+
+    // 取得目前視窗邏輯寬度。
+    public int windowWidth() {
+        return windowWidth;
+    }
+
+    // 取得目前視窗邏輯高度。
+    public int windowHeight() {
+        return windowHeight;
     }
 
     // 檢查視窗是否已被要求關閉。
@@ -136,6 +161,7 @@ public final class Window implements AutoCloseable {
     public void pollEvents() {
         glfwPollEvents();
         refreshFramebufferSize();
+        refreshWindowSize();
     }
 
     // 交換前後畫面緩衝，將本幀畫面顯示到螢幕上。
@@ -178,6 +204,22 @@ public final class Window implements AutoCloseable {
 
             width = Math.max(framebufferWidth.get(0), 1);
             height = Math.max(framebufferHeight.get(0), 1);
+        }
+    }
+
+    private void refreshWindowSize() {
+        if (handle == NULL) {
+            return;
+        }
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer currentWidth = stack.mallocInt(1);
+            IntBuffer currentHeight = stack.mallocInt(1);
+
+            glfwGetWindowSize(handle, currentWidth, currentHeight);
+
+            windowWidth = Math.max(currentWidth.get(0), 1);
+            windowHeight = Math.max(currentHeight.get(0), 1);
         }
     }
 }

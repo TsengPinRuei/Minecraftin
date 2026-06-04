@@ -65,10 +65,78 @@ public enum BlockType {
     BLUE_BLOCK(18, true, true, AtlasTiles.BLUE_BLOCK, AtlasTiles.BLUE_BLOCK, AtlasTiles.BLUE_BLOCK),
 
     // 紫色方塊。
-    PURPLE_BLOCK(19, true, true, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK);
+    PURPLE_BLOCK(19, true, true, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK),
+
+    // 羊毛系列，提供創造模式常用的柔和彩色建材。
+    WHITE_WOOL(20, true, true, AtlasTiles.WHITE_WOOL, AtlasTiles.WHITE_WOOL, AtlasTiles.WHITE_WOOL),
+    LIGHT_GRAY_WOOL(21, true, true, AtlasTiles.LIGHT_GRAY_WOOL, AtlasTiles.LIGHT_GRAY_WOOL, AtlasTiles.LIGHT_GRAY_WOOL),
+    GRAY_WOOL(22, true, true, AtlasTiles.GRAY_WOOL, AtlasTiles.GRAY_WOOL, AtlasTiles.GRAY_WOOL),
+    BLACK_WOOL(23, true, true, AtlasTiles.BLACK_WOOL, AtlasTiles.BLACK_WOOL, AtlasTiles.BLACK_WOOL),
+    BROWN_WOOL(24, true, true, AtlasTiles.BROWN_WOOL, AtlasTiles.BROWN_WOOL, AtlasTiles.BROWN_WOOL),
+    RED_WOOL(25, true, true, AtlasTiles.RED_WOOL, AtlasTiles.RED_WOOL, AtlasTiles.RED_WOOL),
+    ORANGE_WOOL(26, true, true, AtlasTiles.ORANGE_WOOL, AtlasTiles.ORANGE_WOOL, AtlasTiles.ORANGE_WOOL),
+    YELLOW_WOOL(27, true, true, AtlasTiles.YELLOW_WOOL, AtlasTiles.YELLOW_WOOL, AtlasTiles.YELLOW_WOOL),
+    LIME_WOOL(28, true, true, AtlasTiles.LIME_WOOL, AtlasTiles.LIME_WOOL, AtlasTiles.LIME_WOOL),
+    GREEN_WOOL(29, true, true, AtlasTiles.GREEN_WOOL, AtlasTiles.GREEN_WOOL, AtlasTiles.GREEN_WOOL),
+    CYAN_WOOL(30, true, true, AtlasTiles.CYAN_WOOL, AtlasTiles.CYAN_WOOL, AtlasTiles.CYAN_WOOL),
+    BLUE_WOOL(31, true, true, AtlasTiles.BLUE_WOOL, AtlasTiles.BLUE_WOOL, AtlasTiles.BLUE_WOOL),
+    PURPLE_WOOL(32, true, true, AtlasTiles.PURPLE_WOOL, AtlasTiles.PURPLE_WOOL, AtlasTiles.PURPLE_WOOL),
+    MAGENTA_WOOL(33, true, true, AtlasTiles.MAGENTA_WOOL, AtlasTiles.MAGENTA_WOOL, AtlasTiles.MAGENTA_WOOL),
+    PINK_WOOL(34, true, true, AtlasTiles.PINK_WOOL, AtlasTiles.PINK_WOOL, AtlasTiles.PINK_WOOL),
+
+    // 木材系列。
+    BIRCH_PLANKS(35, true, true, AtlasTiles.BIRCH_PLANKS, AtlasTiles.BIRCH_PLANKS, AtlasTiles.BIRCH_PLANKS),
+    SPRUCE_PLANKS(36, true, true, AtlasTiles.SPRUCE_PLANKS, AtlasTiles.SPRUCE_PLANKS, AtlasTiles.SPRUCE_PLANKS),
+    DARK_OAK_PLANKS(37, true, true, AtlasTiles.DARK_OAK_PLANKS, AtlasTiles.DARK_OAK_PLANKS, AtlasTiles.DARK_OAK_PLANKS),
+
+    // 石材與建築材料。
+    STONE_BRICKS(38, true, true, AtlasTiles.STONE_BRICKS, AtlasTiles.STONE_BRICKS, AtlasTiles.STONE_BRICKS),
+    CHISELED_STONE_BRICKS(39, true, true, AtlasTiles.CHISELED_STONE_BRICKS, AtlasTiles.CHISELED_STONE_BRICKS,
+            AtlasTiles.CHISELED_STONE_BRICKS),
+    MOSSY_STONE_BRICKS(40, true, true, AtlasTiles.MOSSY_STONE_BRICKS, AtlasTiles.MOSSY_STONE_BRICKS,
+            AtlasTiles.MOSSY_STONE_BRICKS),
+    GRANITE(41, true, true, AtlasTiles.GRANITE, AtlasTiles.GRANITE, AtlasTiles.GRANITE),
+    POLISHED_GRANITE(42, true, true, AtlasTiles.POLISHED_GRANITE, AtlasTiles.POLISHED_GRANITE,
+            AtlasTiles.POLISHED_GRANITE),
+    DIORITE(43, true, true, AtlasTiles.DIORITE, AtlasTiles.DIORITE, AtlasTiles.DIORITE),
+    POLISHED_DIORITE(44, true, true, AtlasTiles.POLISHED_DIORITE, AtlasTiles.POLISHED_DIORITE,
+            AtlasTiles.POLISHED_DIORITE),
+    ANDESITE(45, true, true, AtlasTiles.ANDESITE, AtlasTiles.ANDESITE, AtlasTiles.ANDESITE),
+    POLISHED_ANDESITE(46, true, true, AtlasTiles.POLISHED_ANDESITE, AtlasTiles.POLISHED_ANDESITE,
+            AtlasTiles.POLISHED_ANDESITE),
+    DEEPSLATE(47, true, true, AtlasTiles.DEEPSLATE, AtlasTiles.DEEPSLATE, AtlasTiles.DEEPSLATE),
+    POLISHED_DEEPSLATE(48, true, true, AtlasTiles.POLISHED_DEEPSLATE, AtlasTiles.POLISHED_DEEPSLATE,
+            AtlasTiles.POLISHED_DEEPSLATE),
+    DEEPSLATE_BRICKS(49, true, true, AtlasTiles.DEEPSLATE_BRICKS, AtlasTiles.DEEPSLATE_BRICKS,
+            AtlasTiles.DEEPSLATE_BRICKS),
+    QUARTZ_BLOCK(50, true, true, AtlasTiles.QUARTZ_BLOCK, AtlasTiles.QUARTZ_BLOCK, AtlasTiles.QUARTZ_BLOCK),
+    QUARTZ_PILLAR(51, true, true, AtlasTiles.QUARTZ_PILLAR_SIDE, AtlasTiles.QUARTZ_PILLAR_TOP,
+            AtlasTiles.QUARTZ_PILLAR_TOP),
+    SMOOTH_QUARTZ(52, true, true, AtlasTiles.SMOOTH_QUARTZ, AtlasTiles.SMOOTH_QUARTZ, AtlasTiles.SMOOTH_QUARTZ),
+    OBSIDIAN(53, true, true, AtlasTiles.OBSIDIAN, AtlasTiles.OBSIDIAN, AtlasTiles.OBSIDIAN),
+    NETHERRACK(54, true, true, AtlasTiles.NETHERRACK, AtlasTiles.NETHERRACK, AtlasTiles.NETHERRACK),
+    NETHER_BRICKS(55, true, true, AtlasTiles.NETHER_BRICKS, AtlasTiles.NETHER_BRICKS, AtlasTiles.NETHER_BRICKS),
+    END_STONE(56, true, true, AtlasTiles.END_STONE, AtlasTiles.END_STONE, AtlasTiles.END_STONE),
+    GLOWSTONE(57, true, true, AtlasTiles.GLOWSTONE, AtlasTiles.GLOWSTONE, AtlasTiles.GLOWSTONE),
+    SEA_LANTERN(58, true, true, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN);
 
     // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
     private static final BlockType[] BY_ID;
+
+    private static final BlockType[] CREATIVE_PALETTE = {
+            GRASS, DIRT, STONE, COBBLESTONE, BEDROCK,
+            SAND, SNOW, WATER, GLASS,
+            LOG, PLANKS, BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, LEAVES,
+            BRICKS, STONE_BRICKS, CHISELED_STONE_BRICKS, MOSSY_STONE_BRICKS,
+            GRANITE, POLISHED_GRANITE, DIORITE, POLISHED_DIORITE, ANDESITE, POLISHED_ANDESITE,
+            DEEPSLATE, POLISHED_DEEPSLATE, DEEPSLATE_BRICKS,
+            QUARTZ_BLOCK, QUARTZ_PILLAR, SMOOTH_QUARTZ, OBSIDIAN,
+            NETHERRACK, NETHER_BRICKS, END_STONE, GLOWSTONE, SEA_LANTERN,
+            WHITE_WOOL, LIGHT_GRAY_WOOL, GRAY_WOOL, BLACK_WOOL, BROWN_WOOL,
+            RED_WOOL, ORANGE_WOOL, YELLOW_WOOL, LIME_WOOL, GREEN_WOOL, CYAN_WOOL,
+            BLUE_WOOL, PURPLE_WOOL, MAGENTA_WOOL, PINK_WOOL,
+            RED_BLOCK, ORANGE_BLOCK, YELLOW_BLOCK, GREEN_BLOCK, BLUE_BLOCK, PURPLE_BLOCK
+    };
 
     static {
         int maxId = 0;
@@ -168,6 +236,11 @@ public enum BlockType {
 
         BlockType type = BY_ID[id];
         return type != null ? type : AIR;
+    }
+
+    // 回傳創造模式背包中可選用的方塊。回傳副本避免呼叫端改到全域順序。
+    public static BlockType[] creativePalette() {
+        return CREATIVE_PALETTE.clone();
     }
 
     // 將列舉名稱轉成較易讀的文字。

@@ -47,6 +47,19 @@ public final class HudRenderer implements AutoCloseable {
     // 目前選取方塊名稱與 hotbar 頂部之間的距離。
     private static final float HOTBAR_LABEL_MARGIN = 0.032f;
 
+    // 創造模式背包的格子配置，接近 Minecraft 的 9 欄方塊頁。
+    public static final int CREATIVE_COLUMNS = 9;
+    public static final int CREATIVE_ROWS = 5;
+    public static final int CREATIVE_SLOTS_PER_PAGE = CREATIVE_COLUMNS * CREATIVE_ROWS;
+
+    private static final float CREATIVE_SLOT_WIDTH = 0.105f;
+    private static final float CREATIVE_SLOT_HEIGHT = 0.125f;
+    private static final float CREATIVE_GAP = 0.012f;
+    private static final float CREATIVE_GRID_TOP = 0.56f;
+    private static final float CREATIVE_PANEL_PAD_X = 0.065f;
+    private static final float CREATIVE_PANEL_PAD_TOP = 0.13f;
+    private static final float CREATIVE_PANEL_PAD_BOTTOM = 0.11f;
+
     // 被選取格子的外框顏色。
     private static final float[] BORDER_COLOR_SELECTED = new float[] { 0.95f, 0.95f, 0.95f, 0.95f };
 
@@ -64,6 +77,12 @@ public final class HudRenderer implements AutoCloseable {
 
     // 文字背景顏色。
     private static final float[] TEXT_BG_COLOR = new float[] { 0.04f, 0.04f, 0.04f, 0.72f };
+
+    private static final float[] INVENTORY_PANEL_COLOR = new float[] { 0.62f, 0.62f, 0.58f, 0.94f };
+    private static final float[] INVENTORY_PANEL_SHADOW = new float[] { 0.05f, 0.05f, 0.05f, 0.55f };
+    private static final float[] INVENTORY_SLOT_COLOR = new float[] { 0.30f, 0.30f, 0.28f, 0.88f };
+    private static final float[] INVENTORY_SLOT_BORDER = new float[] { 0.13f, 0.13f, 0.12f, 0.82f };
+    private static final float[] INVENTORY_SLOT_SELECTED = new float[] { 0.98f, 0.95f, 0.70f, 0.96f };
 
     // 各種方塊在 hotbar 中的代表顏色。
     private static final float[] COLOR_RED_BLOCK = new float[] { 0.85f, 0.25f, 0.25f, 0.95f };
@@ -85,6 +104,45 @@ public final class HudRenderer implements AutoCloseable {
     private static final float[] COLOR_BRICKS = new float[] { 0.63f, 0.31f, 0.28f, 0.95f };
     private static final float[] COLOR_BEDROCK = new float[] { 0.22f, 0.22f, 0.22f, 0.95f };
     private static final float[] COLOR_SNOW = new float[] { 0.95f, 0.97f, 1.00f, 0.95f };
+    private static final float[] COLOR_WHITE_WOOL = new float[] { 0.92f, 0.92f, 0.88f, 0.95f };
+    private static final float[] COLOR_LIGHT_GRAY_WOOL = new float[] { 0.66f, 0.66f, 0.66f, 0.95f };
+    private static final float[] COLOR_GRAY_WOOL = new float[] { 0.38f, 0.38f, 0.38f, 0.95f };
+    private static final float[] COLOR_BLACK_WOOL = new float[] { 0.11f, 0.11f, 0.11f, 0.95f };
+    private static final float[] COLOR_BROWN_WOOL = new float[] { 0.50f, 0.32f, 0.20f, 0.95f };
+    private static final float[] COLOR_RED_WOOL = new float[] { 0.72f, 0.22f, 0.20f, 0.95f };
+    private static final float[] COLOR_ORANGE_WOOL = new float[] { 0.82f, 0.49f, 0.19f, 0.95f };
+    private static final float[] COLOR_YELLOW_WOOL = new float[] { 0.84f, 0.74f, 0.23f, 0.95f };
+    private static final float[] COLOR_LIME_WOOL = new float[] { 0.42f, 0.75f, 0.23f, 0.95f };
+    private static final float[] COLOR_GREEN_WOOL = new float[] { 0.30f, 0.55f, 0.21f, 0.95f };
+    private static final float[] COLOR_CYAN_WOOL = new float[] { 0.23f, 0.63f, 0.65f, 0.95f };
+    private static final float[] COLOR_BLUE_WOOL = new float[] { 0.23f, 0.37f, 0.67f, 0.95f };
+    private static final float[] COLOR_PURPLE_WOOL = new float[] { 0.47f, 0.30f, 0.66f, 0.95f };
+    private static final float[] COLOR_MAGENTA_WOOL = new float[] { 0.70f, 0.29f, 0.66f, 0.95f };
+    private static final float[] COLOR_PINK_WOOL = new float[] { 0.85f, 0.54f, 0.66f, 0.95f };
+    private static final float[] COLOR_BIRCH_PLANKS = new float[] { 0.83f, 0.74f, 0.45f, 0.95f };
+    private static final float[] COLOR_SPRUCE_PLANKS = new float[] { 0.44f, 0.31f, 0.18f, 0.95f };
+    private static final float[] COLOR_DARK_OAK_PLANKS = new float[] { 0.30f, 0.19f, 0.12f, 0.95f };
+    private static final float[] COLOR_STONE_BRICKS = new float[] { 0.49f, 0.49f, 0.49f, 0.95f };
+    private static final float[] COLOR_CHISELED_STONE_BRICKS = new float[] { 0.52f, 0.52f, 0.52f, 0.95f };
+    private static final float[] COLOR_MOSSY_STONE_BRICKS = new float[] { 0.38f, 0.48f, 0.32f, 0.95f };
+    private static final float[] COLOR_GRANITE = new float[] { 0.66f, 0.46f, 0.39f, 0.95f };
+    private static final float[] COLOR_POLISHED_GRANITE = new float[] { 0.68f, 0.49f, 0.43f, 0.95f };
+    private static final float[] COLOR_DIORITE = new float[] { 0.82f, 0.82f, 0.82f, 0.95f };
+    private static final float[] COLOR_POLISHED_DIORITE = new float[] { 0.86f, 0.86f, 0.86f, 0.95f };
+    private static final float[] COLOR_ANDESITE = new float[] { 0.52f, 0.52f, 0.52f, 0.95f };
+    private static final float[] COLOR_POLISHED_ANDESITE = new float[] { 0.56f, 0.56f, 0.56f, 0.95f };
+    private static final float[] COLOR_DEEPSLATE = new float[] { 0.29f, 0.30f, 0.32f, 0.95f };
+    private static final float[] COLOR_POLISHED_DEEPSLATE = new float[] { 0.33f, 0.34f, 0.36f, 0.95f };
+    private static final float[] COLOR_DEEPSLATE_BRICKS = new float[] { 0.30f, 0.31f, 0.34f, 0.95f };
+    private static final float[] COLOR_QUARTZ_BLOCK = new float[] { 0.91f, 0.89f, 0.84f, 0.95f };
+    private static final float[] COLOR_QUARTZ_PILLAR = new float[] { 0.90f, 0.88f, 0.82f, 0.95f };
+    private static final float[] COLOR_SMOOTH_QUARTZ = new float[] { 0.94f, 0.92f, 0.87f, 0.95f };
+    private static final float[] COLOR_OBSIDIAN = new float[] { 0.13f, 0.10f, 0.18f, 0.95f };
+    private static final float[] COLOR_NETHERRACK = new float[] { 0.49f, 0.18f, 0.18f, 0.95f };
+    private static final float[] COLOR_NETHER_BRICKS = new float[] { 0.30f, 0.12f, 0.17f, 0.95f };
+    private static final float[] COLOR_END_STONE = new float[] { 0.84f, 0.81f, 0.59f, 0.95f };
+    private static final float[] COLOR_GLOWSTONE = new float[] { 0.95f, 0.78f, 0.36f, 0.95f };
+    private static final float[] COLOR_SEA_LANTERN = new float[] { 0.80f, 0.93f, 0.91f, 0.95f };
     private static final float[] COLOR_DEFAULT = new float[] { 0.20f, 0.20f, 0.20f, 0.95f };
 
     // 空白字元的點陣資料。
@@ -122,6 +180,12 @@ public final class HudRenderer implements AutoCloseable {
     // 快取上一次 hotbar 內容的簽章，避免每幀重建完全相同的 HUD 頂點資料。
     private int cachedHotbarSignature = Integer.MIN_VALUE;
 
+    // 快取上一次創造背包內容與狀態。
+    private int cachedCreativeSignature = Integer.MIN_VALUE;
+    private int cachedCreativePage = Integer.MIN_VALUE;
+    private int cachedCreativeTotalPages = Integer.MIN_VALUE;
+    private boolean cachedCreativeOpen;
+
     // 快取上一次 viewport 寬度。
     private int cachedViewportWidth = Integer.MIN_VALUE;
 
@@ -147,7 +211,8 @@ public final class HudRenderer implements AutoCloseable {
     }
 
     // 繪製 HUD。
-    public void render(BlockType[] hotbar, int selectedIndex) {
+    public void render(BlockType[] hotbar, int selectedIndex, boolean creativeInventoryOpen, BlockType[] creativeBlocks,
+            int creativePage, int creativeTotalPages) {
         glDisable(GL_DEPTH_TEST);
         shader.use();
 
@@ -158,12 +223,24 @@ public final class HudRenderer implements AutoCloseable {
 
         boolean viewportChanged = viewportWidth != cachedViewportWidth || viewportHeight != cachedViewportHeight;
         int hotbarSignature = hotbarSignature(hotbar);
+        int creativeSignature = creativeInventoryOpen && creativeBlocks != null ? hotbarSignature(creativeBlocks) : 0;
 
         // 只有在 hotbar 內容、選取狀態或視窗大小變動時才重建 mesh。
-        if (viewportChanged || hotbarSignature != cachedHotbarSignature || selectedIndex != cachedSelectedIndex) {
-            updateHotbarMesh(hotbar, selectedIndex, (float) viewportWidth / (float) viewportHeight);
+        if (viewportChanged
+                || hotbarSignature != cachedHotbarSignature
+                || selectedIndex != cachedSelectedIndex
+                || creativeSignature != cachedCreativeSignature
+                || creativePage != cachedCreativePage
+                || creativeTotalPages != cachedCreativeTotalPages
+                || creativeInventoryOpen != cachedCreativeOpen) {
+            updateHotbarMesh(hotbar, selectedIndex, (float) viewportWidth / (float) viewportHeight,
+                    creativeInventoryOpen, creativeBlocks, creativePage, creativeTotalPages);
             cachedHotbarSignature = hotbarSignature;
             cachedSelectedIndex = selectedIndex;
+            cachedCreativeSignature = creativeSignature;
+            cachedCreativePage = creativePage;
+            cachedCreativeTotalPages = creativeTotalPages;
+            cachedCreativeOpen = creativeInventoryOpen;
             cachedViewportWidth = viewportWidth;
             cachedViewportHeight = viewportHeight;
         }
@@ -182,9 +259,52 @@ public final class HudRenderer implements AutoCloseable {
         shader.close();
     }
 
+    public static int creativeTotalPages(int blockCount) {
+        return Math.max(1, (blockCount + CREATIVE_SLOTS_PER_PAGE - 1) / CREATIVE_SLOTS_PER_PAGE);
+    }
+
+    public static int creativeSlotAt(double mouseX, double mouseY, int windowWidth, int windowHeight, int page,
+            int blockCount) {
+        if (windowWidth <= 0 || windowHeight <= 0 || blockCount <= 0) {
+            return -1;
+        }
+
+        double ndcX = (mouseX / (double) windowWidth) * 2.0 - 1.0;
+        double ndcY = 1.0 - (mouseY / (double) windowHeight) * 2.0;
+
+        float startX = creativeGridStartX();
+        float cellWidth = CREATIVE_SLOT_WIDTH + CREATIVE_GAP;
+        float cellHeight = CREATIVE_SLOT_HEIGHT + CREATIVE_GAP;
+
+        for (int row = 0; row < CREATIVE_ROWS; row++) {
+            float slotY = CREATIVE_GRID_TOP - row * cellHeight - CREATIVE_SLOT_HEIGHT;
+            if (ndcY < slotY || ndcY > slotY + CREATIVE_SLOT_HEIGHT) {
+                continue;
+            }
+
+            for (int col = 0; col < CREATIVE_COLUMNS; col++) {
+                float slotX = startX + col * cellWidth;
+                if (ndcX < slotX || ndcX > slotX + CREATIVE_SLOT_WIDTH) {
+                    continue;
+                }
+
+                int index = page * CREATIVE_SLOTS_PER_PAGE + row * CREATIVE_COLUMNS + col;
+                return index < blockCount ? index : -1;
+            }
+        }
+
+        return -1;
+    }
+
     // 依照 hotbar 內容與目前選取狀態，重新建立 hotbar mesh。
-    private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex, float viewportAspect) {
+    private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex, float viewportAspect,
+            boolean creativeInventoryOpen, BlockType[] creativeBlocks, int creativePage, int creativeTotalPages) {
         hotbarVertices.clear();
+
+        if (creativeInventoryOpen && creativeBlocks != null) {
+            addCreativeInventoryPanel(hotbarVertices, hotbar, selectedIndex, creativeBlocks, creativePage,
+                    creativeTotalPages, viewportAspect);
+        }
 
         int slots = hotbar.length;
         float totalWidth = slots * HOTBAR_SLOT_WIDTH + (slots - 1) * HOTBAR_GAP;
@@ -224,6 +344,68 @@ public final class HudRenderer implements AutoCloseable {
         }
 
         hotbarMesh.update(hotbarVertices.toArray(), STRIDE);
+    }
+
+    private void addCreativeInventoryPanel(FloatArrayBuilder out, BlockType[] hotbar, int selectedIndex,
+            BlockType[] creativeBlocks, int page, int totalPages, float viewportAspect) {
+        float gridWidth = creativeGridWidth();
+        float gridHeight = CREATIVE_ROWS * CREATIVE_SLOT_HEIGHT + (CREATIVE_ROWS - 1) * CREATIVE_GAP;
+        float startX = creativeGridStartX();
+        float gridBottom = CREATIVE_GRID_TOP - gridHeight;
+        float panelX = startX - CREATIVE_PANEL_PAD_X;
+        float panelY = gridBottom - CREATIVE_PANEL_PAD_BOTTOM;
+        float panelWidth = gridWidth + CREATIVE_PANEL_PAD_X * 2.0f;
+        float panelHeight = gridHeight + CREATIVE_PANEL_PAD_TOP + CREATIVE_PANEL_PAD_BOTTOM;
+
+        addRect(out, panelX + 0.018f, panelY - 0.018f, panelWidth, panelHeight, INVENTORY_PANEL_SHADOW);
+        addRect(out, panelX, panelY, panelWidth, panelHeight, INVENTORY_PANEL_COLOR);
+        addCenteredText(out, "Creative", CREATIVE_GRID_TOP + 0.046f);
+
+        BlockType selected = selectedIndex >= 0 && selectedIndex < hotbar.length ? hotbar[selectedIndex] : null;
+        float cellWidth = CREATIVE_SLOT_WIDTH + CREATIVE_GAP;
+        float cellHeight = CREATIVE_SLOT_HEIGHT + CREATIVE_GAP;
+        int firstBlock = Math.max(0, page) * CREATIVE_SLOTS_PER_PAGE;
+
+        for (int row = 0; row < CREATIVE_ROWS; row++) {
+            for (int col = 0; col < CREATIVE_COLUMNS; col++) {
+                int blockIndex = firstBlock + row * CREATIVE_COLUMNS + col;
+                float x = startX + col * cellWidth;
+                float y = CREATIVE_GRID_TOP - row * cellHeight - CREATIVE_SLOT_HEIGHT;
+                boolean hasBlock = blockIndex < creativeBlocks.length;
+                boolean selectedBlock = hasBlock && creativeBlocks[blockIndex] == selected;
+
+                float[] borderColor = selectedBlock ? INVENTORY_SLOT_SELECTED : INVENTORY_SLOT_BORDER;
+                addRect(out, x - 0.004f, y - 0.004f, CREATIVE_SLOT_WIDTH + 0.008f,
+                        CREATIVE_SLOT_HEIGHT + 0.008f, borderColor);
+                addRect(out, x, y, CREATIVE_SLOT_WIDTH, CREATIVE_SLOT_HEIGHT, INVENTORY_SLOT_COLOR);
+
+                if (!hasBlock) {
+                    continue;
+                }
+
+                float pixelAspect = Math.max(0.5f, viewportAspect);
+                float cubeHeight = Math.min(CREATIVE_SLOT_WIDTH, CREATIVE_SLOT_HEIGHT) * 0.46f;
+                float cubeWidth = cubeHeight / pixelAspect;
+                float depthX = cubeWidth * 0.30f;
+                float depthY = cubeHeight * 0.22f;
+                float cubeX = x + (CREATIVE_SLOT_WIDTH - (cubeWidth + depthX)) * 0.5f;
+                float cubeY = y + (CREATIVE_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
+
+                addCubeIcon(out, cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY,
+                        blockColor(creativeBlocks[blockIndex]));
+            }
+        }
+
+        String pageLabel = "Page " + Math.min(page + 1, Math.max(1, totalPages)) + "/" + Math.max(1, totalPages);
+        addCenteredText(out, pageLabel, panelY + 0.035f);
+    }
+
+    private static float creativeGridWidth() {
+        return CREATIVE_COLUMNS * CREATIVE_SLOT_WIDTH + (CREATIVE_COLUMNS - 1) * CREATIVE_GAP;
+    }
+
+    private static float creativeGridStartX() {
+        return -creativeGridWidth() * 0.5f;
     }
 
     // 加入一個矩形。
@@ -330,37 +512,69 @@ public final class HudRenderer implements AutoCloseable {
 
         putGlyph(font, 'A', "01110", "10001", "10001", "11111", "10001", "10001", "10001");
         putGlyph(font, 'B', "11110", "10001", "10001", "11110", "10001", "10001", "11110");
+        putGlyph(font, 'C', "01111", "10000", "10000", "10000", "10000", "10000", "01111");
         putGlyph(font, 'D', "11110", "10001", "10001", "10001", "10001", "10001", "11110");
         putGlyph(font, 'E', "11111", "10000", "10000", "11110", "10000", "10000", "11111");
+        putGlyph(font, 'F', "11111", "10000", "10000", "11110", "10000", "10000", "10000");
         putGlyph(font, 'G', "01110", "10001", "10000", "10111", "10001", "10001", "01110");
+        putGlyph(font, 'H', "10001", "10001", "10001", "11111", "10001", "10001", "10001");
         putGlyph(font, 'I', "11111", "00100", "00100", "00100", "00100", "00100", "11111");
+        putGlyph(font, 'J', "00111", "00010", "00010", "00010", "10010", "10010", "01100");
+        putGlyph(font, 'K', "10001", "10010", "10100", "11000", "10100", "10010", "10001");
         putGlyph(font, 'L', "10000", "10000", "10000", "10000", "10000", "10000", "11111");
+        putGlyph(font, 'M', "10001", "11011", "10101", "10101", "10001", "10001", "10001");
         putGlyph(font, 'N', "10001", "11001", "10101", "10011", "10001", "10001", "10001");
         putGlyph(font, 'O', "01110", "10001", "10001", "10001", "10001", "10001", "01110");
         putGlyph(font, 'P', "11110", "10001", "10001", "11110", "10000", "10000", "10000");
+        putGlyph(font, 'Q', "01110", "10001", "10001", "10001", "10101", "10010", "01101");
         putGlyph(font, 'R', "11110", "10001", "10001", "11110", "10100", "10010", "10001");
         putGlyph(font, 'S', "01111", "10000", "10000", "01110", "00001", "00001", "11110");
         putGlyph(font, 'T', "11111", "00100", "00100", "00100", "00100", "00100", "00100");
         putGlyph(font, 'U', "10001", "10001", "10001", "10001", "10001", "10001", "01110");
+        putGlyph(font, 'V', "10001", "10001", "10001", "10001", "10001", "01010", "00100");
         putGlyph(font, 'W', "10001", "10001", "10001", "10101", "10101", "10101", "01010");
+        putGlyph(font, 'X', "10001", "10001", "01010", "00100", "01010", "10001", "10001");
         putGlyph(font, 'Y', "10001", "10001", "01010", "00100", "00100", "00100", "00100");
+        putGlyph(font, 'Z', "11111", "00001", "00010", "00100", "01000", "10000", "11111");
 
         putGlyph(font, 'a', "00000", "00000", "01110", "00001", "01111", "10001", "01111");
         putGlyph(font, 'b', "10000", "10000", "10110", "11001", "10001", "11001", "10110");
+        putGlyph(font, 'c', "00000", "00000", "01110", "10000", "10000", "10000", "01110");
         putGlyph(font, 'd', "00001", "00001", "01101", "10011", "10001", "10011", "01101");
         putGlyph(font, 'e', "00000", "00000", "01110", "10001", "11111", "10000", "01111");
+        putGlyph(font, 'f', "00110", "01001", "01000", "11100", "01000", "01000", "01000");
         putGlyph(font, 'g', "00000", "00000", "01110", "10001", "01111", "00001", "01110");
+        putGlyph(font, 'h', "10000", "10000", "10110", "11001", "10001", "10001", "10001");
         putGlyph(font, 'i', "00100", "00000", "01100", "00100", "00100", "00100", "01110");
+        putGlyph(font, 'j', "00010", "00000", "00110", "00010", "00010", "10010", "01100");
+        putGlyph(font, 'k', "10000", "10000", "10010", "10100", "11000", "10100", "10010");
         putGlyph(font, 'l', "01100", "00100", "00100", "00100", "00100", "00100", "01110");
+        putGlyph(font, 'm', "00000", "00000", "11010", "10101", "10101", "10101", "10101");
         putGlyph(font, 'n', "00000", "00000", "10110", "11001", "10001", "10001", "10001");
         putGlyph(font, 'o', "00000", "00000", "01110", "10001", "10001", "10001", "01110");
         putGlyph(font, 'p', "00000", "00000", "11110", "10001", "11110", "10000", "10000");
+        putGlyph(font, 'q', "00000", "00000", "01101", "10011", "01111", "00001", "00001");
         putGlyph(font, 'r', "00000", "00000", "10110", "11001", "10000", "10000", "10000");
         putGlyph(font, 's', "00000", "00000", "01111", "10000", "01110", "00001", "11110");
         putGlyph(font, 't', "00100", "00100", "11111", "00100", "00100", "00101", "00010");
         putGlyph(font, 'u', "00000", "00000", "10001", "10001", "10001", "10011", "01101");
+        putGlyph(font, 'v', "00000", "00000", "10001", "10001", "10001", "01010", "00100");
         putGlyph(font, 'w', "00000", "00000", "10001", "10001", "10101", "10101", "01010");
+        putGlyph(font, 'x', "00000", "00000", "10001", "01010", "00100", "01010", "10001");
         putGlyph(font, 'y', "00000", "00000", "10001", "10001", "01111", "00001", "01110");
+        putGlyph(font, 'z', "00000", "00000", "11111", "00010", "00100", "01000", "11111");
+
+        putGlyph(font, '0', "01110", "10001", "10011", "10101", "11001", "10001", "01110");
+        putGlyph(font, '1', "00100", "01100", "00100", "00100", "00100", "00100", "01110");
+        putGlyph(font, '2', "01110", "10001", "00001", "00010", "00100", "01000", "11111");
+        putGlyph(font, '3', "11110", "00001", "00001", "01110", "00001", "00001", "11110");
+        putGlyph(font, '4', "00010", "00110", "01010", "10010", "11111", "00010", "00010");
+        putGlyph(font, '5', "11111", "10000", "10000", "11110", "00001", "00001", "11110");
+        putGlyph(font, '6', "01110", "10000", "10000", "11110", "10001", "10001", "01110");
+        putGlyph(font, '7', "11111", "00001", "00010", "00100", "01000", "01000", "01000");
+        putGlyph(font, '8', "01110", "10001", "10001", "01110", "10001", "10001", "01110");
+        putGlyph(font, '9', "01110", "10001", "10001", "01111", "00001", "00001", "01110");
+        putGlyph(font, '/', "00001", "00010", "00010", "00100", "01000", "01000", "10000");
 
         return font;
     }
@@ -425,6 +639,45 @@ public final class HudRenderer implements AutoCloseable {
             case BRICKS -> COLOR_BRICKS;
             case BEDROCK -> COLOR_BEDROCK;
             case SNOW -> COLOR_SNOW;
+            case WHITE_WOOL -> COLOR_WHITE_WOOL;
+            case LIGHT_GRAY_WOOL -> COLOR_LIGHT_GRAY_WOOL;
+            case GRAY_WOOL -> COLOR_GRAY_WOOL;
+            case BLACK_WOOL -> COLOR_BLACK_WOOL;
+            case BROWN_WOOL -> COLOR_BROWN_WOOL;
+            case RED_WOOL -> COLOR_RED_WOOL;
+            case ORANGE_WOOL -> COLOR_ORANGE_WOOL;
+            case YELLOW_WOOL -> COLOR_YELLOW_WOOL;
+            case LIME_WOOL -> COLOR_LIME_WOOL;
+            case GREEN_WOOL -> COLOR_GREEN_WOOL;
+            case CYAN_WOOL -> COLOR_CYAN_WOOL;
+            case BLUE_WOOL -> COLOR_BLUE_WOOL;
+            case PURPLE_WOOL -> COLOR_PURPLE_WOOL;
+            case MAGENTA_WOOL -> COLOR_MAGENTA_WOOL;
+            case PINK_WOOL -> COLOR_PINK_WOOL;
+            case BIRCH_PLANKS -> COLOR_BIRCH_PLANKS;
+            case SPRUCE_PLANKS -> COLOR_SPRUCE_PLANKS;
+            case DARK_OAK_PLANKS -> COLOR_DARK_OAK_PLANKS;
+            case STONE_BRICKS -> COLOR_STONE_BRICKS;
+            case CHISELED_STONE_BRICKS -> COLOR_CHISELED_STONE_BRICKS;
+            case MOSSY_STONE_BRICKS -> COLOR_MOSSY_STONE_BRICKS;
+            case GRANITE -> COLOR_GRANITE;
+            case POLISHED_GRANITE -> COLOR_POLISHED_GRANITE;
+            case DIORITE -> COLOR_DIORITE;
+            case POLISHED_DIORITE -> COLOR_POLISHED_DIORITE;
+            case ANDESITE -> COLOR_ANDESITE;
+            case POLISHED_ANDESITE -> COLOR_POLISHED_ANDESITE;
+            case DEEPSLATE -> COLOR_DEEPSLATE;
+            case POLISHED_DEEPSLATE -> COLOR_POLISHED_DEEPSLATE;
+            case DEEPSLATE_BRICKS -> COLOR_DEEPSLATE_BRICKS;
+            case QUARTZ_BLOCK -> COLOR_QUARTZ_BLOCK;
+            case QUARTZ_PILLAR -> COLOR_QUARTZ_PILLAR;
+            case SMOOTH_QUARTZ -> COLOR_SMOOTH_QUARTZ;
+            case OBSIDIAN -> COLOR_OBSIDIAN;
+            case NETHERRACK -> COLOR_NETHERRACK;
+            case NETHER_BRICKS -> COLOR_NETHER_BRICKS;
+            case END_STONE -> COLOR_END_STONE;
+            case GLOWSTONE -> COLOR_GLOWSTONE;
+            case SEA_LANTERN -> COLOR_SEA_LANTERN;
             default -> COLOR_DEFAULT;
         };
     }

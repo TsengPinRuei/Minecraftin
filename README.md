@@ -112,14 +112,18 @@ You should see version `17` or `21`.
 - `Space` (double tap): toggle flying on/off
 - `Space` (while flying): fly up
 - `Left Shift` (while flying): fly down
+- `E`: open / close creative inventory
 - `Left Click`: break block
 - `Right Click`: place selected block
 - `1-9` or `Mouse Wheel`: switch hotbar block
+- In creative inventory: `Left Click` assigns a block to the selected hotbar slot
+- In creative inventory: `Right Click` assigns a block and closes the inventory
+- In creative inventory: `Mouse Wheel` changes inventory page
 - `Esc`: release mouse cursor
 - `Left Click` (when cursor is free): capture mouse again
 - `Q`: quit game
 
-### Default blocks
+### Starter hotbar
 
 1. Red block
 2. Orange block
@@ -130,6 +134,11 @@ You should see version `17` or `21`.
 7. Dirt
 8. Stone
 9. Glass
+
+### Creative inventory blocks
+
+The creative inventory includes natural blocks, wood planks, stone building blocks, quartz, nether/end themed blocks,
+light blocks, glass, water, wool colors, and colored solid blocks.
 
 ## Save Files and World Reset
 
@@ -215,6 +224,8 @@ Fix:
 - [x] Chunk terrain generation with multiple biomes
 - [x] Caves, sea level, local water refill, tree generation
 - [x] Creative movement + fly toggle
+- [x] Creative inventory with multi-page block selection
+- [x] Expanded creative building block palette
 - [x] Collision-aware breaking/placing
 - [x] Land-first / forest-preferred spawn selection
 - [x] Persistent world save/load

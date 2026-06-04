@@ -41,6 +41,9 @@ public final class Game {
             BlockType.GLASS
     };
 
+    // 創造模式背包可選用的全部方塊。
+    private final BlockType[] creativeBlocks = BlockType.creativePalette();
+
     // 遊戲會用到的核心物件
     private final Window window = new Window();
     private final InputState input = new InputState();
@@ -62,6 +65,11 @@ public final class Game {
 
     // 目前快捷欄選到的方塊索引
     private int hotbarIndex;
+
+    // 創造模式背包狀態。
+    private boolean creativeInventoryOpen;
+    private boolean recaptureCursorAfterInventory;
+    private int creativeInventoryPage;
 
     // 破壞、放置方塊與自動存檔的冷卻或計時
     private float breakCooldown;
@@ -190,7 +198,8 @@ public final class Game {
 
             // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
-            hudRenderer.render(hotbar, hotbarIndex);
+            hudRenderer.render(hotbar, hotbarIndex, creativeInventoryOpen, creativeBlocks, creativeInventoryPage,
+                    creativeTotalPages());
 
             // 更新視窗標題中的偵錯資訊
             updateDebugTitle(now);
@@ -211,6 +220,29 @@ public final class Game {
     }
 
     private void handleInputState() {
+        // 按 Q 關閉遊戲
+        if (input.wasKeyPressed(GLFW_KEY_Q)) {
+            window.requestClose();
+        }
+
+        // E 開關創造模式背包。
+        if (input.wasKeyPressed(GLFW_KEY_E)) {
+            if (creativeInventoryOpen) {
+                closeCreativeInventory(true);
+            } else {
+                openCreativeInventory();
+            }
+        }
+
+        if (creativeInventoryOpen) {
+            if (input.wasKeyPressed(GLFW_KEY_ESCAPE)) {
+                closeCreativeInventory(true);
+            }
+            handleHotbarKeySelection();
+            handleCreativeInventorySelection();
+            return;
+        }
+
         // 按 ESC 時解除滑鼠鎖定
         if (input.wasKeyPressed(GLFW_KEY_ESCAPE) && cursorCaptured) {
             cursorCaptured = false;
@@ -225,18 +257,8 @@ public final class Game {
             input.resetMouseTracking();
         }
 
-        // 按 Q 關閉遊戲
-        if (input.wasKeyPressed(GLFW_KEY_Q)) {
-            window.requestClose();
-        }
-
         // 按數字鍵 1 到 9 切換快捷欄
-        for (int i = 0; i < hotbar.length && i < 9; i++) {
-            int key = GLFW_KEY_1 + i;
-            if (input.wasKeyPressed(key)) {
-                hotbarIndex = i;
-            }
-        }
+        handleHotbarKeySelection();
 
         // 滑鼠滾輪可切換快捷欄
         double scroll = input.consumeScrollDeltaY();
@@ -244,6 +266,91 @@ public final class Game {
             int direction = scroll > 0.0 ? -1 : 1;
             hotbarIndex = Math.floorMod(hotbarIndex + direction, hotbar.length);
         }
+    }
+
+    private void handleHotbarKeySelection() {
+        for (int i = 0; i < hotbar.length && i < 9; i++) {
+            int key = GLFW_KEY_1 + i;
+            if (input.wasKeyPressed(key)) {
+                hotbarIndex = i;
+            }
+        }
+    }
+
+    private void handleCreativeInventorySelection() {
+        double scroll = input.consumeScrollDeltaY();
+        if (scroll != 0.0) {
+            int direction = scroll > 0.0 ? -1 : 1;
+            setCreativeInventoryPage(creativeInventoryPage + direction);
+        }
+
+        boolean leftClick = input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
+        boolean rightClick = input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT);
+        if (!leftClick && !rightClick) {
+            return;
+        }
+
+        int blockIndex = HudRenderer.creativeSlotAt(
+                input.mouseX(),
+                input.mouseY(),
+                window.windowWidth(),
+                window.windowHeight(),
+                creativeInventoryPage,
+                creativeBlocks.length);
+
+        if (blockIndex < 0 || blockIndex >= creativeBlocks.length) {
+            return;
+        }
+
+        hotbar[hotbarIndex] = creativeBlocks[blockIndex];
+
+        // 右鍵可快速選取並回到遊戲，左鍵則保留背包開啟方便連續換槽。
+        if (rightClick) {
+            closeCreativeInventory(true);
+        }
+    }
+
+    private void openCreativeInventory() {
+        recaptureCursorAfterInventory = cursorCaptured;
+        creativeInventoryOpen = true;
+        cursorCaptured = false;
+        window.captureCursor(false);
+        input.resetMouseTracking();
+        focusCreativePageOnSelectedBlock();
+    }
+
+    private void closeCreativeInventory(boolean recaptureIfNeeded) {
+        if (!creativeInventoryOpen) {
+            return;
+        }
+
+        creativeInventoryOpen = false;
+        if (recaptureIfNeeded && recaptureCursorAfterInventory) {
+            cursorCaptured = true;
+            window.captureCursor(true);
+            input.resetMouseTracking();
+        }
+        recaptureCursorAfterInventory = false;
+    }
+
+    private void focusCreativePageOnSelectedBlock() {
+        BlockType selected = hotbar[hotbarIndex];
+        for (int i = 0; i < creativeBlocks.length; i++) {
+            if (creativeBlocks[i] == selected) {
+                creativeInventoryPage = i / HudRenderer.CREATIVE_SLOTS_PER_PAGE;
+                return;
+            }
+        }
+        setCreativeInventoryPage(creativeInventoryPage);
+    }
+
+    private void setCreativeInventoryPage(int page) {
+        int totalPages = creativeTotalPages();
+        creativeInventoryPage = Math.max(0, Math.min(page, totalPages - 1));
+    }
+
+    private int creativeTotalPages() {
+        return HudRenderer.creativeTotalPages(creativeBlocks.length);
     }
 
     private void applyLookFromMouse() {

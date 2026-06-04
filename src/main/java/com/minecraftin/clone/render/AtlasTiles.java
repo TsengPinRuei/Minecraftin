@@ -67,6 +67,52 @@ public final class AtlasTiles {
     // 紫色方塊貼圖編號。
     public static final int PURPLE_BLOCK = 20;
 
+    // 羊毛系列貼圖編號。
+    public static final int WHITE_WOOL = 21;
+    public static final int LIGHT_GRAY_WOOL = 22;
+    public static final int GRAY_WOOL = 23;
+    public static final int BLACK_WOOL = 24;
+    public static final int BROWN_WOOL = 25;
+    public static final int RED_WOOL = 26;
+    public static final int ORANGE_WOOL = 27;
+    public static final int YELLOW_WOOL = 28;
+    public static final int LIME_WOOL = 29;
+    public static final int GREEN_WOOL = 30;
+    public static final int CYAN_WOOL = 31;
+    public static final int BLUE_WOOL = 32;
+    public static final int PURPLE_WOOL = 33;
+    public static final int MAGENTA_WOOL = 34;
+    public static final int PINK_WOOL = 35;
+
+    // 木材系列貼圖編號。
+    public static final int BIRCH_PLANKS = 36;
+    public static final int SPRUCE_PLANKS = 37;
+    public static final int DARK_OAK_PLANKS = 38;
+
+    // 石材與建築材料貼圖編號。
+    public static final int STONE_BRICKS = 39;
+    public static final int CHISELED_STONE_BRICKS = 40;
+    public static final int MOSSY_STONE_BRICKS = 41;
+    public static final int GRANITE = 42;
+    public static final int POLISHED_GRANITE = 43;
+    public static final int DIORITE = 44;
+    public static final int POLISHED_DIORITE = 45;
+    public static final int ANDESITE = 46;
+    public static final int POLISHED_ANDESITE = 47;
+    public static final int DEEPSLATE = 48;
+    public static final int POLISHED_DEEPSLATE = 49;
+    public static final int DEEPSLATE_BRICKS = 50;
+    public static final int QUARTZ_BLOCK = 51;
+    public static final int QUARTZ_PILLAR_SIDE = 52;
+    public static final int QUARTZ_PILLAR_TOP = 53;
+    public static final int SMOOTH_QUARTZ = 54;
+    public static final int OBSIDIAN = 55;
+    public static final int NETHERRACK = 56;
+    public static final int NETHER_BRICKS = 57;
+    public static final int END_STONE = 58;
+    public static final int GLOWSTONE = 59;
+    public static final int SEA_LANTERN = 60;
+
     // 這個類別只提供常數，不需要建立物件。
     private AtlasTiles() {
     }

@@ -122,6 +122,49 @@ public final class TextureAtlas implements AutoCloseable {
         fillTile(colors, AtlasTiles.BLUE_BLOCK, 0x3E78D8, 0x2E60BE, false);
         fillTile(colors, AtlasTiles.PURPLE_BLOCK, 0x8448CC, 0x6B36AD, false);
 
+        fillWoolTile(colors, AtlasTiles.WHITE_WOOL, 0xEFEFE8, 0xD8D8D0);
+        fillWoolTile(colors, AtlasTiles.LIGHT_GRAY_WOOL, 0xA9A9A9, 0x8E8E8E);
+        fillWoolTile(colors, AtlasTiles.GRAY_WOOL, 0x666666, 0x4C4C4C);
+        fillWoolTile(colors, AtlasTiles.BLACK_WOOL, 0x262626, 0x171717);
+        fillWoolTile(colors, AtlasTiles.BROWN_WOOL, 0x805334, 0x62402A);
+        fillWoolTile(colors, AtlasTiles.RED_WOOL, 0xB73731, 0x8E2A26);
+        fillWoolTile(colors, AtlasTiles.ORANGE_WOOL, 0xD07D31, 0xA75E24);
+        fillWoolTile(colors, AtlasTiles.YELLOW_WOOL, 0xD6BC3A, 0xB1982C);
+        fillWoolTile(colors, AtlasTiles.LIME_WOOL, 0x6CBF3B, 0x4F9430);
+        fillWoolTile(colors, AtlasTiles.GREEN_WOOL, 0x4C8B36, 0x356B2A);
+        fillWoolTile(colors, AtlasTiles.CYAN_WOOL, 0x3AA0A6, 0x2C787E);
+        fillWoolTile(colors, AtlasTiles.BLUE_WOOL, 0x3A5EAA, 0x2B4688);
+        fillWoolTile(colors, AtlasTiles.PURPLE_WOOL, 0x794BA8, 0x5D3786);
+        fillWoolTile(colors, AtlasTiles.MAGENTA_WOOL, 0xB34AA8, 0x8E367F);
+        fillWoolTile(colors, AtlasTiles.PINK_WOOL, 0xD98AA8, 0xBF6790);
+
+        fillPlanksTile(colors, AtlasTiles.BIRCH_PLANKS, 0xD5BF75, 0xBFA55F);
+        fillPlanksTile(colors, AtlasTiles.SPRUCE_PLANKS, 0x70502F, 0x523A25);
+        fillPlanksTile(colors, AtlasTiles.DARK_OAK_PLANKS, 0x4E321E, 0x352112);
+
+        fillBrickTile(colors, AtlasTiles.STONE_BRICKS, 0x7E7E7E, 0x565656);
+        fillBrickTile(colors, AtlasTiles.CHISELED_STONE_BRICKS, 0x858585, 0x525252);
+        fillMossyBrickTile(colors, AtlasTiles.MOSSY_STONE_BRICKS, 0x777C6E, 0x3F5B31);
+        fillTile(colors, AtlasTiles.GRANITE, 0xA87563, 0x7F5147, false);
+        fillTile(colors, AtlasTiles.POLISHED_GRANITE, 0xAD7D6D, 0x8E5F52, true);
+        fillTile(colors, AtlasTiles.DIORITE, 0xD6D6D6, 0xA8A8A8, false);
+        fillTile(colors, AtlasTiles.POLISHED_DIORITE, 0xDCDCDC, 0xB8B8B8, true);
+        fillTile(colors, AtlasTiles.ANDESITE, 0x858585, 0x686868, false);
+        fillTile(colors, AtlasTiles.POLISHED_ANDESITE, 0x8D8D8D, 0x707070, true);
+        fillTile(colors, AtlasTiles.DEEPSLATE, 0x4B4D52, 0x313338, false);
+        fillTile(colors, AtlasTiles.POLISHED_DEEPSLATE, 0x55565B, 0x3D3E43, true);
+        fillBrickTile(colors, AtlasTiles.DEEPSLATE_BRICKS, 0x4C4E55, 0x2D2F35);
+        fillTile(colors, AtlasTiles.QUARTZ_BLOCK, 0xE9E4D8, 0xCFC7B6, false);
+        fillPillarSideTile(colors, AtlasTiles.QUARTZ_PILLAR_SIDE, 0xE9E4D8, 0xBFB6A6);
+        fillPillarTopTile(colors, AtlasTiles.QUARTZ_PILLAR_TOP, 0xEAE5D9, 0xC6BDAE);
+        fillTile(colors, AtlasTiles.SMOOTH_QUARTZ, 0xEFEADF, 0xDDD5C8, true);
+        fillTile(colors, AtlasTiles.OBSIDIAN, 0x211A2E, 0x0F0B18, false);
+        fillTile(colors, AtlasTiles.NETHERRACK, 0x7C2E2E, 0x4D1B1F, false);
+        fillBrickTile(colors, AtlasTiles.NETHER_BRICKS, 0x4C1F2A, 0x271018);
+        fillTile(colors, AtlasTiles.END_STONE, 0xD8D19A, 0xB8B072, false);
+        fillGlowTile(colors, AtlasTiles.GLOWSTONE, 0xF3C85B, 0xA87824);
+        fillGlowTile(colors, AtlasTiles.SEA_LANTERN, 0xCDEDE8, 0x5AA8A4);
+
         // 把 ARGB 轉成 OpenGL 需要的 RGBA 順序後寫進 buffer。
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
@@ -166,6 +209,116 @@ public final class TextureAtlas implements AutoCloseable {
                 int px = tileX + x;
                 int py = tileY + y;
                 pixels[py * WIDTH + px] = pixel;
+            }
+        }
+    }
+
+    // 羊毛用交錯線條與低對比雜訊，避免看起來像單純混凝土。
+    private void fillWoolTile(int[] pixels, int tile, int colorA, int colorB) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                int noise = hash(tile, x, y) & 0x0F;
+                float blend = noise / 22.0f;
+                if ((x + y) % 7 == 0 || (x - y + TILE_SIZE) % 9 == 0) {
+                    blend = Math.min(1.0f, blend + 0.22f);
+                }
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
+            }
+        }
+    }
+
+    // 木板用水平縫線與木紋雜訊，讓它和原木、一般色塊分開。
+    private void fillPlanksTile(int[] pixels, int tile, int colorA, int colorB) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean seam = y == 4 || y == 9 || y == 14;
+                int noise = hash(tile, x * 3, y) & 0x1F;
+                float blend = seam ? 0.95f : noise / 42.0f;
+                if ((x + (y / 5) * 3) % 11 == 0) {
+                    blend = Math.min(1.0f, blend + 0.18f);
+                }
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
+            }
+        }
+    }
+
+    // 石磚使用錯位磚縫，讓建築牆面有 Minecraft 常見的砌磚語彙。
+    private void fillBrickTile(int[] pixels, int tile, int colorA, int colorB) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                int row = y / 4;
+                int shiftedX = x + (row % 2) * 4;
+                boolean mortar = y % 4 == 0 || shiftedX % 8 == 0;
+                int noise = hash(tile, x, y) & 0x17;
+                float blend = mortar ? 0.92f : noise / 50.0f;
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
+            }
+        }
+    }
+
+    private void fillMossyBrickTile(int[] pixels, int tile, int colorA, int mossColor) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                int row = y / 4;
+                int shiftedX = x + (row % 2) * 4;
+                boolean mortar = y % 4 == 0 || shiftedX % 8 == 0;
+                boolean moss = (hash(tile + 31, x, y) & 0x1F) > 24 || (x < 3 && y > 7);
+                int base = moss ? mossColor : colorA;
+                int shade = moss ? 0x294220 : 0x565656;
+                float blend = mortar ? 0.86f : ((hash(tile, x, y) & 0x17) / 50.0f);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(base, shade, blend);
+            }
+        }
+    }
+
+    private void fillPillarSideTile(int[] pixels, int tile, int colorA, int colorB) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean groove = x == 3 || x == 12;
+                boolean band = y == 1 || y == 14;
+                float blend = groove ? 0.72f : (band ? 0.44f : ((hash(tile, x, y) & 0x0F) / 72.0f));
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
+            }
+        }
+    }
+
+    private void fillPillarTopTile(int[] pixels, int tile, int colorA, int colorB) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                int dist = Math.abs(x - 7) + Math.abs(y - 7);
+                float blend = dist > 8 ? 0.48f : ((hash(tile, x, y) & 0x0F) / 80.0f);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
+            }
+        }
+    }
+
+    private void fillGlowTile(int[] pixels, int tile, int colorA, int colorB) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean grid = x % 5 == 0 || y % 5 == 0;
+                float blend = grid ? 0.65f : ((hash(tile, x, y) & 0x1F) / 64.0f);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
             }
         }
     }

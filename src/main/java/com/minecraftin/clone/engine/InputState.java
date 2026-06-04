@@ -118,6 +118,16 @@ public final class InputState {
         return mouseDeltaY;
     }
 
+    // 取得目前滑鼠 X 座標，單位與 GLFW 視窗座標一致。
+    public double mouseX() {
+        return lastMouseX;
+    }
+
+    // 取得目前滑鼠 Y 座標，單位與 GLFW 視窗座標一致。
+    public double mouseY() {
+        return lastMouseY;
+    }
+
     // 取得目前累積的滾輪垂直位移，並在取出後清空。
     public double consumeScrollDeltaY() {
         double value = scrollDeltaY;

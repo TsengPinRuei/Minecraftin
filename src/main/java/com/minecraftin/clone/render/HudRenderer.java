@@ -143,6 +143,18 @@ public final class HudRenderer implements AutoCloseable {
     private static final float[] COLOR_END_STONE = new float[] { 0.84f, 0.81f, 0.59f, 0.95f };
     private static final float[] COLOR_GLOWSTONE = new float[] { 0.95f, 0.78f, 0.36f, 0.95f };
     private static final float[] COLOR_SEA_LANTERN = new float[] { 0.80f, 0.93f, 0.91f, 0.95f };
+    private static final float[] COLOR_OAK_STAIRS = new float[] { 0.70f, 0.50f, 0.27f, 0.95f };
+    private static final float[] COLOR_OAK_SLAB = new float[] { 0.73f, 0.55f, 0.32f, 0.95f };
+    private static final float[] COLOR_STONE_SLAB = new float[] { 0.57f, 0.57f, 0.57f, 0.95f };
+    private static final float[] COLOR_OAK_FENCE = new float[] { 0.62f, 0.42f, 0.22f, 0.95f };
+    private static final float[] COLOR_OAK_DOOR = new float[] { 0.66f, 0.43f, 0.21f, 0.95f };
+    private static final float[] COLOR_OAK_TRAPDOOR = new float[] { 0.64f, 0.41f, 0.20f, 0.95f };
+    private static final float[] COLOR_LADDER = new float[] { 0.68f, 0.46f, 0.23f, 0.95f };
+    private static final float[] COLOR_TORCH = new float[] { 0.95f, 0.70f, 0.24f, 0.95f };
+    private static final float[] COLOR_CRAFTING_TABLE = new float[] { 0.61f, 0.38f, 0.20f, 0.95f };
+    private static final float[] COLOR_FURNACE = new float[] { 0.43f, 0.43f, 0.43f, 0.95f };
+    private static final float[] COLOR_CHEST = new float[] { 0.73f, 0.48f, 0.20f, 0.95f };
+    private static final float[] COLOR_BOOKSHELF = new float[] { 0.62f, 0.33f, 0.23f, 0.95f };
     private static final float[] COLOR_DEFAULT = new float[] { 0.20f, 0.20f, 0.20f, 0.95f };
 
     // 空白字元的點陣資料。
@@ -333,8 +345,8 @@ public final class HudRenderer implements AutoCloseable {
             float cubeX = x + (HOTBAR_SLOT_WIDTH - (cubeWidth + depthX)) * 0.5f;
             float cubeY = y + (HOTBAR_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
 
-            // 畫出代表方塊的小立方體圖示。
-            addCubeIcon(hotbarVertices, cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY, blockColor(hotbar[i]));
+            // 畫出代表方塊或基本物品的小圖示。
+            addBlockIcon(hotbarVertices, hotbar[i], cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY);
         }
 
         // 在 hotbar 上方顯示目前選取方塊的名稱。
@@ -391,8 +403,7 @@ public final class HudRenderer implements AutoCloseable {
                 float cubeX = x + (CREATIVE_SLOT_WIDTH - (cubeWidth + depthX)) * 0.5f;
                 float cubeY = y + (CREATIVE_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
 
-                addCubeIcon(out, cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY,
-                        blockColor(creativeBlocks[blockIndex]));
+                addBlockIcon(out, creativeBlocks[blockIndex], cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY);
             }
         }
 
@@ -439,6 +450,134 @@ public final class HudRenderer implements AutoCloseable {
         // 右側面，用較暗的顏色製造陰影感。
         addQuad(out, x1, y0, x1 + depthX, y0 + depthY, x1 + depthX, y1 + depthY, x1, y1,
                 darken(r), darken(g), darken(b), a);
+    }
+
+    // 針對非完整方塊和基本物品畫出更容易辨識的 2D 輪廓，避免背包裡全部看起來像普通立方體。
+    private void addBlockIcon(FloatArrayBuilder out, BlockType type, float x, float y, float width, float height,
+            float depthX, float depthY) {
+        float[] color = blockColor(type);
+        switch (type) {
+            case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST ->
+                addStairsIcon(out, x, y, width, height, color);
+            case OAK_SLAB, STONE_SLAB -> addSlabIcon(out, x, y, width, height, color);
+            case OAK_FENCE -> addFenceIcon(out, x, y, width, height, color);
+            case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP ->
+                addDoorIcon(out, x, y, width, height, color);
+            case OAK_TRAPDOOR -> addTrapdoorIcon(out, x, y, width, height, color);
+            case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST ->
+                addLadderIcon(out, x, y, width, height, color);
+            case TORCH -> addTorchIcon(out, x, y, width, height, color);
+            case CRAFTING_TABLE -> addCraftingTableIcon(out, x, y, width, height, depthX, depthY, color);
+            case FURNACE -> addFurnaceIcon(out, x, y, width, height, depthX, depthY, color);
+            case CHEST -> addChestIcon(out, x, y, width, height, depthX, depthY, color);
+            case BOOKSHELF -> addBookshelfIcon(out, x, y, width, height, depthX, depthY, color);
+            default -> addCubeIcon(out, x, y, width, height, depthX, depthY, color);
+        }
+    }
+
+    private void addStairsIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        float stepW = width / 3.0f;
+        float stepH = height / 3.0f;
+        addRect(out, x, y, width, stepH, color);
+        addRect(out, x + stepW, y + stepH, width - stepW, stepH, color);
+        addRect(out, x + stepW * 2.0f, y + stepH * 2.0f, width - stepW * 2.0f, stepH, color);
+        addRect(out, x, y - 0.004f, width, 0.004f, INVENTORY_SLOT_BORDER);
+    }
+
+    private void addSlabIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        addRect(out, x, y, width, height * 0.42f, color);
+        addRect(out, x, y + height * 0.42f, width, height * 0.08f, lightenColor(color));
+    }
+
+    private void addFenceIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        float postW = width * 0.16f;
+        float railH = height * 0.14f;
+        addRect(out, x + width * 0.12f, y, postW, height, color);
+        addRect(out, x + width * 0.72f, y, postW, height, color);
+        addRect(out, x, y + height * 0.30f, width, railH, color);
+        addRect(out, x, y + height * 0.64f, width, railH, color);
+    }
+
+    private void addDoorIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        float doorX = x + width * 0.20f;
+        float doorW = width * 0.60f;
+        addRect(out, doorX, y, doorW, height, color);
+        addRect(out, doorX + doorW * 0.12f, y + height * 0.10f, doorW * 0.76f, height * 0.32f, darkenColor(color));
+        addRect(out, doorX + doorW * 0.12f, y + height * 0.56f, doorW * 0.76f, height * 0.32f, darkenColor(color));
+        addRect(out, doorX + doorW * 0.72f, y + height * 0.47f, doorW * 0.12f, height * 0.08f,
+                COLOR_GLOWSTONE);
+    }
+
+    private void addTrapdoorIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        float trapY = y + height * 0.15f;
+        float trapH = height * 0.70f;
+        addRect(out, x, trapY, width, trapH, color);
+        addRect(out, x + width * 0.12f, trapY + trapH * 0.12f, width * 0.76f, trapH * 0.14f,
+                darkenColor(color));
+        addRect(out, x + width * 0.12f, trapY + trapH * 0.43f, width * 0.76f, trapH * 0.14f,
+                darkenColor(color));
+        addRect(out, x + width * 0.12f, trapY + trapH * 0.74f, width * 0.76f, trapH * 0.14f,
+                darkenColor(color));
+    }
+
+    private void addLadderIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        float railW = width * 0.14f;
+        addRect(out, x + width * 0.22f, y, railW, height, color);
+        addRect(out, x + width * 0.64f, y, railW, height, color);
+        for (int i = 0; i < 4; i++) {
+            float rungY = y + height * (0.14f + i * 0.23f);
+            addRect(out, x + width * 0.20f, rungY, width * 0.60f, height * 0.08f, color);
+        }
+    }
+
+    private void addTorchIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
+        addRect(out, x + width * 0.43f, y, width * 0.14f, height * 0.68f, darkenColor(color));
+        addRect(out, x + width * 0.34f, y + height * 0.58f, width * 0.32f, height * 0.38f, COLOR_GLOWSTONE);
+    }
+
+    private void addCraftingTableIcon(FloatArrayBuilder out, float x, float y, float width, float height,
+            float depthX, float depthY, float[] color) {
+        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
+        addRect(out, x + width * 0.30f, y + height * 0.16f, width * 0.08f, height * 0.68f, darkenColor(color));
+        addRect(out, x + width * 0.62f, y + height * 0.16f, width * 0.08f, height * 0.68f, darkenColor(color));
+        addRect(out, x + width * 0.14f, y + height * 0.42f, width * 0.72f, height * 0.08f, darkenColor(color));
+    }
+
+    private void addFurnaceIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
+            float depthY, float[] color) {
+        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
+        addRect(out, x + width * 0.22f, y + height * 0.30f, width * 0.56f, height * 0.38f, COLOR_OBSIDIAN);
+    }
+
+    private void addChestIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
+            float depthY, float[] color) {
+        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
+        addRect(out, x, y + height * 0.50f, width, height * 0.08f, darkenColor(color));
+        addRect(out, x + width * 0.44f, y + height * 0.38f, width * 0.16f, height * 0.20f, COLOR_GLOWSTONE);
+    }
+
+    private void addBookshelfIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
+            float depthY, float[] color) {
+        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
+        float bookW = width * 0.12f;
+        for (int i = 0; i < 5; i++) {
+            float bx = x + width * 0.14f + i * bookW * 1.25f;
+            float[] bookColor = switch (i % 3) {
+                case 0 -> COLOR_RED_WOOL;
+                case 1 -> COLOR_BLUE_WOOL;
+                default -> COLOR_GREEN_WOOL;
+            };
+            addRect(out, bx, y + height * 0.18f, bookW, height * 0.58f, bookColor);
+        }
+    }
+
+    private float[] lightenColor(float[] color) {
+        return new float[] { lighten(color[0]), lighten(color[1]), lighten(color[2]), color[3] };
+    }
+
+    private float[] darkenColor(float[] color) {
+        return new float[] { darken(color[0]), darken(color[1]), darken(color[2]), color[3] };
     }
 
     // 讓顏色稍微變亮。
@@ -678,6 +817,21 @@ public final class HudRenderer implements AutoCloseable {
             case END_STONE -> COLOR_END_STONE;
             case GLOWSTONE -> COLOR_GLOWSTONE;
             case SEA_LANTERN -> COLOR_SEA_LANTERN;
+            case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST ->
+                COLOR_OAK_STAIRS;
+            case OAK_SLAB -> COLOR_OAK_SLAB;
+            case STONE_SLAB -> COLOR_STONE_SLAB;
+            case OAK_FENCE -> COLOR_OAK_FENCE;
+            case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP ->
+                COLOR_OAK_DOOR;
+            case OAK_TRAPDOOR -> COLOR_OAK_TRAPDOOR;
+            case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST -> COLOR_LADDER;
+            case TORCH -> COLOR_TORCH;
+            case CRAFTING_TABLE -> COLOR_CRAFTING_TABLE;
+            case FURNACE -> COLOR_FURNACE;
+            case CHEST -> COLOR_CHEST;
+            case BOOKSHELF -> COLOR_BOOKSHELF;
             default -> COLOR_DEFAULT;
         };
     }

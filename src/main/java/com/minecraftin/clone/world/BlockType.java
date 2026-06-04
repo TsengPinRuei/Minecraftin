@@ -118,20 +118,86 @@ public enum BlockType {
     NETHER_BRICKS(55, true, true, AtlasTiles.NETHER_BRICKS, AtlasTiles.NETHER_BRICKS, AtlasTiles.NETHER_BRICKS),
     END_STONE(56, true, true, AtlasTiles.END_STONE, AtlasTiles.END_STONE, AtlasTiles.END_STONE),
     GLOWSTONE(57, true, true, AtlasTiles.GLOWSTONE, AtlasTiles.GLOWSTONE, AtlasTiles.GLOWSTONE),
-    SEA_LANTERN(58, true, true, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN);
+    SEA_LANTERN(58, true, true, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN),
+
+    // 創造模式常用基本物品與非完整方塊。Base 版本出現在背包；方向版本由放置流程寫入世界。
+    OAK_STAIRS(59, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+    OAK_STAIRS_NORTH(60, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+    OAK_STAIRS_EAST(61, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+    OAK_STAIRS_SOUTH(62, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+    OAK_STAIRS_WEST(63, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+    OAK_SLAB(64, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+    STONE_SLAB(65, true, true, AtlasTiles.STONE, AtlasTiles.STONE, AtlasTiles.STONE),
+    OAK_FENCE(66, true, true, AtlasTiles.OAK_FENCE, AtlasTiles.OAK_FENCE, AtlasTiles.OAK_FENCE),
+    OAK_DOOR(67, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_NORTH_BOTTOM(68, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_NORTH_TOP(69, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_EAST_BOTTOM(70, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_EAST_TOP(71, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_SOUTH_BOTTOM(72, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_SOUTH_TOP(73, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_WEST_BOTTOM(74, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_WEST_TOP(75, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_TRAPDOOR(76, true, false, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR),
+    LADDER(77, false, false, AtlasTiles.LADDER, AtlasTiles.LADDER, AtlasTiles.LADDER),
+    LADDER_NORTH(78, false, false, AtlasTiles.LADDER, AtlasTiles.LADDER, AtlasTiles.LADDER),
+    LADDER_EAST(79, false, false, AtlasTiles.LADDER, AtlasTiles.LADDER, AtlasTiles.LADDER),
+    LADDER_SOUTH(80, false, false, AtlasTiles.LADDER, AtlasTiles.LADDER, AtlasTiles.LADDER),
+    LADDER_WEST(81, false, false, AtlasTiles.LADDER, AtlasTiles.LADDER, AtlasTiles.LADDER),
+    TORCH(82, false, false, AtlasTiles.TORCH, AtlasTiles.TORCH, AtlasTiles.TORCH),
+    CRAFTING_TABLE(83, true, true, AtlasTiles.CRAFTING_TABLE_SIDE, AtlasTiles.CRAFTING_TABLE_TOP,
+            AtlasTiles.PLANKS),
+    FURNACE(84, true, true, AtlasTiles.FURNACE_SIDE, AtlasTiles.FURNACE_TOP, AtlasTiles.FURNACE_TOP),
+    CHEST(85, true, true, AtlasTiles.CHEST_SIDE, AtlasTiles.CHEST_TOP, AtlasTiles.CHEST_TOP),
+    BOOKSHELF(86, true, true, AtlasTiles.BOOKSHELF, AtlasTiles.PLANKS, AtlasTiles.PLANKS);
 
     // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
     private static final BlockType[] BY_ID;
 
+    private static final BlockBounds[] EMPTY_BOUNDS = new BlockBounds[0];
+    private static final BlockBounds[] FULL_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) };
+    private static final BlockBounds[] NORTH_THIN = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.1875f) };
+    private static final BlockBounds[] SOUTH_THIN = { new BlockBounds(0.0f, 0.0f, 0.8125f, 1.0f, 1.0f, 1.0f) };
+    private static final BlockBounds[] WEST_THIN = { new BlockBounds(0.0f, 0.0f, 0.0f, 0.1875f, 1.0f, 1.0f) };
+    private static final BlockBounds[] EAST_THIN = { new BlockBounds(0.8125f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) };
+    private static final BlockBounds[] NORTH_LADDER = { new BlockBounds(0.0625f, 0.0f, 0.0f, 0.9375f, 1.0f, 0.0625f) };
+    private static final BlockBounds[] SOUTH_LADDER = { new BlockBounds(0.0625f, 0.0f, 0.9375f, 0.9375f, 1.0f, 1.0f) };
+    private static final BlockBounds[] WEST_LADDER = { new BlockBounds(0.0f, 0.0f, 0.0625f, 0.0625f, 1.0f, 0.9375f) };
+    private static final BlockBounds[] EAST_LADDER = { new BlockBounds(0.9375f, 0.0f, 0.0625f, 1.0f, 1.0f, 0.9375f) };
+    private static final BlockBounds[] OAK_FENCE_BOUNDS = {
+            new BlockBounds(0.375f, 0.0f, 0.375f, 0.625f, 1.5f, 0.625f),
+            new BlockBounds(0.0f, 0.5625f, 0.4375f, 1.0f, 0.9375f, 0.5625f),
+            new BlockBounds(0.4375f, 0.5625f, 0.0f, 0.5625f, 0.9375f, 1.0f)
+    };
+    private static final BlockBounds[] OAK_SLAB_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f) };
+    private static final BlockBounds[] OAK_TRAPDOOR_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.1875f, 1.0f) };
+    private static final BlockBounds[] TORCH_BOUNDS = { new BlockBounds(0.40625f, 0.0f, 0.40625f, 0.59375f, 0.625f, 0.59375f) };
+    private static final BlockBounds[] STAIRS_NORTH_BOUNDS = {
+            new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f),
+            new BlockBounds(0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 0.5f)
+    };
+    private static final BlockBounds[] STAIRS_SOUTH_BOUNDS = {
+            new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f),
+            new BlockBounds(0.0f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f)
+    };
+    private static final BlockBounds[] STAIRS_WEST_BOUNDS = {
+            new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f),
+            new BlockBounds(0.0f, 0.5f, 0.0f, 0.5f, 1.0f, 1.0f)
+    };
+    private static final BlockBounds[] STAIRS_EAST_BOUNDS = {
+            new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f),
+            new BlockBounds(0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f)
+    };
+
     private static final BlockType[] CREATIVE_PALETTE = {
-            GRASS, DIRT, STONE, COBBLESTONE, BEDROCK,
-            SAND, SNOW, WATER, GLASS,
-            LOG, PLANKS, BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, LEAVES,
+            GRASS, DIRT, STONE, COBBLESTONE, SAND, SNOW, WATER, GLASS, BEDROCK,
+            LOG, PLANKS, BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, LEAVES, OAK_STAIRS, OAK_SLAB, STONE_SLAB,
+            OAK_FENCE, OAK_DOOR, OAK_TRAPDOOR, LADDER, TORCH, CRAFTING_TABLE, FURNACE, CHEST, BOOKSHELF,
             BRICKS, STONE_BRICKS, CHISELED_STONE_BRICKS, MOSSY_STONE_BRICKS,
             GRANITE, POLISHED_GRANITE, DIORITE, POLISHED_DIORITE, ANDESITE, POLISHED_ANDESITE,
             DEEPSLATE, POLISHED_DEEPSLATE, DEEPSLATE_BRICKS,
-            QUARTZ_BLOCK, QUARTZ_PILLAR, SMOOTH_QUARTZ, OBSIDIAN,
-            NETHERRACK, NETHER_BRICKS, END_STONE, GLOWSTONE, SEA_LANTERN,
+            QUARTZ_BLOCK, QUARTZ_PILLAR, SMOOTH_QUARTZ, OBSIDIAN, GLOWSTONE,
+            SEA_LANTERN, NETHERRACK, NETHER_BRICKS, END_STONE,
             WHITE_WOOL, LIGHT_GRAY_WOOL, GRAY_WOOL, BLACK_WOOL, BROWN_WOOL,
             RED_WOOL, ORANGE_WOOL, YELLOW_WOOL, LIME_WOOL, GREEN_WOOL, CYAN_WOOL,
             BLUE_WOOL, PURPLE_WOOL, MAGENTA_WOOL, PINK_WOOL,
@@ -203,6 +269,11 @@ public enum BlockType {
         return !opaque;
     }
 
+    // 需要以半透明 pass 繪製的方塊；其他非不透明方塊多半是形狀或 cutout，而不是玻璃/水那種混色透明。
+    public boolean isTranslucent() {
+        return this == WATER || this == GLASS;
+    }
+
     // 回傳顯示給玩家看的名稱。
     public String displayName() {
         return switch (this) {
@@ -212,6 +283,10 @@ public enum BlockType {
             case GREEN_BLOCK -> "Green";
             case BLUE_BLOCK -> "Blue";
             case PURPLE_BLOCK -> "Purple";
+            case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST -> "Oak Stairs";
+            case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP -> "Oak Door";
+            case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST -> "Ladder";
 
             // 其他方塊名稱會由列舉名稱自動轉成較好讀的格式。
             default -> titleCaseFromEnum(name());
@@ -220,6 +295,19 @@ public enum BlockType {
 
     // 根據方塊的面向，回傳該面要使用的貼圖編號。
     public int tileForFace(Face face) {
+        if (this == FURNACE && face == Face.NORTH) {
+            return AtlasTiles.FURNACE_FRONT;
+        }
+        if (this == CHEST && face == Face.NORTH) {
+            return AtlasTiles.CHEST_SIDE;
+        }
+        if (this == CRAFTING_TABLE && face == Face.UP) {
+            return AtlasTiles.CRAFTING_TABLE_TOP;
+        }
+        if (this == BOOKSHELF && (face == Face.UP || face == Face.DOWN)) {
+            return AtlasTiles.PLANKS;
+        }
+
         return switch (face) {
             case UP -> topTile;
             case DOWN -> bottomTile;
@@ -241,6 +329,123 @@ public enum BlockType {
     // 回傳創造模式背包中可選用的方塊。回傳副本避免呼叫端改到全域順序。
     public static BlockType[] creativePalette() {
         return CREATIVE_PALETTE.clone();
+    }
+
+    public boolean isFullCube() {
+        return switch (this) {
+            case AIR, OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST,
+                    OAK_SLAB, STONE_SLAB, OAK_FENCE, OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP,
+                    OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP, OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP,
+                    OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP, OAK_TRAPDOOR, LADDER, LADDER_NORTH, LADDER_EAST,
+                    LADDER_SOUTH, LADDER_WEST, TORCH -> false;
+            default -> true;
+        };
+    }
+
+    public boolean isDoorBlock() {
+        return switch (this) {
+            case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP -> true;
+            default -> false;
+        };
+    }
+
+    public boolean isDoorTop() {
+        return switch (this) {
+            case OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_TOP, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_TOP -> true;
+            default -> false;
+        };
+    }
+
+    public boolean placesAsDoor() {
+        return this == OAK_DOOR;
+    }
+
+    public BlockType placedVariantForFacing(int facing) {
+        return switch (this) {
+            case OAK_STAIRS -> switch (facing) {
+                case 1 -> OAK_STAIRS_EAST;
+                case 2 -> OAK_STAIRS_SOUTH;
+                case 3 -> OAK_STAIRS_WEST;
+                default -> OAK_STAIRS_NORTH;
+            };
+            case OAK_DOOR -> doorBottomForFacing(facing);
+            case LADDER -> ladderForFacing(facing);
+            default -> this;
+        };
+    }
+
+    public BlockType doorTopVariant() {
+        return switch (this) {
+            case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_TOP;
+            case OAK_DOOR_EAST_BOTTOM -> OAK_DOOR_EAST_TOP;
+            case OAK_DOOR_SOUTH_BOTTOM -> OAK_DOOR_SOUTH_TOP;
+            case OAK_DOOR_WEST_BOTTOM -> OAK_DOOR_WEST_TOP;
+            default -> this;
+        };
+    }
+
+    public BlockType matchingDoorHalf() {
+        return switch (this) {
+            case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_TOP;
+            case OAK_DOOR_NORTH_TOP -> OAK_DOOR_NORTH_BOTTOM;
+            case OAK_DOOR_EAST_BOTTOM -> OAK_DOOR_EAST_TOP;
+            case OAK_DOOR_EAST_TOP -> OAK_DOOR_EAST_BOTTOM;
+            case OAK_DOOR_SOUTH_BOTTOM -> OAK_DOOR_SOUTH_TOP;
+            case OAK_DOOR_SOUTH_TOP -> OAK_DOOR_SOUTH_BOTTOM;
+            case OAK_DOOR_WEST_BOTTOM -> OAK_DOOR_WEST_TOP;
+            case OAK_DOOR_WEST_TOP -> OAK_DOOR_WEST_BOTTOM;
+            default -> this;
+        };
+    }
+
+    public BlockBounds[] collisionBoxes() {
+        if (this == AIR || this == WATER || this == LADDER || this == LADDER_NORTH || this == LADDER_EAST
+                || this == LADDER_SOUTH || this == LADDER_WEST || this == TORCH) {
+            return EMPTY_BOUNDS;
+        }
+        return renderBoxes();
+    }
+
+    public BlockBounds[] renderBoxes() {
+        return switch (this) {
+            case AIR -> EMPTY_BOUNDS;
+            case OAK_STAIRS, OAK_STAIRS_NORTH -> STAIRS_NORTH_BOUNDS;
+            case OAK_STAIRS_EAST -> STAIRS_EAST_BOUNDS;
+            case OAK_STAIRS_SOUTH -> STAIRS_SOUTH_BOUNDS;
+            case OAK_STAIRS_WEST -> STAIRS_WEST_BOUNDS;
+            case OAK_SLAB, STONE_SLAB -> OAK_SLAB_BOUNDS;
+            case OAK_FENCE -> OAK_FENCE_BOUNDS;
+            case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP -> NORTH_THIN;
+            case OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP -> EAST_THIN;
+            case OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP -> SOUTH_THIN;
+            case OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP -> WEST_THIN;
+            case OAK_TRAPDOOR -> OAK_TRAPDOOR_BOUNDS;
+            case LADDER, LADDER_NORTH -> NORTH_LADDER;
+            case LADDER_EAST -> EAST_LADDER;
+            case LADDER_SOUTH -> SOUTH_LADDER;
+            case LADDER_WEST -> WEST_LADDER;
+            case TORCH -> TORCH_BOUNDS;
+            default -> FULL_BOUNDS;
+        };
+    }
+
+    public static BlockType doorBottomForFacing(int facing) {
+        return switch (facing) {
+            case 1 -> OAK_DOOR_EAST_BOTTOM;
+            case 2 -> OAK_DOOR_SOUTH_BOTTOM;
+            case 3 -> OAK_DOOR_WEST_BOTTOM;
+            default -> OAK_DOOR_NORTH_BOTTOM;
+        };
+    }
+
+    public static BlockType ladderForFacing(int facing) {
+        return switch (facing) {
+            case 1 -> LADDER_EAST;
+            case 2 -> LADDER_SOUTH;
+            case 3 -> LADDER_WEST;
+            default -> LADDER_NORTH;
+        };
     }
 
     // 將列舉名稱轉成較易讀的文字。

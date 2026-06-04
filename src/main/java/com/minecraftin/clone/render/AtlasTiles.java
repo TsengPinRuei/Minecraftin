@@ -113,6 +113,21 @@ public final class AtlasTiles {
     public static final int GLOWSTONE = 59;
     public static final int SEA_LANTERN = 60;
 
+    // 基本物品與功能方塊貼圖編號。
+    public static final int OAK_FENCE = 61;
+    public static final int OAK_DOOR = 62;
+    public static final int OAK_TRAPDOOR = 63;
+    public static final int LADDER = 64;
+    public static final int TORCH = 65;
+    public static final int CRAFTING_TABLE_SIDE = 66;
+    public static final int CRAFTING_TABLE_TOP = 67;
+    public static final int FURNACE_SIDE = 68;
+    public static final int FURNACE_FRONT = 69;
+    public static final int FURNACE_TOP = 70;
+    public static final int CHEST_SIDE = 71;
+    public static final int CHEST_TOP = 72;
+    public static final int BOOKSHELF = 73;
+
     // 這個類別只提供常數，不需要建立物件。
     private AtlasTiles() {
     }

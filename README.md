@@ -137,8 +137,9 @@ You should see version `17` or `21`.
 
 ### Creative inventory blocks
 
-The creative inventory includes natural blocks, wood planks, stone building blocks, quartz, nether/end themed blocks,
-light blocks, glass, water, wool colors, and colored solid blocks.
+The creative inventory includes natural blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders,
+torches, crafting tables, furnaces, chests, bookshelves, stone building blocks, quartz, nether/end themed blocks,
+light blocks, glass, flowing placed water, wool colors, and colored solid blocks.
 
 ## Save Files and World Reset
 
@@ -222,7 +223,7 @@ Fix:
 ## Scope
 
 - [x] Chunk terrain generation with multiple biomes
-- [x] Caves, sea level, local water refill, tree generation
+- [x] Caves, sea level, local water refill, finite placed-water flow, tree generation
 - [x] Creative movement + fly toggle
 - [x] Creative inventory with multi-page block selection
 - [x] Expanded creative building block palette

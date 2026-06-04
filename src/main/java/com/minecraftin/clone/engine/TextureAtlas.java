@@ -165,6 +165,20 @@ public final class TextureAtlas implements AutoCloseable {
         fillGlowTile(colors, AtlasTiles.GLOWSTONE, 0xF3C85B, 0xA87824);
         fillGlowTile(colors, AtlasTiles.SEA_LANTERN, 0xCDEDE8, 0x5AA8A4);
 
+        fillPlanksTile(colors, AtlasTiles.OAK_FENCE, 0xBA8A52, 0x8D6236);
+        fillDoorTile(colors, AtlasTiles.OAK_DOOR, 0xA97943, 0x5F3A1F);
+        fillTrapdoorTile(colors, AtlasTiles.OAK_TRAPDOOR, 0xA97943, 0x5F3A1F);
+        fillLadderTile(colors, AtlasTiles.LADDER, 0xA97943, 0x5F3A1F);
+        fillTorchTile(colors, AtlasTiles.TORCH, 0xF0B84A, 0x70451F);
+        fillCraftingSideTile(colors, AtlasTiles.CRAFTING_TABLE_SIDE, 0x9A6A3B, 0x5C3A20);
+        fillCraftingTopTile(colors, AtlasTiles.CRAFTING_TABLE_TOP, 0xB9824A, 0x614027);
+        fillTile(colors, AtlasTiles.FURNACE_SIDE, 0x727272, 0x4B4B4B, false);
+        fillFurnaceFrontTile(colors, AtlasTiles.FURNACE_FRONT, 0x6E6E6E, 0x323232);
+        fillTile(colors, AtlasTiles.FURNACE_TOP, 0x777777, 0x555555, true);
+        fillChestSideTile(colors, AtlasTiles.CHEST_SIDE, 0xB47A37, 0x6B441F);
+        fillChestTopTile(colors, AtlasTiles.CHEST_TOP, 0xC08A42, 0x775025);
+        fillBookshelfTile(colors, AtlasTiles.BOOKSHELF, 0xA56C32, 0x3D5D9A);
+
         // 把 ARGB 轉成 OpenGL 需要的 RGBA 順序後寫進 buffer。
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
@@ -200,7 +214,7 @@ public final class TextureAtlas implements AutoCloseable {
                 int color = mix(colorA, colorB, blend);
 
                 // 水和玻璃可設定不同透明度，其餘材質維持不透明。
-                int alpha = tile == AtlasTiles.WATER ? 255 : (tile == AtlasTiles.GLASS ? 140 : 255);
+                int alpha = tile == AtlasTiles.WATER ? 150 : (tile == AtlasTiles.GLASS ? 120 : 255);
 
                 // 組成 ARGB 顏色值。
                 int pixel = (alpha << 24) | color;
@@ -319,6 +333,156 @@ public final class TextureAtlas implements AutoCloseable {
                 boolean grid = x % 5 == 0 || y % 5 == 0;
                 float blend = grid ? 0.65f : ((hash(tile, x, y) & 0x1F) / 64.0f);
                 pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(colorA, colorB, blend);
+            }
+        }
+    }
+
+    private void fillDoorTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean rail = x == 1 || x == 14 || y == 1 || y == 14 || y == 7;
+                boolean inset = (x == 5 || x == 10) && y > 2 && y < 13;
+                boolean knob = x >= 11 && x <= 12 && y >= 7 && y <= 8;
+                float blend = rail || inset ? 0.80f : ((hash(tile, x, y) & 0x1F) / 48.0f);
+                int color = knob ? 0xD6B15A : mix(wood, dark, blend);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
+            }
+        }
+    }
+
+    private void fillTrapdoorTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean frame = x == 1 || x == 14 || y == 1 || y == 14 || x == 7 || y == 7;
+                boolean cutout = (x == 4 || x == 11) && (y == 4 || y == 11);
+                float blend = frame ? 0.75f : ((hash(tile, x, y) & 0x1F) / 52.0f);
+                int color = cutout ? dark : mix(wood, dark, blend);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
+            }
+        }
+    }
+
+    private void fillLadderTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean rung = y == 3 || y == 8 || y == 13;
+                boolean rail = x == 4 || x == 11;
+                int color = (rung || rail) ? mix(wood, dark, (hash(tile, x, y) & 0x0F) / 44.0f) : 0x000000;
+                int alpha = (rung || rail) ? 255 : 0;
+                pixels[(tileY + y) * WIDTH + tileX + x] = (alpha << 24) | color;
+            }
+        }
+    }
+
+    private void fillTorchTile(int[] pixels, int tile, int flame, int handle) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean stick = x >= 6 && x <= 9 && y >= 5;
+                boolean fire = x >= 5 && x <= 10 && y <= 5;
+                int alpha = stick || fire ? 255 : 0;
+                int color = fire ? mix(0xFFE36A, flame, (hash(tile, x, y) & 0x0F) / 30.0f) : handle;
+                pixels[(tileY + y) * WIDTH + tileX + x] = (alpha << 24) | color;
+            }
+        }
+    }
+
+    private void fillCraftingSideTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean grid = x == 4 || x == 11 || y == 4 || y == 11;
+                boolean tool = (x >= 6 && x <= 9 && y >= 2 && y <= 3) || (x == 8 && y >= 3 && y <= 7);
+                int color = tool ? 0xC7C7C7 : mix(wood, dark, grid ? 0.82f : ((hash(tile, x, y) & 0x1F) / 50.0f));
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
+            }
+        }
+    }
+
+    private void fillCraftingTopTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean grid = x == 1 || x == 7 || x == 14 || y == 1 || y == 7 || y == 14;
+                float blend = grid ? 0.88f : ((hash(tile, x, y) & 0x1F) / 58.0f);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(wood, dark, blend);
+            }
+        }
+    }
+
+    private void fillFurnaceFrontTile(int[] pixels, int tile, int stone, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean rim = x == 2 || x == 13 || y == 2 || y == 13;
+                boolean mouth = x >= 4 && x <= 11 && y >= 6 && y <= 11;
+                int base = mouth ? dark : stone;
+                float blend = rim ? 0.72f : ((hash(tile, x, y) & 0x1F) / 50.0f);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(base, dark, blend);
+            }
+        }
+    }
+
+    private void fillChestSideTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean band = y == 7 || x == 1 || x == 14 || y == 1 || y == 14;
+                boolean latch = x >= 7 && x <= 9 && y >= 6 && y <= 9;
+                int color = latch ? 0xD7B861 : mix(wood, dark, band ? 0.80f : ((hash(tile, x, y) & 0x1F) / 56.0f));
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
+            }
+        }
+    }
+
+    private void fillChestTopTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean rim = x == 1 || x == 14 || y == 1 || y == 14;
+                float blend = rim ? 0.75f : ((hash(tile, x, y) & 0x1F) / 54.0f);
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | mix(wood, dark, blend);
+            }
+        }
+    }
+
+    private void fillBookshelfTile(int[] pixels, int tile, int wood, int bookColor) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+        int[] books = { 0xB83A32, 0x3D5D9A, 0x2E7D4F, 0xD2B047, 0x8D4DA2 };
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean shelf = y == 1 || y == 7 || y == 14;
+                int color;
+                if (shelf || x == 0 || x == 15) {
+                    color = mix(wood, 0x5A351C, 0.35f);
+                } else {
+                    int book = books[Math.floorMod((x / 3) + (y / 8) * 2, books.length)];
+                    color = mix(book, bookColor, (hash(tile, x, y) & 0x0F) / 48.0f);
+                }
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
             }
         }
     }

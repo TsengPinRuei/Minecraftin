@@ -3,6 +3,8 @@ package com.minecraftin.clone.gameplay;
 import com.minecraftin.clone.config.GameConfig;
 import com.minecraftin.clone.engine.Camera;
 import com.minecraftin.clone.engine.InputState;
+import com.minecraftin.clone.world.BlockBounds;
+import com.minecraftin.clone.world.BlockType;
 import com.minecraftin.clone.world.World;
 import org.joml.Vector3f;
 
@@ -15,6 +17,12 @@ public final class Player {
 
     // 碰撞箱取樣時的微小邊界，避免剛好貼齊方塊邊界時因浮點誤差卡牆。
     private static final float EPSILON = 0.001f;
+
+    // 玩家水平移動時可自動踏上的高度；讓樓梯與半磚有接近 Minecraft 的走上去手感。
+    private static final float STEP_HEIGHT = 0.58f;
+
+    // 將踏階高度分段測試，避免一次抬太高穿過較薄的碰撞盒。
+    private static final int STEP_ATTEMPTS = 8;
 
     // 兩次按空白鍵的最大間隔，超過就不算雙擊
     private static final float DOUBLE_TAP_SECONDS = 0.28f;
@@ -279,6 +287,11 @@ public final class Player {
 
     // 判斷角色碰撞箱是否和指定方塊相交
     public boolean intersectsBlock(int x, int y, int z) {
+        return intersectsBlock(x, y, z, BlockType.STONE);
+    }
+
+    // 判斷角色碰撞箱是否和指定方塊種類的碰撞盒相交。
+    public boolean intersectsBlock(int x, int y, int z, BlockType type) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minX = position.x - half;
         float maxX = position.x + half;
@@ -287,9 +300,12 @@ public final class Player {
         float minZ = position.z - half;
         float maxZ = position.z + half;
 
-        return maxX > x && minX < x + 1
-                && maxY > y && minY < y + 1
-                && maxZ > z && minZ < z + 1;
+        for (BlockBounds bounds : type.collisionBoxes()) {
+            if (bounds.intersectsWorldBox(x, y, z, minX, minY, minZ, maxX, maxY, maxZ)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // 沿著單一軸移動，並在過程中逐步檢查碰撞；呼叫端保證同一時間只傳入一個非零軸。
@@ -318,6 +334,10 @@ public final class Player {
                 continue;
             }
 
+            if (!flying && dy == 0.0f && tryStepUp(world, targetX, targetZ)) {
+                continue;
+            }
+
             // 撞到牆或方塊時，把對應方向速度清掉
             if (stepX != 0.0f) {
                 velocity.x = 0.0f;
@@ -338,6 +358,19 @@ public final class Player {
         }
     }
 
+    // 水平移動被半磚或樓梯擋住時，嘗試小幅抬高玩家，形成自然踏階。
+    private boolean tryStepUp(World world, float targetX, float targetZ) {
+        for (int i = 1; i <= STEP_ATTEMPTS; i++) {
+            float candidateY = position.y + (STEP_HEIGHT * i / STEP_ATTEMPTS);
+            if (!collides(world, targetX, candidateY, targetZ)) {
+                position.set(targetX, candidateY, targetZ);
+                onGround = false;
+                return true;
+            }
+        }
+        return false;
+    }
+
     // 判斷角色碰撞箱在指定位置時，是否會碰到實心方塊
     private boolean collides(World world, float x, float y, float z) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
@@ -345,7 +378,7 @@ public final class Player {
         // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
         int minX = fastFloor(x - half + EPSILON);
         int maxX = fastFloor(x + half - EPSILON);
-        int minY = fastFloor(y + EPSILON);
+        int minY = fastFloor(y + EPSILON) - 1;
         int maxY = fastFloor(y + GameConfig.PLAYER_HEIGHT - EPSILON);
         int minZ = fastFloor(z - half + EPSILON);
         int maxZ = fastFloor(z + half - EPSILON);
@@ -354,8 +387,13 @@ public final class Player {
         for (int by = minY; by <= maxY; by++) {
             for (int bz = minZ; bz <= maxZ; bz++) {
                 for (int bx = minX; bx <= maxX; bx++) {
-                    if (world.getBlock(bx, by, bz).isSolid()) {
-                        return true;
+                    BlockType block = world.getBlock(bx, by, bz);
+                    for (BlockBounds bounds : block.collisionBoxes()) {
+                        if (bounds.intersectsWorldBox(bx, by, bz,
+                                x - half, y, z - half,
+                                x + half, y + GameConfig.PLAYER_HEIGHT, z + half)) {
+                            return true;
+                        }
                     }
                 }
             }

@@ -196,6 +196,9 @@ public final class Game {
                 updateBlockInteraction(delta);
             }
 
+            // 推進世界內的非玩家狀態，例如放置水的逐步流動動畫。
+            world.update(delta);
+
             // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
             hudRenderer.render(hotbar, hotbarIndex, creativeInventoryOpen, creativeBlocks, creativeInventoryPage,
@@ -424,7 +427,7 @@ public final class Game {
         // 左鍵破壞方塊，但不能破壞基岩；World.setBlock 會負責標記存檔與 mesh 失效。
         if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
             if (targetedBlock.block() != BlockType.BEDROCK) {
-                world.setBlock(targetedBlock.x(), targetedBlock.y(), targetedBlock.z(), BlockType.AIR);
+                breakTargetedBlock();
             }
             breakCooldown = GameConfig.BREAK_COOLDOWN_SECONDS;
         }
@@ -435,15 +438,101 @@ public final class Game {
             int py = targetedBlock.y() + targetedBlock.normalY();
             int pz = targetedBlock.z() + targetedBlock.normalZ();
 
-            BlockType current = world.getBlock(px, py, pz);
-
-            // 只能放在空氣或水的位置，且不能和玩家身體重疊
-            if ((current == BlockType.AIR || current == BlockType.WATER) && !player.intersectsBlock(px, py, pz)) {
-                world.setBlock(px, py, pz, hotbar[hotbarIndex]);
-            }
+            placeSelectedBlock(px, py, pz);
 
             placeCooldown = GameConfig.PLACE_COOLDOWN_SECONDS;
         }
+    }
+
+    // 破壞準星指向的方塊；門是雙格方塊，破壞任一半都要同步移除另一半。
+    private void breakTargetedBlock() {
+        BlockType block = targetedBlock.block();
+        int x = targetedBlock.x();
+        int y = targetedBlock.y();
+        int z = targetedBlock.z();
+
+        world.setBlock(x, y, z, BlockType.AIR);
+
+        if (!block.isDoorBlock()) {
+            return;
+        }
+
+        int otherY = block.isDoorTop() ? y - 1 : y + 1;
+        BlockType other = world.getBlock(x, otherY, z);
+        if (other == block.matchingDoorHalf()) {
+            world.setBlock(x, otherY, z, BlockType.AIR);
+        }
+    }
+
+    // 放置目前 hotbar 選到的方塊；方向型方塊會先轉成真正寫入世界的變體。
+    private void placeSelectedBlock(int x, int y, int z) {
+        BlockType selected = hotbar[hotbarIndex];
+        int facing = selected == BlockType.LADDER ? ladderFacingFromTargetNormal() : facingFromCamera();
+        BlockType placed = selected.placedVariantForFacing(facing);
+
+        if (selected.placesAsDoor()) {
+            placeDoorBlock(x, y, z, placed);
+            return;
+        }
+
+        if (!canPlaceAt(x, y, z, placed)) {
+            return;
+        }
+
+        world.setBlock(x, y, z, placed);
+    }
+
+    // 門需要同時佔用上下兩格，且上下碰撞盒都不能與玩家重疊。
+    private void placeDoorBlock(int x, int y, int z, BlockType bottom) {
+        BlockType top = bottom.doorTopVariant();
+        int topY = y + 1;
+
+        if (!canPlaceAt(x, y, z, bottom) || !canPlaceAt(x, topY, z, top)) {
+            return;
+        }
+
+        if (world.setBlock(x, y, z, bottom) && !world.setBlock(x, topY, z, top)) {
+            world.setBlock(x, y, z, BlockType.AIR);
+        }
+    }
+
+    // 只能放在空氣或水的位置，且實際放入的碰撞盒不能和玩家身體重疊。
+    private boolean canPlaceAt(int x, int y, int z, BlockType type) {
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
+            return false;
+        }
+
+        BlockType current = world.getBlock(x, y, z);
+        return (current == BlockType.AIR || current == BlockType.WATER) && !player.intersectsBlock(x, y, z, type);
+    }
+
+    // 依照玩家目前水平視角決定方向：0=N、1=E、2=S、3=W。
+    private int facingFromCamera() {
+        camera.forward(tmpRayDirection);
+        float absX = Math.abs(tmpRayDirection.x);
+        float absZ = Math.abs(tmpRayDirection.z);
+
+        if (absX > absZ) {
+            return tmpRayDirection.x >= 0.0f ? 1 : 3;
+        }
+        return tmpRayDirection.z >= 0.0f ? 2 : 0;
+    }
+
+    // 梯子貼在被點擊方塊的側面；若點到上下表面，就退回玩家視角方向。
+    private int ladderFacingFromTargetNormal() {
+        if (targetedBlock.normalZ() > 0) {
+            return 0;
+        }
+        if (targetedBlock.normalX() < 0) {
+            return 1;
+        }
+        if (targetedBlock.normalZ() < 0) {
+            return 2;
+        }
+        if (targetedBlock.normalX() > 0) {
+            return 3;
+        }
+        return facingFromCamera();
     }
 
     private void updateDebugTitle(double now) {

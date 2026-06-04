@@ -13,9 +13,12 @@ import com.minecraftin.clone.world.World;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -40,11 +43,14 @@ public final class WorldRenderer implements AutoCloseable {
     // 繪製線框時使用的 shader。
     private final ShaderProgram lineShader;
 
-    // 儲存每個 Chunk 對應的 mesh，避免每幀都重新建立。
-    private final Map<ChunkPos, Mesh> chunkMeshes = new HashMap<>();
+    // 儲存每個 Chunk 對應的不透明/半透明 mesh，避免每幀都重新建立。
+    private final Map<ChunkPos, ChunkMeshes> chunkMeshes = new HashMap<>();
 
     // 記錄目前畫面中可見的 Chunk。
     private final Set<ChunkPos> visibleChunks = new HashSet<>();
+
+    // 記錄目前畫面中可見的 Chunk 順序；透明 pass 會用距離排序。
+    private final List<ChunkPos> visibleChunkOrder = new ArrayList<>();
 
     // 投影矩陣。
     private final Matrix4f projection = new Matrix4f();
@@ -121,6 +127,7 @@ public final class WorldRenderer implements AutoCloseable {
         int maxDistSq = viewDistance * viewDistance;
 
         visibleChunks.clear();
+        visibleChunkOrder.clear();
 
         // 掃描玩家周圍一定距離內的 Chunk。
         for (int dz = -viewDistance; dz <= viewDistance; dz++) {
@@ -141,19 +148,23 @@ public final class WorldRenderer implements AutoCloseable {
 
                 ChunkPos key = new ChunkPos(chunkX, chunkZ);
                 visibleChunks.add(key);
+                visibleChunkOrder.add(key);
 
-                Mesh mesh = chunkMeshes.get(key);
+                ChunkMeshes meshes = chunkMeshes.get(key);
 
                 // 如果這個 Chunk 還沒有 mesh，或 mesh 已過期，就重新建立。
-                if (mesh == null || chunk.isMeshDirty()) {
-                    float[] vertices = ChunkMesher.build(chunk, world, atlas);
+                if (meshes == null || chunk.isMeshDirty()) {
+                    ChunkMesher.MeshData meshData = ChunkMesher.build(chunk, world, atlas);
 
-                    if (mesh == null) {
+                    if (meshes == null) {
                         // 頂點格式為位置 3、UV 2、光照 1。
-                        mesh = new Mesh(vertices, GL_TRIANGLES, 3, 2, 1);
-                        chunkMeshes.put(key, mesh);
+                        meshes = new ChunkMeshes(
+                                new Mesh(meshData.opaqueVertices(), GL_TRIANGLES, 3, 2, 1),
+                                new Mesh(meshData.translucentVertices(), GL_TRIANGLES, 3, 2, 1));
+                        chunkMeshes.put(key, meshes);
                     } else {
-                        mesh.update(vertices, ChunkMesher.STRIDE_FLOATS);
+                        meshes.opaque.update(meshData.opaqueVertices(), ChunkMesher.STRIDE_FLOATS);
+                        meshes.translucent.update(meshData.translucentVertices(), ChunkMesher.STRIDE_FLOATS);
                     }
 
                     chunk.clearMeshDirty();
@@ -162,20 +173,43 @@ public final class WorldRenderer implements AutoCloseable {
                 // 把 Chunk 放到它在世界中的正確位置再繪製。
                 model.identity().translate(chunk.worldMinX(), 0.0f, chunk.worldMinZ());
                 worldShader.setMat4("uModel", model);
-                mesh.draw();
+                meshes.opaque.draw();
             }
         }
+
+        // 半透明材質不寫入深度，避免玻璃/水先畫到深度後讓後面的透明面消失。
+        visibleChunkOrder.sort(Comparator.comparingDouble((ChunkPos pos) -> chunkDistanceSq(pos, camera)).reversed());
+        glDepthMask(false);
+        for (ChunkPos key : visibleChunkOrder) {
+            ChunkMeshes meshes = chunkMeshes.get(key);
+            if (meshes == null) {
+                continue;
+            }
+
+            model.identity().translate(key.x() * GameConfig.CHUNK_SIZE, 0.0f, key.z() * GameConfig.CHUNK_SIZE);
+            worldShader.setMat4("uModel", model);
+            meshes.translucent.draw();
+        }
+        glDepthMask(true);
 
         // 把這一幀看不到的 Chunk mesh 釋放掉，減少顯示卡資源占用；World 仍保留 Chunk 方塊資料。
         pruneChunkMeshes(visibleChunks);
     }
 
+    private double chunkDistanceSq(ChunkPos pos, Camera camera) {
+        float chunkCenterX = pos.x() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
+        float chunkCenterZ = pos.z() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
+        float dx = chunkCenterX - camera.position().x;
+        float dz = chunkCenterZ - camera.position().z;
+        return dx * dx + dz * dz;
+    }
+
     // 刪除不在目前可見範圍內的 Chunk mesh。
     private void pruneChunkMeshes(Set<ChunkPos> visibleChunks) {
-        Iterator<Map.Entry<ChunkPos, Mesh>> iterator = chunkMeshes.entrySet().iterator();
+        Iterator<Map.Entry<ChunkPos, ChunkMeshes>> iterator = chunkMeshes.entrySet().iterator();
 
         while (iterator.hasNext()) {
-            Map.Entry<ChunkPos, Mesh> entry = iterator.next();
+            Map.Entry<ChunkPos, ChunkMeshes> entry = iterator.next();
 
             if (visibleChunks.contains(entry.getKey())) {
                 continue;
@@ -254,8 +288,8 @@ public final class WorldRenderer implements AutoCloseable {
     // 釋放所有渲染資源。
     @Override
     public void close() {
-        for (Mesh mesh : chunkMeshes.values()) {
-            mesh.close();
+        for (ChunkMeshes meshes : chunkMeshes.values()) {
+            meshes.close();
         }
         chunkMeshes.clear();
 
@@ -263,5 +297,21 @@ public final class WorldRenderer implements AutoCloseable {
         worldShader.close();
         lineShader.close();
         atlas.close();
+    }
+
+    private static final class ChunkMeshes implements AutoCloseable {
+        private final Mesh opaque;
+        private final Mesh translucent;
+
+        private ChunkMeshes(Mesh opaque, Mesh translucent) {
+            this.opaque = opaque;
+            this.translucent = translucent;
+        }
+
+        @Override
+        public void close() {
+            opaque.close();
+            translucent.close();
+        }
     }
 }

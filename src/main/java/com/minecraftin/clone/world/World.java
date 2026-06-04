@@ -30,6 +30,18 @@ public final class World {
     // 一次補水最多處理多少格，避免大型空腔造成明顯卡頓。
     private static final int WATER_FLOOD_MAX_BLOCKS = 32768;
 
+    // 玩家主動放置水時，最多保留多少待擴散格，避免連續放水造成過大的更新佇列。
+    private static final int PLACED_WATER_FLOW_MAX_PENDING_CELLS = 4096;
+
+    // 放置水落地後最多橫向流動幾格，接近 Minecraft 水流的有限距離感。
+    private static final int PLACED_WATER_FLOW_HORIZONTAL_DISTANCE = 7;
+
+    // 放置水每次擴散的時間間隔；讓玩家能看見水流逐步蔓延，而不是瞬間完成。
+    private static final float PLACED_WATER_FLOW_STEP_SECONDS = 0.1f;
+
+    // 每個水流更新步驟最多處理幾格，數值越小動畫越明顯。
+    private static final int PLACED_WATER_FLOW_CELLS_PER_STEP = 5;
+
     // 搜尋大片森林出生區域時，最遠搜尋半徑。
     private static final int FOREST_SPAWN_SEARCH_MAX_RADIUS = 1536;
 
@@ -44,6 +56,9 @@ public final class World {
 
     // 已載入的所有 Chunk，key 是 Chunk 座標。
     private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
+
+    // 玩家放置水後的待擴散佇列，由 update() 分批處理以形成水流動畫。
+    private final ArrayDeque<WaterFlowCell> placedWaterFlowQueue = new ArrayDeque<>();
 
     // 世界存檔路徑。
     private final Path worldFile;
@@ -62,6 +77,9 @@ public final class World {
 
     // 重生點資料是否有變更，之後需要存檔。
     private boolean respawnPositionDirty;
+
+    // 水流動畫累積時間。
+    private float placedWaterFlowTimer;
 
     // 建立世界物件，並先設定預設種子與地形產生器。
     public World(Path worldFile, long defaultSeed) {
@@ -97,6 +115,11 @@ public final class World {
     // 回傳海平面高度。
     public int seaLevel() {
         return terrainGenerator.seaLevel();
+    }
+
+    // 更新世界中的非玩家即時狀態。目前主要用來推進放置水的逐步流動動畫。
+    public void update(float deltaSeconds) {
+        updatePlacedWaterFlow(deltaSeconds);
     }
 
     // 回傳目前已載入的 Chunk 數量。
@@ -229,7 +252,7 @@ public final class World {
     }
 
     // 設定世界座標上的方塊。
-    // 若成功破壞方塊形成空腔，還會進一步處理補水。
+    // 若成功破壞方塊形成空腔，會處理補水；若放置水，會啟動有限水流擴散。
     public boolean setBlock(int worldX, int y, int worldZ, BlockType type) {
         boolean changed = setBlockInternal(worldX, y, worldZ, type, true);
         if (!changed) {
@@ -239,6 +262,10 @@ public final class World {
         // 挖掉方塊後，若附近有水，嘗試讓水流入空腔。
         if (type == BlockType.AIR) {
             floodWaterIntoAirPocket(worldX, y, worldZ);
+        }
+
+        if (type == BlockType.WATER) {
+            queuePlacedWaterFlow(worldX, y, worldZ);
         }
 
         return true;
@@ -364,6 +391,89 @@ public final class World {
 
         queue.addLast(new int[] { x, y, z });
         return filled + 1;
+    }
+
+    // 玩家放置水後先排入佇列，後續由 updatePlacedWaterFlow 分批擴散。
+    private void queuePlacedWaterFlow(int worldX, int y, int worldZ) {
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || peekBlock(worldX, y, worldZ) != BlockType.WATER) {
+            return;
+        }
+
+        if (placedWaterFlowQueue.size() < PLACED_WATER_FLOW_MAX_PENDING_CELLS) {
+            placedWaterFlowQueue.addLast(new WaterFlowCell(worldX, y, worldZ, 0));
+        }
+    }
+
+    // 分批處理放置水擴散，形成可見的流動過程。
+    private void updatePlacedWaterFlow(float deltaSeconds) {
+        if (placedWaterFlowQueue.isEmpty()) {
+            placedWaterFlowTimer = 0.0f;
+            return;
+        }
+
+        placedWaterFlowTimer += Math.max(0.0f, deltaSeconds);
+
+        int steps = 0;
+        while (placedWaterFlowTimer >= PLACED_WATER_FLOW_STEP_SECONDS && steps < 4) {
+            placedWaterFlowTimer -= PLACED_WATER_FLOW_STEP_SECONDS;
+            steps++;
+
+            for (int i = 0; i < PLACED_WATER_FLOW_CELLS_PER_STEP && !placedWaterFlowQueue.isEmpty(); i++) {
+                WaterFlowCell cell = placedWaterFlowQueue.removeFirst();
+                spreadPlacedWaterCell(cell);
+            }
+        }
+    }
+
+    // 優先往下流；下方被擋住時才向四周擴散。
+    private void spreadPlacedWaterCell(WaterFlowCell cell) {
+        int cx = cell.x();
+        int cy = cell.y();
+        int cz = cell.z();
+        int horizontalDistance = cell.horizontalDistance();
+
+        if (peekBlock(cx, cy, cz) != BlockType.WATER) {
+            return;
+        }
+
+        if (trySpreadPlacedWaterNeighbor(cx, cy - 1, cz, horizontalDistance)) {
+            return;
+        }
+
+        if (horizontalDistance >= PLACED_WATER_FLOW_HORIZONTAL_DISTANCE) {
+            return;
+        }
+
+        int nextDistance = horizontalDistance + 1;
+        trySpreadPlacedWaterNeighbor(cx + 1, cy, cz, nextDistance);
+        trySpreadPlacedWaterNeighbor(cx - 1, cy, cz, nextDistance);
+        trySpreadPlacedWaterNeighbor(cx, cy, cz + 1, nextDistance);
+        trySpreadPlacedWaterNeighbor(cx, cy, cz - 1, nextDistance);
+    }
+
+    // 嘗試讓放置水流入鄰近空氣；只更新已載入 Chunk，避免水流查詢生成新地形。
+    private boolean trySpreadPlacedWaterNeighbor(int x, int y, int z, int horizontalDistance) {
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
+            return false;
+        }
+
+        if (placedWaterFlowQueue.size() >= PLACED_WATER_FLOW_MAX_PENDING_CELLS) {
+            return false;
+        }
+
+        if (peekBlock(x, y, z) != BlockType.AIR) {
+            return false;
+        }
+
+        if (!setBlockInternal(x, y, z, BlockType.WATER, false)) {
+            return false;
+        }
+
+        placedWaterFlowQueue.addLast(new WaterFlowCell(x, y, z, horizontalDistance));
+        return true;
+    }
+
+    private record WaterFlowCell(int x, int y, int z, int horizontalDistance) {
     }
 
     // 檢查目標位置六個方向是否有已載入的水方塊。

@@ -1,115 +1,120 @@
 # Minecraftin
 
-![Minecraftin](https://img.shields.io/badge/Minecraftin-v2.0-green)
-![License](https://img.shields.io/badge/license-MIT-blue)
+Minecraftin 是一個以 Java 製作，受經典 Minecraft 啟發的小型方塊沙盒遊戲。目前專案以創造模式為主：你可以探索程式生成的地形、用第一人稱移動、飛行、放置與破壞方塊、使用創造模式方塊清單，並把本機世界存檔。
 
-這是一個以 Java + LWJGL 製作，受經典 Minecraft 啟發的小遊戲。
+## 主要功能
 
-這份 README 用容易理解的方式寫給：
-- 沒跑過 Java 遊戲專案的新手
-- 需要完整指令與排錯流程的使用者
-- 想看架構與設定入口的開發者
+- 以 Chunk 為單位的程式地形生成，包含平原、森林、沙漠、雪地、山地與惡地。
+- 洞穴、海平面水體、局部補水、玩家放置水的有限流動，以及樹木生成。
+- 第一人稱移動，包含走路、衝刺、跳躍、爬梯子與創造模式飛行。
+- 具備碰撞檢查的方塊破壞與放置。
+- 多頁創造模式背包與 9 格快捷欄。
+- 可用方塊包含自然地形方塊、羊毛色系、彩色方塊、木板、樓梯、半磚、柵欄、門、活板門、梯子、火把、工作台、熔爐、箱子、書櫃、石材變體、石英、地獄/終界風格方塊、玻璃、水、螢光石與海燈。
+- 門與活板門可用右鍵開關。
+- 箱子有空容器介面雛形。
+- 本機世界存讀檔，包含上次儲存的玩家重生位置。
+- 透過 LWJGL 使用 OpenGL 3.3 渲染，GLSL shader 位於 `src/main/resources/shaders`。
 
-如果你只想快速開啟遊戲，直接看 **快速開始**。
+## 系統需求
 
-## 快速開始
+- macOS、Windows 或 Linux。
+- JDK 17 或更新版本。如果很新的 JDK 造成 Gradle 相容性問題，建議改用 JDK 21。
+- 支援 OpenGL 3.3 的顯示卡與驅動程式。
+- 第一次執行時需要網路，讓 Gradle 從 Maven Central 和 Gradle 官方來源下載依賴與 Gradle 發行檔。
+- 至少 4 GB 記憶體，建議 8 GB。
+- 約 1 GB 可用磁碟空間，用於 Gradle 快取、依賴與建置輸出。
 
-### macOS / Linux
+Gradle wrapper 會下載 Gradle `8.10.2`。專案原始碼以 Java `release 17` 編譯。
+
+## 安裝方式
+
+1. 開啟終端機。
+2. 進入專案資料夾。
+3. 使用 Gradle wrapper 執行遊戲。
+
+macOS / Linux：
 
 ```bash
-cd /你的/Minecraftin/路徑
+cd /path/to/Minecraftin
 ./gradlew run
 ```
 
-### Windows（PowerShell）
+Windows PowerShell：
 
 ```powershell
-cd C:\你的\Minecraftin\路徑
+cd C:\path\to\Minecraftin
 .\gradlew.bat run
 ```
 
-第一次執行會下載 Gradle 依賴，可能需要幾分鐘。
+第一次執行可能需要幾分鐘，因為 Gradle 會下載自己的執行環境與專案依賴。
 
-## 環境需求
+## 設定方式
 
-### 最低需求
+這個專案不需要環境變數、API key、資料庫或外部服務。
 
-- 作業系統：macOS / Windows / Linux
-- Java：>= JDK `17` 且 < JDK `25`
-- 顯示卡：支援 OpenGL 3.3
-- 記憶體：至少 4 GB（建議 8 GB）
-- 磁碟空間：至少 1 GB（依賴與快取）
+主要遊戲設定是 `src/main/java/com/minecraftin/clone/config/GameConfig.java` 裡的 Java 常數：
 
-### 專案實際設定
+- 視窗大小與標題。
+- 視野角度與相機遠近裁切距離。
+- Chunk 大小、Chunk 高度與渲染距離。
+- 創造模式開關。
+- 滑鼠靈敏度。
+- 走路、飛行、衝刺、跳躍與重力數值。
+- 玩家碰撞箱大小。
+- 方塊互動距離與冷卻時間。
+- 世界存檔路徑：`saves/world.dat`。
+- 預設世界種子：`20260219`。
 
-- 原始碼以 Java `release 17` 編譯
-- 已在 `Java 21` 執行測試
-- macOS 透過 Gradle 執行時已內建 `-XstartOnFirstThread`
+重要種子注意事項：存檔會記住世界種子。修改 `DEFAULT_WORLD_SEED` 只會影響新世界。如果要用新種子重新生成世界，請先刪除 `saves/world.dat`。
 
-## 先確認 Java（必要）
+建置與依賴設定在 `build.gradle`：
+
+- 主類別：`com.minecraftin.clone.MinecraftClone`。
+- LWJGL 版本：`3.3.3`。
+- JOML 版本：`1.10.5`。
+- JUnit 版本：`5.10.2`。
+- macOS 執行參數：`-XstartOnFirstThread`。
+- 預設 JVM 記憶體參數：`-Xms1g` 與 `-Xmx2g`。
+
+## 使用方式
+
+執行遊戲：
 
 ```bash
-java -version
+./gradlew run
 ```
 
-你應該看到 `17` 或 `21`。
+Windows：
 
-### 常見情況
+```powershell
+.\gradlew.bat run
+```
 
-- `java: command not found`
-  - 代表 Java 未安裝或 PATH 未設定。
-- 版本過舊
-  - 請安裝 JDK 17+，並讓終端機使用新版本。
-
-## 指令
-
-### 執行遊戲
-
-- macOS/Linux：`./gradlew run`
-- Windows：`gradlew.bat run`
-
-### 建置（產生 jar / 發行檔）
-
-- macOS/Linux：`./gradlew build -x test`
-- Windows：`gradlew.bat build -x test`
-
-### 清理建置檔
-
-- macOS/Linux：`./gradlew clean`
-- Windows：`gradlew.bat clean`
-
-### 如果環境會擋 Gradle daemon socket
-
-- macOS/Linux：
-  ```bash
-  GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
-  ```
-- Windows（PowerShell）：
-  ```powershell
-  $env:GRADLE_USER_HOME = ".gradle-home"
-  .\gradlew.bat --no-daemon run
-  ```
-
-## 遊玩方式
+遊戲視窗開啟後，對視窗按左鍵即可鎖定滑鼠。按 `Esc` 可釋放滑鼠。
 
 ### 操作鍵位
 
-- `W/A/S/D`：移動
-- `Mouse`：視角
-- `Left Ctrl`：衝刺 / 飛行加速
-- `Space`（雙擊）：切換飛行模式
-- `Space`（飛行中）：向上飛
-- `Left Shift`（飛行中）：向下飛
-- `E`：開啟 / 關閉創造模式背包
-- `Left Click`：破壞方塊
-- `Right Click`：放置目前選取方塊
-- `1-9` 或 `Mouse Wheel`：切換方塊欄
-- 創造模式背包中 `Left Click`：把方塊放到目前選取的快捷欄格子
-- 創造模式背包中 `Right Click`：選取方塊並關閉背包
-- 創造模式背包中 `Mouse Wheel`：切換背包頁面
-- `Esc`：釋放滑鼠
-- `Left Click`（游標自由時）：重新鎖定滑鼠
-- `Q`：離開遊戲
+| 輸入 | 動作 |
+| --- | --- |
+| `W` / `A` / `S` / `D` | 移動 |
+| 滑鼠 | 轉動視角 |
+| `Left Ctrl` | 衝刺或飛行加速 |
+| `Space` | 跳躍 |
+| 雙擊 `Space` | 切換創造模式飛行 |
+| 飛行時按 `Space` | 向上飛 |
+| 飛行時按 `Left Shift` | 向下飛 |
+| 在梯子上按 `W` 或 `Space` | 往上爬 |
+| 在梯子上按 `S` 或 `Left Shift` | 往下爬 |
+| `E` | 開啟或關閉創造模式背包 |
+| `Left Click` | 鎖定滑鼠，或在滑鼠鎖定時破壞準星指向的方塊 |
+| `Right Click` | 放置目前選取方塊，或與門、活板門、箱子互動 |
+| `1` 到 `9` | 選擇快捷欄格子 |
+| 滑鼠滾輪 | 切換快捷欄格子 |
+| 創造模式背包中使用滑鼠滾輪 | 切換背包頁面 |
+| 創造模式背包中按左鍵 | 將方塊放入目前選取的快捷欄格子 |
+| 創造模式背包中按右鍵 | 選取方塊並關閉背包 |
+| `Esc` | 釋放滑鼠、關閉開啟中的 UI，或回到第一人稱控制 |
+| `Q` | 離開遊戲 |
 
 ### 初始快捷欄
 
@@ -123,136 +128,207 @@ java -version
 8. 石頭
 9. 玻璃
 
-### 創造模式背包方塊
+### 存檔
 
-創造模式背包包含自然方塊、木板、樓梯、半磚、柵欄、門、地板門、梯子、火把、工作台、熔爐、箱子、書櫃、
-石材建材、石英、地獄/終界風格方塊、發光方塊、玻璃、可有限流動的放置水、羊毛色系與彩色實心方塊。
+世界資料會儲存在：
 
-## 存檔與重設世界
+```text
+saves/world.dat
+```
 
-### 存檔位置
+遊戲每 20 秒會自動儲存有變更的 Chunk。正常關閉遊戲時，也會儲存尚未寫入的世界變更與玩家重生位置。
 
-- `saves/world.dat`
+重設世界：
 
-### 自動存檔
-
-- 每 20 秒檢查一次，只有世界有變更時才會寫入存檔
-- 關閉遊戲時也會存
-
-### 重設世界（重新開始）
+macOS / Linux：
 
 ```bash
 rm -f saves/world.dat
 ```
 
-Windows（PowerShell）：
+Windows PowerShell：
 
 ```powershell
 Remove-Item .\saves\world.dat -ErrorAction SilentlyContinue
 ```
 
-刪除後重新執行遊戲即可生成新世界。
+刪除存檔後重新執行遊戲即可產生新世界。
 
-## 常見錯誤與處理方式
+## 常用指令
 
-### 錯誤：GLFW 必須在主執行緒（macOS）
+macOS / Linux：
 
-常見訊息：
+```bash
+./gradlew run
+./gradlew test
+./gradlew build
+./gradlew clean
+./gradlew installDist
+```
 
-`GLFW may only be used on the main thread ... run the JVM with -XstartOnFirstThread`
+Windows PowerShell：
 
-處理方式：
-- 直接用 `./gradlew run`（已自動帶參數）
-- 若你手動啟動 JVM，請加上 `-XstartOnFirstThread`
+```powershell
+.\gradlew.bat run
+.\gradlew.bat test
+.\gradlew.bat build
+.\gradlew.bat clean
+.\gradlew.bat installDist
+```
 
-### 錯誤：`./gradlew: Permission denied`
+指令說明：
 
-處理方式：
+- `run`：啟動遊戲。
+- `test`：執行已設定的 JUnit 測試工作。repository 目前沒有測試原始碼檔案，但 Gradle 測試工作已設定。
+- `build`：編譯專案、執行測試，並產生 Gradle 建置成果。
+- `clean`：刪除建置輸出。
+- `installDist`：在 `build/install/minecraftin-clone` 產生可執行的本機應用程式資料夾。
+
+如果你的執行環境會擋 Gradle daemon socket 或共用 Gradle 快取位置，可以改用專案內的 Gradle 快取並關閉 daemon：
+
+macOS / Linux：
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
+```
+
+Windows PowerShell：
+
+```powershell
+$env:GRADLE_USER_HOME = ".gradle-home"
+.\gradlew.bat --no-daemon run
+```
+
+## 專案結構
+
+```text
+Minecraftin/
+├─ build.gradle
+│  # Gradle 外掛、依賴、Java 版本、JVM 參數與主類別。
+├─ settings.gradle
+│  # Gradle 根專案名稱：minecraftin-clone。
+├─ gradlew / gradlew.bat
+│  # macOS/Linux 與 Windows 使用的 Gradle wrapper 啟動檔。
+├─ gradle/wrapper/
+│  # Gradle wrapper 設定與 wrapper JAR。
+├─ src/main/java/com/minecraftin/clone/
+│  ├─ MinecraftClone.java
+│  │  # JVM 入口點。
+│  ├─ config/GameConfig.java
+│  │  # 集中管理遊戲常數。
+│  ├─ game/Game.java
+│  │  # 主迴圈、輸入流程、方塊互動、自動存檔與 UI 狀態。
+│  ├─ engine/
+│  │  # 視窗、輸入、相機、Shader、Mesh 與程式生成貼圖集。
+│  ├─ gameplay/
+│  │  # 玩家移動、碰撞、飛行、跳躍與梯子行為。
+│  ├─ render/
+│  │  # 世界渲染、HUD 渲染與貼圖集編號。
+│  ├─ util/
+│  │  # 噪音與 float 陣列輔助工具。
+│  └─ world/
+│     # Chunk、方塊種類、地形生成、射線檢測、水流、存讀檔。
+├─ src/main/resources/shaders/
+│  # 世界、HUD 與線框渲染使用的 GLSL shader。
+├─ saves/
+│  # 本機世界存檔，已由 Git 忽略。
+├─ build/
+│  # Gradle 建置輸出，已由 Git 忽略。
+└─ .gradle/ 與 .gradle-home/
+   # Gradle 快取資料夾，已由 Git 忽略。
+```
+
+## 疑難排解
+
+### `java: command not found`
+
+請安裝 JDK 17 或更新版本，重新開啟終端機後確認：
+
+```bash
+java -version
+```
+
+如果你安裝了多個 JDK，請確認 `JAVA_HOME` 指向相容的 JDK。
+
+### `./gradlew: Permission denied`
+
+macOS / Linux：
 
 ```bash
 chmod +x gradlew
 ./gradlew run
 ```
 
-### 錯誤：`java: command not found`
+### Gradle 無法下載依賴
 
-處理方式：
-- 安裝 JDK 17+
-- 重開終端機
-- 再次確認 `java -version`
+第一次執行需要網路。請確認網路連線後重試。如果你在公司或學校 proxy 後面，請設定 Gradle proxy。
 
-### 問題：黑畫面或程式立刻關閉
+### Gradle 在受限制環境中失敗
 
-可能原因與處理：
-- 顯示卡驅動 / OpenGL 不相容 -> 更新驅動
-- 遠端桌面或虛擬機沒有 OpenGL 3.3 -> 改在本機執行
+有些沙盒會擋 daemon socket、本機快取存取或網路。可以嘗試：
 
-### 錯誤：世界存檔失敗
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon build
+```
+
+如果錯誤包含 `java.net.SocketException: Operation not permitted`，請先懷疑是執行環境限制，不要直接判定專案程式碼壞掉。
+
+### macOS GLFW 第一執行緒錯誤
 
 常見訊息：
 
-`World save failed: Failed to save world to saves/world.dat`
+```text
+GLFW may only be used on the main thread ... run the JVM with -XstartOnFirstThread
+```
 
-處理方式：
-- 確認專案資料夾可寫入
-- 確認 `saves/` 可建立/可寫
-- 避免在唯讀或受權限限制的位置執行
+請使用：
 
-### 錯誤：依賴下載失敗
+```bash
+./gradlew run
+```
 
-處理方式：
-- 檢查網路連線
-- 重新執行指令
-- 受公司/校園網路限制時，設定 Gradle proxy
+macOS 的 Gradle `run` 工作已經自動加入 `-XstartOnFirstThread`。如果你手動啟動 Java 應用程式，請自行加上這個 JVM 參數。
 
-## 完成與未完成內容
+### 黑畫面或程式立刻關閉
 
-- [x] 多生態區塊地形生成
-- [x] 洞穴、海平面、水體（含局部補水與放置水有限流動）、樹木
-- [x] 創造模式移動與飛行切換
-- [x] 多頁創造模式背包選方塊
-- [x] 擴充創造模式建築方塊
-- [x] 碰撞安全的破壞/放置
-- [x] 優先重生在陸地森林區
-- [x] 世界持久化存檔
-- [ ] 生存系統（血量、飢餓、合成、背包）
-- [ ] 生物與 AI
-- [ ] 日夜循環與天氣
+可能原因：
 
-## 專案結構
+- 顯示卡或驅動程式不支援 OpenGL 3.3。
+- 透過遠端桌面或虛擬機執行，環境沒有正確提供 OpenGL。
+- 顯示卡驅動程式過舊。
+
+請改在支援的本機硬體上執行，並更新顯示卡驅動程式。
+
+### 世界存檔失敗
+
+常見訊息：
 
 ```text
-Minecraftin/
-├─ src/
-│  └─ main/
-│     ├─ java/com/minecraftin/clone/
-│     │  ├─ MinecraftClone.java
-│     │  │  # 程式入口
-│     │  ├─ config/
-│     │  │  └─ GameConfig.java
-│     │  │     # 主要設定檔：
-│     │  │     # - 視窗大小與標題
-│     │  │     # - 可視距離與區塊設定
-│     │  │     # - 移動/物理參數
-│     │  │     # - 互動距離與冷卻
-│     │  │     # - 存檔路徑與預設種子
-│     │  ├─ game/
-│     │  │  └─ Game.java
-│     │  │     # 主迴圈與遊戲流程
-│     │  ├─ engine/
-│     │  │  # 核心系統：視窗/輸入/相機/Shader/Mesh
-│     │  ├─ world/
-│     │  │  # 世界資料：區塊/生成/射線/存讀檔
-│     │  ├─ gameplay/
-│     │  │  # 玩家移動與物理行為
-│     │  └─ render/
-│     │     # 世界與 HUD 渲染
-│     └─ resources/shaders/
-│        # GLSL Shader 檔案
-├─ saves/
-│  # 本機世界存檔（Git 已忽略）
-├─ .gradle/ / .gradle-home/ / build/
-│  # 建置與快取輸出（Git 已忽略）
-└─ .gitignore
-   # 定義本機與建置忽略規則
+World save failed: Failed to save world to saves/world.dat
 ```
+
+請確認專案資料夾可以寫入，且 `saves/` 目錄可以建立。避免從唯讀資料夾或被系統鎖定的外接硬碟執行專案。
+
+### 修改預設種子後世界沒有變
+
+請刪除 `saves/world.dat`。既有存檔會保留原本的種子。
+
+## 限制與注意事項
+
+- 專案目前只有創造模式。血量、飢餓、合成、物品堆疊與完整背包管理尚未實作。
+- 箱子目前只會開啟空 UI，尚未儲存物品。
+- 熔爐與工作台是可放置方塊，但尚未具備燒煉或合成功能。
+- 尚未實作生物、實體 AI、日夜循環或天氣。
+- 方塊貼圖集是在程式中生成，目前沒有可替換的外部方塊貼圖圖片檔。
+- 存檔相容性依賴穩定的 `BlockType.id()`。新增方塊時不要重排既有方塊 ID。
+- Shader 檔案應保持 `#version 330 core` 在第一行。
+- `build/`、`.gradle/`、`.gradle-home/`、`saves/` 等產生檔與本機資料已由 Git 忽略。
+
+## 開發與貢獻說明
+
+- 變更應保持小而明確，並符合現有 Java 與 Gradle 風格。
+- 簡單遊戲常數優先放在 `GameConfig.java`，不要過早新增設定系統。
+- 分享變更前請執行 `./gradlew test` 與 `./gradlew build`。
+- 修改渲染程式時，請讓 `ChunkMesher`、`WorldRenderer` 與 `world.vert` 的頂點屬性配置保持一致。
+- 修改存檔相關程式時，除非有明確遷移方案，否則請保留既有存檔格式規則。
+- 新增方塊時，請把新的 enum 值加在既有方塊後面，不要改動既有 ID。

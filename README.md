@@ -1,129 +1,122 @@
 # Minecraftin
 
-![Minecraftin](https://img.shields.io/badge/Minecraftin-v2.0-green)
-![License](https://img.shields.io/badge/license-MIT-blue)
+Minecraftin is a small Java voxel sandbox inspired by classic Minecraft. It is currently a creative-mode project: you can explore procedural terrain, move in first person, fly, place and break blocks, use a creative block palette, and save the local world.
 
-A beginner-friendly Java + LWJGL voxel sandbox inspired by classic Minecraft.
+## Key Features
 
-This project is currently focused on a solid **creative-mode foundation**:
-- Procedural chunk terrain
-- First-person movement and camera
-- Block breaking and placing
-- Save/load to local disk
+- Procedural chunk-based terrain with plains, forests, deserts, snow areas, mountains, and badlands.
+- Generated caves, sea-level water, local water refill, finite placed-water flow, and trees.
+- First-person movement with walking, sprinting, jumping, ladder climbing, and creative flight.
+- Block breaking and block placement with collision checks.
+- Multi-page creative inventory and 9-slot hotbar.
+- Building blocks such as natural terrain blocks, wool colors, colored blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders, torches, crafting tables, furnaces, chests, bookshelves, stone variants, quartz, nether/end themed blocks, glass, water, glowstone, and sea lanterns.
+- Door and trapdoor right-click interaction.
+- Empty chest UI placeholder.
+- Persistent local world save/load, including the last saved player respawn position.
+- OpenGL 3.3 rendering through LWJGL, with GLSL shader files in `src/main/resources/shaders`.
 
-It is intentionally simple to run and easy to extend.
+## Requirements
 
-## Who This README Is For
+- macOS, Windows, or Linux.
+- JDK 17 or newer. JDK 21 is a safe choice if a newer JDK causes Gradle compatibility issues.
+- A GPU and driver that support OpenGL 3.3.
+- Internet access the first time Gradle downloads dependencies from Maven Central and the Gradle distribution.
+- At least 4 GB RAM. 8 GB is more comfortable.
+- About 1 GB free disk space for Gradle caches, dependencies, and build outputs.
 
-This guide is written for:
-- New developers who have never run a Java game project before
-- Users who want exact commands and troubleshooting
-- Users who want architecture and config entry points
+The Gradle wrapper downloads Gradle `8.10.2`. The project compiles Java source with `release 17`.
 
-If you only want to run the game quickly, go to **Quick Start**.
+## Installation
 
-## Quick Start
+1. Open a terminal.
+2. Go to the project folder.
+3. Run the game with the Gradle wrapper.
 
-### macOS / Linux
+macOS / Linux:
 
 ```bash
 cd /path/to/Minecraftin
 ./gradlew run
 ```
 
-### Windows (PowerShell)
+Windows PowerShell:
 
 ```powershell
 cd C:\path\to\Minecraftin
 .\gradlew.bat run
 ```
 
-On first run, Gradle will download dependencies (can take a few minutes).
+The first run can take a few minutes because Gradle downloads its own runtime and project dependencies.
 
-## Environment Requirements
+## Configuration
 
-### Minimum
+This project does not use environment variables, API keys, databases, or external services.
 
-- OS: macOS, Windows, or Linux
-- Java: >= JDK `17` and < JDK `25`
-- GPU: OpenGL 3.3 capable
-- RAM: 4 GB minimum (8 GB recommended)
-- Disk: at least 1 GB free (dependencies + build cache)
+Most game settings are Java constants in `src/main/java/com/minecraftin/clone/config/GameConfig.java`:
 
-### Project-specific notes
+- Window size and title.
+- Field of view and camera clipping distance.
+- Chunk size, chunk height, and render distance.
+- Creative-mode flag.
+- Mouse sensitivity.
+- Walk, fly, sprint, jump, and gravity values.
+- Player collision size.
+- Block interaction distance and cooldowns.
+- World save path: `saves/world.dat`.
+- Default world seed: `20260219`.
 
-- Source is compiled with Java release `17`
-- Runtime has been verified on `Java 21`
-- On macOS, Gradle run is already configured with `-XstartOnFirstThread`
+Important seed note: the save file stores the world seed. Changing `DEFAULT_WORLD_SEED` only affects a new world. Delete `saves/world.dat` first if you want the changed seed to generate a fresh world.
 
-## Install Java (If Needed)
+Build and dependency settings live in `build.gradle`:
 
-If `java -version` fails or shows a very old version, install JDK `17+`.
+- Main class: `com.minecraftin.clone.MinecraftClone`.
+- LWJGL version: `3.3.3`.
+- JOML version: `1.10.5`.
+- JUnit version: `5.10.2`.
+- macOS run argument: `-XstartOnFirstThread`.
+- Default JVM memory arguments: `-Xms1g` and `-Xmx2g`.
 
-### Check Java
+## Usage
+
+Run the game:
 
 ```bash
-java -version
+./gradlew run
 ```
 
-You should see version `17` or `21`.
+Windows:
 
-### Common setup issues
+```powershell
+.\gradlew.bat run
+```
 
-- `java: command not found`
-  - Java is not installed or not on PATH.
-- Wrong Java version
-  - Install JDK 17+ and make sure your terminal uses that JDK.
+When the game opens, left-click the window to capture the mouse. Press `Esc` to release the mouse.
 
-## Build and Run Commands
+### Controls
 
-### Run game
+| Input | Action |
+| --- | --- |
+| `W` / `A` / `S` / `D` | Move |
+| Mouse | Look around |
+| `Left Ctrl` | Sprint or fast fly |
+| `Space` | Jump |
+| Double-tap `Space` | Toggle creative flight |
+| `Space` while flying | Fly up |
+| `Left Shift` while flying | Fly down |
+| Ladder + `W` or `Space` | Climb up |
+| Ladder + `S` or `Left Shift` | Climb down |
+| `E` | Open or close the creative inventory |
+| `Left Click` | Capture mouse, or break the targeted block while captured |
+| `Right Click` | Place the selected block, or interact with doors, trapdoors, and chests |
+| `1`-`9` | Select a hotbar slot |
+| Mouse wheel | Change hotbar slot |
+| Mouse wheel in creative inventory | Change inventory page |
+| Left click in creative inventory | Assign a block to the selected hotbar slot |
+| Right click in creative inventory | Assign a block and close the inventory |
+| `Esc` | Release mouse, close open UI, or return to first-person control |
+| `Q` | Quit the game |
 
-- macOS/Linux: `./gradlew run`
-- Windows: `gradlew.bat run`
-
-### Build game JAR and distributions
-
-- macOS/Linux: `./gradlew build -x test`
-- Windows: `gradlew.bat build -x test`
-
-### Clean build output
-
-- macOS/Linux: `./gradlew clean`
-- Windows: `gradlew.bat clean`
-
-### If your environment blocks daemon sockets
-
-- macOS/Linux:
-  ```bash
-  GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
-  ```
-- Windows (PowerShell):
-  ```powershell
-  $env:GRADLE_USER_HOME = ".gradle-home"
-  .\gradlew.bat --no-daemon run
-  ```
-
-## How to Play
-
-- `W/A/S/D`: move
-- `Mouse`: look around
-- `Left Ctrl`: sprint / fast fly
-- `Space` (double tap): toggle flying on/off
-- `Space` (while flying): fly up
-- `Left Shift` (while flying): fly down
-- `E`: open / close creative inventory
-- `Left Click`: break block
-- `Right Click`: place selected block
-- `1-9` or `Mouse Wheel`: switch hotbar block
-- In creative inventory: `Left Click` assigns a block to the selected hotbar slot
-- In creative inventory: `Right Click` assigns a block and closes the inventory
-- In creative inventory: `Mouse Wheel` changes inventory page
-- `Esc`: release mouse cursor
-- `Left Click` (when cursor is free): capture mouse again
-- `Q`: quit game
-
-### Starter hotbar
+### Starter Hotbar
 
 1. Red block
 2. Orange block
@@ -135,139 +128,207 @@ You should see version `17` or `21`.
 8. Stone
 9. Glass
 
-### Creative inventory blocks
+### Save Files
 
-The creative inventory includes natural blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders,
-torches, crafting tables, furnaces, chests, bookshelves, stone building blocks, quartz, nether/end themed blocks,
-light blocks, glass, flowing placed water, wool colors, and colored solid blocks.
+World data is saved to:
 
-## Save Files and World Reset
+```text
+saves/world.dat
+```
 
-### Save location
+The game autosaves changed chunks every 20 seconds. It also saves pending world changes and the player respawn position during clean shutdown.
 
-- `saves/world.dat`
+To reset the world:
 
-### Autosave
-
-- Checks every 20 seconds and saves only if the world has changed
-- Also saved on clean shutdown
-
-### Reset world
-
-If you want a fresh world:
+macOS / Linux:
 
 ```bash
 rm -f saves/world.dat
 ```
 
-(Windows PowerShell)
+Windows PowerShell:
 
 ```powershell
 Remove-Item .\saves\world.dat -ErrorAction SilentlyContinue
 ```
 
-Then run the game again.
+Run the game again after deleting the save file.
+
+## Common Commands
+
+macOS / Linux:
+
+```bash
+./gradlew run
+./gradlew test
+./gradlew build
+./gradlew clean
+./gradlew installDist
+```
+
+Windows PowerShell:
+
+```powershell
+.\gradlew.bat run
+.\gradlew.bat test
+.\gradlew.bat build
+.\gradlew.bat clean
+.\gradlew.bat installDist
+```
+
+Command notes:
+
+- `run` starts the game.
+- `test` runs the configured JUnit test task. There are currently no test source files in the repository, but the task is configured.
+- `build` compiles the project, runs tests, and creates Gradle build artifacts.
+- `clean` removes build outputs.
+- `installDist` creates a runnable local application layout under `build/install/minecraftin-clone`.
+
+If your local environment blocks Gradle daemon sockets or shared Gradle cache locations, try a workspace-local Gradle cache and no daemon:
+
+macOS / Linux:
+
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
+```
+
+Windows PowerShell:
+
+```powershell
+$env:GRADLE_USER_HOME = ".gradle-home"
+.\gradlew.bat --no-daemon run
+```
+
+## Project Structure
+
+```text
+Minecraftin/
+├─ build.gradle
+│  # Gradle plugins, dependencies, Java version, JVM args, and main class.
+├─ settings.gradle
+│  # Gradle root project name: minecraftin-clone.
+├─ gradlew / gradlew.bat
+│  # Gradle wrapper launchers for macOS/Linux and Windows.
+├─ gradle/wrapper/
+│  # Gradle wrapper metadata and wrapper JAR.
+├─ src/main/java/com/minecraftin/clone/
+│  ├─ MinecraftClone.java
+│  │  # JVM entry point.
+│  ├─ config/GameConfig.java
+│  │  # Central game constants.
+│  ├─ game/Game.java
+│  │  # Main loop, input flow, block interaction, autosave, and UI state.
+│  ├─ engine/
+│  │  # Window, input, camera, shader, mesh, and procedural texture atlas support.
+│  ├─ gameplay/
+│  │  # Player movement, collision, flight, jumping, and ladder behavior.
+│  ├─ render/
+│  │  # World renderer, HUD renderer, and atlas tile IDs.
+│  ├─ util/
+│  │  # Noise and float array helpers.
+│  └─ world/
+│     # Chunks, block types, terrain generation, raycast, water flow, save/load.
+├─ src/main/resources/shaders/
+│  # GLSL shaders for world, HUD, and line rendering.
+├─ saves/
+│  # Local world save data. Ignored by Git.
+├─ build/
+│  # Gradle build outputs. Ignored by Git.
+└─ .gradle/ and .gradle-home/
+   # Gradle cache folders. Ignored by Git.
+```
 
 ## Troubleshooting
 
-### Error: GLFW must run on first thread (macOS)
+### `java: command not found`
 
-Example message:
+Install JDK 17 or newer, reopen your terminal, and verify:
 
-`GLFW may only be used on the main thread ... run the JVM with -XstartOnFirstThread`
+```bash
+java -version
+```
 
-Fix:
-- Use `./gradlew run` (already configured)
-- If you launch Java manually, add `-XstartOnFirstThread`
+If you have multiple JDKs installed, make sure `JAVA_HOME` points to a compatible JDK.
 
-### Error: `Permission denied` when running `./gradlew`
+### `./gradlew: Permission denied`
 
-Fix:
+macOS / Linux:
 
 ```bash
 chmod +x gradlew
 ./gradlew run
 ```
 
-### Error: `java: command not found`
+### Gradle Cannot Download Dependencies
 
-Fix:
-- Install JDK 17+
-- Reopen terminal
-- Verify `java -version`
+The first run needs internet access. Check your network and retry. If you are behind a company or school proxy, configure Gradle proxy settings.
 
-### Error: black screen or instant close
+### Gradle Fails in a Restricted Environment
 
-Possible causes and fixes:
-- GPU/OpenGL driver issue -> update graphics drivers
-- Remote desktop/VM without OpenGL 3.3 -> run locally on supported hardware
+Some sandboxes block daemon sockets, local cache access, or network access. Try:
 
-### Error: world save failed
+```bash
+GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon build
+```
 
-Example message:
+If the error mentions `java.net.SocketException: Operation not permitted`, first suspect the execution environment before assuming the project code is broken.
 
-`World save failed: Failed to save world to saves/world.dat`
+### macOS GLFW First Thread Error
 
-Fix:
-- Make sure project folder is writable
-- Ensure `saves/` exists or can be created
-- Avoid read-only/external locked directories
-
-### Error: dependency download fails
-
-Fix:
-- Check internet connection
-- Retry command
-- If behind strict network policy, configure Gradle proxy
-
-## Scope
-
-- [x] Chunk terrain generation with multiple biomes
-- [x] Caves, sea level, local water refill, finite placed-water flow, tree generation
-- [x] Creative movement + fly toggle
-- [x] Creative inventory with multi-page block selection
-- [x] Expanded creative building block palette
-- [x] Collision-aware breaking/placing
-- [x] Land-first / forest-preferred spawn selection
-- [x] Persistent world save/load
-- [ ] Survival gameplay (health, hunger, crafting, inventory)
-- [ ] Entities/mobs AI
-- [ ] Day/night cycle and weather
-
-## Project Structure
+Example:
 
 ```text
-Minecraftin/
-├─ src/
-│  └─ main/
-│     ├─ java/com/minecraftin/clone/
-│     │  ├─ MinecraftClone.java
-│     │  │  # Entry point
-│     │  ├─ config/
-│     │  │  └─ GameConfig.java
-│     │  │     # Main config file:
-│     │  │     # - window size/title
-│     │  │     # - render distance and chunk settings
-│     │  │     # - movement/physics values
-│     │  │     # - interaction reach/cooldowns
-│     │  │     # - save path and default seed
-│     │  ├─ game/
-│     │  │  └─ Game.java
-│     │  │     # Main loop and game flow
-│     │  ├─ engine/
-│     │  │  # Core systems: window/input/camera/shader/mesh
-│     │  ├─ world/
-│     │  │  # World data: chunks/generation/raycast/save-load
-│     │  ├─ gameplay/
-│     │  │  # Player movement and physics behavior
-│     │  └─ render/
-│     │     # World renderer and HUD renderer
-│     └─ resources/shaders/
-│        # GLSL shader files
-├─ saves/
-│  # Local world save data (Git ignored)
-├─ .gradle/ / .gradle-home/ / build/
-│  # Build and cache outputs (Git ignored)
-└─ .gitignore
-   # Defines ignored local/build files
+GLFW may only be used on the main thread ... run the JVM with -XstartOnFirstThread
 ```
+
+Use:
+
+```bash
+./gradlew run
+```
+
+The Gradle `run` task already includes `-XstartOnFirstThread` on macOS. If you launch the Java application manually, add that JVM argument yourself.
+
+### Black Screen or Immediate Close
+
+Possible causes:
+
+- The GPU or driver does not support OpenGL 3.3.
+- The game is running through a remote desktop or virtual machine without proper OpenGL support.
+- The display driver is outdated.
+
+Run locally on supported hardware and update your graphics driver.
+
+### World Save Failed
+
+Example:
+
+```text
+World save failed: Failed to save world to saves/world.dat
+```
+
+Check that the project folder is writable and that the `saves/` directory can be created. Avoid running the project from read-only folders or locked external drives.
+
+### Changed the Default Seed but the World Did Not Change
+
+Delete `saves/world.dat`. Existing saves keep their original seed.
+
+## Limitations and Notes
+
+- The project is creative-mode only. Survival systems such as health, hunger, crafting, item stacks, and full inventory management are not implemented.
+- Chests open an empty UI placeholder. They do not store items yet.
+- Furnaces and crafting tables are placeable blocks, but they do not have crafting or smelting behavior yet.
+- There are no mobs, entity AI, day/night cycle, or weather systems.
+- The procedural texture atlas is generated in code. There are no external block texture image files to replace.
+- Save compatibility depends on stable `BlockType.id()` values. Do not reorder existing block IDs when adding blocks.
+- Shader files should keep `#version 330 core` as the first line.
+- Generated files and local data such as `build/`, `.gradle/`, `.gradle-home/`, and `saves/` are ignored by Git.
+
+## Development Notes
+
+- Keep changes small and focused. Match the existing Java and Gradle style.
+- Use `GameConfig.java` for simple gameplay constants before adding new configuration systems.
+- Use `./gradlew test` and `./gradlew build` before sharing changes.
+- When editing rendering code, keep `ChunkMesher`, `WorldRenderer`, and `world.vert` attribute layouts in sync.
+- When editing save-related code, preserve the existing save format rules unless you intentionally add a migration path.
+- When adding blocks, append new enum values instead of changing existing IDs.

@@ -149,11 +149,23 @@ public enum BlockType {
             AtlasTiles.PLANKS),
     FURNACE(84, true, true, AtlasTiles.FURNACE_SIDE, AtlasTiles.FURNACE_TOP, AtlasTiles.FURNACE_TOP),
     CHEST(85, true, true, AtlasTiles.CHEST_SIDE, AtlasTiles.CHEST_TOP, AtlasTiles.CHEST_TOP),
-    BOOKSHELF(86, true, true, AtlasTiles.BOOKSHELF, AtlasTiles.PLANKS, AtlasTiles.PLANKS);
+    BOOKSHELF(86, true, true, AtlasTiles.BOOKSHELF, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
+
+    // 開啟狀態追加在既有 id 後方，避免舊存檔中的方塊編號被重排。
+    OAK_DOOR_NORTH_OPEN_BOTTOM(87, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_NORTH_OPEN_TOP(88, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_EAST_OPEN_BOTTOM(89, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_EAST_OPEN_TOP(90, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_SOUTH_OPEN_BOTTOM(91, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_SOUTH_OPEN_TOP(92, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_WEST_OPEN_BOTTOM(93, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_DOOR_WEST_OPEN_TOP(94, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
+    OAK_TRAPDOOR_OPEN(95, true, false, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR);
 
     // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
     private static final BlockType[] BY_ID;
 
+    // 以下碰撞/渲染盒都使用方塊局部座標，讓 Player、ChunkMesher 與互動判定共用同一份形狀定義。
     private static final BlockBounds[] EMPTY_BOUNDS = new BlockBounds[0];
     private static final BlockBounds[] FULL_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) };
     private static final BlockBounds[] NORTH_THIN = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.1875f) };
@@ -171,6 +183,7 @@ public enum BlockType {
     };
     private static final BlockBounds[] OAK_SLAB_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f) };
     private static final BlockBounds[] OAK_TRAPDOOR_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.1875f, 1.0f) };
+    private static final BlockBounds[] OAK_TRAPDOOR_OPEN_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.1875f) };
     private static final BlockBounds[] TORCH_BOUNDS = { new BlockBounds(0.40625f, 0.0f, 0.40625f, 0.59375f, 0.625f, 0.59375f) };
     private static final BlockBounds[] STAIRS_NORTH_BOUNDS = {
             new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f),
@@ -189,6 +202,7 @@ public enum BlockType {
             new BlockBounds(0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f)
     };
 
+    // 創造模式背包只放「玩家可直接選取」的基礎方塊；方向變體由放置流程依視角或命中面轉換。
     private static final BlockType[] CREATIVE_PALETTE = {
             GRASS, DIRT, STONE, COBBLESTONE, SAND, SNOW, WATER, GLASS, BEDROCK,
             LOG, PLANKS, BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, LEAVES, OAK_STAIRS, OAK_SLAB, STONE_SLAB,
@@ -285,7 +299,11 @@ public enum BlockType {
             case PURPLE_BLOCK -> "Purple";
             case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST -> "Oak Stairs";
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
-                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP -> "Oak Door";
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
+                    OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
+                    OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
+                    OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP -> "Oak Door";
+            case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> "Oak Trapdoor";
             case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST -> "Ladder";
 
             // 其他方塊名稱會由列舉名稱自動轉成較好讀的格式。
@@ -331,36 +349,110 @@ public enum BlockType {
         return CREATIVE_PALETTE.clone();
     }
 
+    // 是否可視為完整 1x1x1 方塊。這會影響 meshing 的鄰面裁切與玩家碰撞盒。
     public boolean isFullCube() {
         return switch (this) {
             case AIR, OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST,
                     OAK_SLAB, STONE_SLAB, OAK_FENCE, OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP,
                     OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP, OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP,
-                    OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP, OAK_TRAPDOOR, LADDER, LADDER_NORTH, LADDER_EAST,
-                    LADDER_SOUTH, LADDER_WEST, TORCH -> false;
+                    OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP, OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP,
+                    OAK_DOOR_EAST_OPEN_BOTTOM, OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM,
+                    OAK_DOOR_SOUTH_OPEN_TOP, OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP,
+                    OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN, LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH,
+                    LADDER_WEST, TORCH -> false;
             default -> true;
         };
     }
 
+    // 門有上下半格與開關狀態多個 enum 變體，互動與破壞時都需要把它們視為同一類方塊。
     public boolean isDoorBlock() {
         return switch (this) {
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
-                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP -> true;
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
+                    OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
+                    OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
+                    OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP -> true;
             default -> false;
         };
     }
 
+    // 判斷目前門變體是否為上半部，用來定位同一扇門的底部座標。
     public boolean isDoorTop() {
         return switch (this) {
-            case OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_TOP, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_TOP -> true;
+            case OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_TOP, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_TOP,
+                    OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_TOP,
+                    OAK_DOOR_WEST_OPEN_TOP -> true;
             default -> false;
         };
     }
 
+    // 判斷門是否為開啟狀態；開關門時會在開/關變體之間切換，但保留朝向與上下半部。
+    public boolean isDoorOpen() {
+        return switch (this) {
+            case OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
+                    OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
+                    OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP -> true;
+            default -> false;
+        };
+    }
+
+    // 活板門目前只有關閉與固定開啟方向兩種狀態。
+    public boolean isTrapdoorBlock() {
+        return this == OAK_TRAPDOOR || this == OAK_TRAPDOOR_OPEN;
+    }
+
+    // 梯子沒有碰撞盒，但玩家爬梯與渲染仍需要辨識它的方向變體。
+    public boolean isLadderBlock() {
+        return this == LADDER || this == LADDER_NORTH || this == LADDER_EAST || this == LADDER_SOUTH
+                || this == LADDER_WEST;
+    }
+
+    // 回傳活板門切換後的變體；呼叫端會先檢查新碰撞盒是否卡到玩家。
+    public BlockType toggledTrapdoorVariant() {
+        return this == OAK_TRAPDOOR ? OAK_TRAPDOOR_OPEN : OAK_TRAPDOOR;
+    }
+
+    // 回傳同朝向、同上下半部的開關相反門變體。
+    public BlockType toggledDoorVariant() {
+        return isDoorOpen() ? closedDoorVariant() : openedDoorVariant();
+    }
+
+    // 關門變體轉開門變體；非關門變體原樣回傳，讓呼叫端可安全地對任意方塊呼叫。
+    private BlockType openedDoorVariant() {
+        return switch (this) {
+            case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_OPEN_BOTTOM;
+            case OAK_DOOR_NORTH_TOP -> OAK_DOOR_NORTH_OPEN_TOP;
+            case OAK_DOOR_EAST_BOTTOM -> OAK_DOOR_EAST_OPEN_BOTTOM;
+            case OAK_DOOR_EAST_TOP -> OAK_DOOR_EAST_OPEN_TOP;
+            case OAK_DOOR_SOUTH_BOTTOM -> OAK_DOOR_SOUTH_OPEN_BOTTOM;
+            case OAK_DOOR_SOUTH_TOP -> OAK_DOOR_SOUTH_OPEN_TOP;
+            case OAK_DOOR_WEST_BOTTOM -> OAK_DOOR_WEST_OPEN_BOTTOM;
+            case OAK_DOOR_WEST_TOP -> OAK_DOOR_WEST_OPEN_TOP;
+            default -> this;
+        };
+    }
+
+    // 開門變體轉關門變體；非開門變體原樣回傳。
+    private BlockType closedDoorVariant() {
+        return switch (this) {
+            case OAK_DOOR_NORTH_OPEN_BOTTOM -> OAK_DOOR_NORTH_BOTTOM;
+            case OAK_DOOR_NORTH_OPEN_TOP -> OAK_DOOR_NORTH_TOP;
+            case OAK_DOOR_EAST_OPEN_BOTTOM -> OAK_DOOR_EAST_BOTTOM;
+            case OAK_DOOR_EAST_OPEN_TOP -> OAK_DOOR_EAST_TOP;
+            case OAK_DOOR_SOUTH_OPEN_BOTTOM -> OAK_DOOR_SOUTH_BOTTOM;
+            case OAK_DOOR_SOUTH_OPEN_TOP -> OAK_DOOR_SOUTH_TOP;
+            case OAK_DOOR_WEST_OPEN_BOTTOM -> OAK_DOOR_WEST_BOTTOM;
+            case OAK_DOOR_WEST_OPEN_TOP -> OAK_DOOR_WEST_TOP;
+            default -> this;
+        };
+    }
+
+    // 背包中的 OAK_DOOR 是放置用代表項，真正寫入世界時會拆成上下兩格方向變體。
     public boolean placesAsDoor() {
         return this == OAK_DOOR;
     }
 
+    // 將背包中的基礎方塊轉成實際寫入世界的朝向變體；facing 使用 Game 的 0=N、1=E、2=S、3=W 約定。
     public BlockType placedVariantForFacing(int facing) {
         return switch (this) {
             case OAK_STAIRS -> switch (facing) {
@@ -375,16 +467,22 @@ public enum BlockType {
         };
     }
 
+    // 由門底部變體取得對應上半部；開關狀態與朝向必須一致。
     public BlockType doorTopVariant() {
         return switch (this) {
             case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_TOP;
             case OAK_DOOR_EAST_BOTTOM -> OAK_DOOR_EAST_TOP;
             case OAK_DOOR_SOUTH_BOTTOM -> OAK_DOOR_SOUTH_TOP;
             case OAK_DOOR_WEST_BOTTOM -> OAK_DOOR_WEST_TOP;
+            case OAK_DOOR_NORTH_OPEN_BOTTOM -> OAK_DOOR_NORTH_OPEN_TOP;
+            case OAK_DOOR_EAST_OPEN_BOTTOM -> OAK_DOOR_EAST_OPEN_TOP;
+            case OAK_DOOR_SOUTH_OPEN_BOTTOM -> OAK_DOOR_SOUTH_OPEN_TOP;
+            case OAK_DOOR_WEST_OPEN_BOTTOM -> OAK_DOOR_WEST_OPEN_TOP;
             default -> this;
         };
     }
 
+    // 找出同一扇門的另一半；破壞或開關任一半時用來同步處理上下格。
     public BlockType matchingDoorHalf() {
         return switch (this) {
             case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_TOP;
@@ -395,18 +493,27 @@ public enum BlockType {
             case OAK_DOOR_SOUTH_TOP -> OAK_DOOR_SOUTH_BOTTOM;
             case OAK_DOOR_WEST_BOTTOM -> OAK_DOOR_WEST_TOP;
             case OAK_DOOR_WEST_TOP -> OAK_DOOR_WEST_BOTTOM;
+            case OAK_DOOR_NORTH_OPEN_BOTTOM -> OAK_DOOR_NORTH_OPEN_TOP;
+            case OAK_DOOR_NORTH_OPEN_TOP -> OAK_DOOR_NORTH_OPEN_BOTTOM;
+            case OAK_DOOR_EAST_OPEN_BOTTOM -> OAK_DOOR_EAST_OPEN_TOP;
+            case OAK_DOOR_EAST_OPEN_TOP -> OAK_DOOR_EAST_OPEN_BOTTOM;
+            case OAK_DOOR_SOUTH_OPEN_BOTTOM -> OAK_DOOR_SOUTH_OPEN_TOP;
+            case OAK_DOOR_SOUTH_OPEN_TOP -> OAK_DOOR_SOUTH_OPEN_BOTTOM;
+            case OAK_DOOR_WEST_OPEN_BOTTOM -> OAK_DOOR_WEST_OPEN_TOP;
+            case OAK_DOOR_WEST_OPEN_TOP -> OAK_DOOR_WEST_OPEN_BOTTOM;
             default -> this;
         };
     }
 
+    // 回傳實際會阻擋玩家的碰撞盒。梯子與火把可見但不阻擋，水也不阻擋。
     public BlockBounds[] collisionBoxes() {
-        if (this == AIR || this == WATER || this == LADDER || this == LADDER_NORTH || this == LADDER_EAST
-                || this == LADDER_SOUTH || this == LADDER_WEST || this == TORCH) {
+        if (this == AIR || this == WATER || isLadderBlock() || this == TORCH) {
             return EMPTY_BOUNDS;
         }
         return renderBoxes();
     }
 
+    // 回傳渲染用幾何盒；非完整方塊會在 ChunkMesher 中依這些盒子建立簡化模型。
     public BlockBounds[] renderBoxes() {
         return switch (this) {
             case AIR -> EMPTY_BOUNDS;
@@ -420,7 +527,12 @@ public enum BlockType {
             case OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP -> EAST_THIN;
             case OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP -> SOUTH_THIN;
             case OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP -> WEST_THIN;
+            case OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP -> WEST_THIN;
+            case OAK_DOOR_EAST_OPEN_BOTTOM, OAK_DOOR_EAST_OPEN_TOP -> NORTH_THIN;
+            case OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP -> EAST_THIN;
+            case OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP -> SOUTH_THIN;
             case OAK_TRAPDOOR -> OAK_TRAPDOOR_BOUNDS;
+            case OAK_TRAPDOOR_OPEN -> OAK_TRAPDOOR_OPEN_BOUNDS;
             case LADDER, LADDER_NORTH -> NORTH_LADDER;
             case LADDER_EAST -> EAST_LADDER;
             case LADDER_SOUTH -> SOUTH_LADDER;
@@ -430,6 +542,7 @@ public enum BlockType {
         };
     }
 
+    // 依玩家面向取得門底部變體，供放置流程建立下半部後再推得上半部。
     public static BlockType doorBottomForFacing(int facing) {
         return switch (facing) {
             case 1 -> OAK_DOOR_EAST_BOTTOM;
@@ -439,6 +552,7 @@ public enum BlockType {
         };
     }
 
+    // 依附著面方向取得梯子變體；方向代表梯子所在的薄面朝向。
     public static BlockType ladderForFacing(int facing) {
         return switch (facing) {
             case 1 -> LADDER_EAST;

@@ -44,7 +44,7 @@ public final class Game {
     // 創造模式背包可選用的全部方塊。
     private final BlockType[] creativeBlocks = BlockType.creativePalette();
 
-    // 遊戲會用到的核心物件
+    // 遊戲會用到的核心物件。
     private final Window window = new Window();
     private final InputState input = new InputState();
     private final Camera camera = new Camera();
@@ -56,38 +56,42 @@ public final class Game {
     private final Vector3f tmpRayOrigin = new Vector3f();
     private final Vector3f tmpRayDirection = new Vector3f();
 
-    // 負責世界與 HUD 的渲染器
+    // 負責世界與 HUD 的渲染器。
     private WorldRenderer worldRenderer;
     private HudRenderer hudRenderer;
 
-    // 是否已鎖定滑鼠到遊戲視窗內
+    // 是否已鎖定滑鼠到遊戲視窗內。
     private boolean cursorCaptured = false;
 
-    // 目前快捷欄選到的方塊索引
+    // 目前快捷欄選到的方塊索引。
     private int hotbarIndex;
 
-    // 創造模式背包狀態。
+    // 創造模式背包狀態；開啟 UI 時會暫時釋放滑鼠，關閉時依原本狀態恢復。
     private boolean creativeInventoryOpen;
     private boolean recaptureCursorAfterInventory;
     private int creativeInventoryPage;
 
-    // 破壞、放置方塊與自動存檔的冷卻或計時
+    // 箱子目前只有空容器介面；之後若加入物品堆疊，可在這個狀態上接容器資料與格子互動。
+    private boolean chestOpen;
+    private boolean recaptureCursorAfterChest;
+
+    // 破壞、放置方塊與自動存檔的冷卻或計時。
     private float breakCooldown;
     private float placeCooldown;
     private float autosaveTimer;
 
-    // 目前準星指向的方塊資訊
+    // 目前準星指向的方塊資訊。
     private RaycastHit targetedBlock;
 
-    // FPS 計算用
+    // FPS 計算用。
     private double fpsTimer;
     private int fpsFrames;
 
-    // 用來確認世界與玩家出生點是否已完成初始化
+    // 用來確認世界與玩家出生點是否已完成初始化。
     private boolean worldInitialized;
     private boolean playerSpawnInitialized;
 
-    // 走路時鏡頭晃動的狀態
+    // 走路時鏡頭晃動的狀態。
     private float walkBobPhase;
     private float walkBobVertical;
     private float walkBobHorizontal;
@@ -202,7 +206,7 @@ public final class Game {
             // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
             hudRenderer.render(hotbar, hotbarIndex, creativeInventoryOpen, creativeBlocks, creativeInventoryPage,
-                    creativeTotalPages());
+                    creativeTotalPages(), chestOpen);
 
             // 更新視窗標題中的偵錯資訊
             updateDebugTitle(now);
@@ -228,6 +232,14 @@ public final class Game {
             window.requestClose();
         }
 
+        if (chestOpen) {
+            // 容器 UI 會攔截 E/ESC，避免同一幀又落到遊戲互動或創造背包切換。
+            if (input.wasKeyPressed(GLFW_KEY_E) || input.wasKeyPressed(GLFW_KEY_ESCAPE)) {
+                closeChest(true);
+            }
+            return;
+        }
+
         // E 開關創造模式背包。
         if (input.wasKeyPressed(GLFW_KEY_E)) {
             if (creativeInventoryOpen) {
@@ -238,6 +250,7 @@ public final class Game {
         }
 
         if (creativeInventoryOpen) {
+            // 背包開啟時只處理 UI 選取，不讓滑鼠點擊同時破壞或放置世界方塊。
             if (input.wasKeyPressed(GLFW_KEY_ESCAPE)) {
                 closeCreativeInventory(true);
             }
@@ -281,6 +294,7 @@ public final class Game {
     }
 
     private void handleCreativeInventorySelection() {
+        // 背包頁面用滾輪切換；consumeScrollDeltaY 只可在本流程消耗一次。
         double scroll = input.consumeScrollDeltaY();
         if (scroll != 0.0) {
             int direction = scroll > 0.0 ? -1 : 1;
@@ -314,6 +328,7 @@ public final class Game {
     }
 
     private void openCreativeInventory() {
+        // 記住開啟前是否鎖定滑鼠，關閉 UI 時才知道是否要回到第一人稱控制。
         recaptureCursorAfterInventory = cursorCaptured;
         creativeInventoryOpen = true;
         cursorCaptured = false;
@@ -336,7 +351,32 @@ public final class Game {
         recaptureCursorAfterInventory = false;
     }
 
+    private void openChest() {
+        // 箱子與創造背包互斥，避免兩套 UI 同時重建 HUD mesh 或爭用游標狀態。
+        closeCreativeInventory(false);
+        recaptureCursorAfterChest = cursorCaptured;
+        chestOpen = true;
+        cursorCaptured = false;
+        window.captureCursor(false);
+        input.resetMouseTracking();
+    }
+
+    private void closeChest(boolean recaptureIfNeeded) {
+        if (!chestOpen) {
+            return;
+        }
+
+        chestOpen = false;
+        if (recaptureIfNeeded && recaptureCursorAfterChest) {
+            cursorCaptured = true;
+            window.captureCursor(true);
+            input.resetMouseTracking();
+        }
+        recaptureCursorAfterChest = false;
+    }
+
     private void focusCreativePageOnSelectedBlock() {
+        // 開啟背包時直接跳到目前 hotbar 方塊所在頁，降低大量方塊時的尋找成本。
         BlockType selected = hotbar[hotbarIndex];
         for (int i = 0; i < creativeBlocks.length; i++) {
             if (creativeBlocks[i] == selected) {
@@ -432,16 +472,79 @@ public final class Game {
             breakCooldown = GameConfig.BREAK_COOLDOWN_SECONDS;
         }
 
-        // 右鍵在目標方塊旁邊放置新方塊；normal 是 raycast 命中面朝外的方向。
+        // 右鍵優先互動；若目標不是可互動方塊，才在旁邊放置新方塊。
         if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
-            int px = targetedBlock.x() + targetedBlock.normalX();
-            int py = targetedBlock.y() + targetedBlock.normalY();
-            int pz = targetedBlock.z() + targetedBlock.normalZ();
+            if (!interactWithTargetedBlock()) {
+                int px = targetedBlock.x() + targetedBlock.normalX();
+                int py = targetedBlock.y() + targetedBlock.normalY();
+                int pz = targetedBlock.z() + targetedBlock.normalZ();
 
-            placeSelectedBlock(px, py, pz);
+                placeSelectedBlock(px, py, pz);
+            }
 
             placeCooldown = GameConfig.PLACE_COOLDOWN_SECONDS;
         }
+    }
+
+    private boolean interactWithTargetedBlock() {
+        // 可互動方塊優先消耗右鍵；只有不可互動方塊才讓右鍵變成放置。
+        BlockType block = targetedBlock.block();
+
+        if (block.isDoorBlock()) {
+            toggleDoorBlock();
+            return true;
+        }
+
+        if (block.isTrapdoorBlock()) {
+            toggleTrapdoorBlock();
+            return true;
+        }
+
+        if (block == BlockType.CHEST) {
+            openChest();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void toggleDoorBlock() {
+        // 門由上下兩格組成，開關前先確認另一半仍是同一扇門，避免修復不完整資料時誤改相鄰方塊。
+        int x = targetedBlock.x();
+        int y = targetedBlock.y();
+        int z = targetedBlock.z();
+        BlockType hitBlock = targetedBlock.block();
+        int bottomY = hitBlock.isDoorTop() ? y - 1 : y;
+        BlockType bottom = world.getBlock(x, bottomY, z);
+        BlockType top = world.getBlock(x, bottomY + 1, z);
+
+        if (!bottom.isDoorBlock() || bottom.isDoorTop() || top != bottom.matchingDoorHalf()) {
+            return;
+        }
+
+        BlockType newBottom = bottom.toggledDoorVariant();
+        BlockType newTop = newBottom.doorTopVariant();
+        if (player.intersectsBlock(x, bottomY, z, newBottom)
+                || player.intersectsBlock(x, bottomY + 1, z, newTop)) {
+            return;
+        }
+
+        world.setBlock(x, bottomY, z, newBottom);
+        world.setBlock(x, bottomY + 1, z, newTop);
+    }
+
+    private void toggleTrapdoorBlock() {
+        // 活板門開關會改變碰撞盒，切換前要避免把玩家夾在新形狀內。
+        int x = targetedBlock.x();
+        int y = targetedBlock.y();
+        int z = targetedBlock.z();
+        BlockType next = targetedBlock.block().toggledTrapdoorVariant();
+
+        if (player.intersectsBlock(x, y, z, next)) {
+            return;
+        }
+
+        world.setBlock(x, y, z, next);
     }
 
     // 破壞準星指向的方塊；門是雙格方塊，破壞任一半都要同步移除另一半。
@@ -483,6 +586,7 @@ public final class Game {
     }
 
     // 門需要同時佔用上下兩格，且上下碰撞盒都不能與玩家重疊。
+    // 若上半部寫入失敗，會回滾下半部，避免世界留下半扇門。
     private void placeDoorBlock(int x, int y, int z, BlockType bottom) {
         BlockType top = bottom.doorTopVariant();
         int topY = y + 1;

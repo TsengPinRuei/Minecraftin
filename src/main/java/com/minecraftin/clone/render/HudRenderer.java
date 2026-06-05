@@ -52,6 +52,7 @@ public final class HudRenderer implements AutoCloseable {
     public static final int CREATIVE_ROWS = 5;
     public static final int CREATIVE_SLOTS_PER_PAGE = CREATIVE_COLUMNS * CREATIVE_ROWS;
 
+    // 創造背包與箱子面板也使用 NDC 尺寸；滑鼠命中測試需與這些常數保持一致。
     private static final float CREATIVE_SLOT_WIDTH = 0.105f;
     private static final float CREATIVE_SLOT_HEIGHT = 0.125f;
     private static final float CREATIVE_GAP = 0.012f;
@@ -78,11 +79,24 @@ public final class HudRenderer implements AutoCloseable {
     // 文字背景顏色。
     private static final float[] TEXT_BG_COLOR = new float[] { 0.04f, 0.04f, 0.04f, 0.72f };
 
+    // 背包/箱子共用的 UI 色票，集中管理以避免面板與格子在不同函式中出現不一致色彩。
     private static final float[] INVENTORY_PANEL_COLOR = new float[] { 0.62f, 0.62f, 0.58f, 0.94f };
     private static final float[] INVENTORY_PANEL_SHADOW = new float[] { 0.05f, 0.05f, 0.05f, 0.55f };
     private static final float[] INVENTORY_SLOT_COLOR = new float[] { 0.30f, 0.30f, 0.28f, 0.88f };
     private static final float[] INVENTORY_SLOT_BORDER = new float[] { 0.13f, 0.13f, 0.12f, 0.82f };
     private static final float[] INVENTORY_SLOT_SELECTED = new float[] { 0.98f, 0.95f, 0.70f, 0.96f };
+
+    private static final float[] CROSSHAIR_COLOR = new float[] { 0.04f, 0.04f, 0.04f, 0.96f };
+
+    private static final int CHEST_COLUMNS = 9;
+    private static final int CHEST_ROWS = 3;
+    private static final float CHEST_SLOT_WIDTH = 0.105f;
+    private static final float CHEST_SLOT_HEIGHT = 0.125f;
+    private static final float CHEST_GAP = 0.012f;
+    private static final float CHEST_GRID_TOP = 0.42f;
+    private static final float CHEST_PANEL_PAD_X = 0.065f;
+    private static final float CHEST_PANEL_PAD_TOP = 0.13f;
+    private static final float CHEST_PANEL_PAD_BOTTOM = 0.10f;
 
     // 各種方塊在 hotbar 中的代表顏色。
     private static final float[] COLOR_RED_BLOCK = new float[] { 0.85f, 0.25f, 0.25f, 0.95f };
@@ -197,6 +211,7 @@ public final class HudRenderer implements AutoCloseable {
     private int cachedCreativePage = Integer.MIN_VALUE;
     private int cachedCreativeTotalPages = Integer.MIN_VALUE;
     private boolean cachedCreativeOpen;
+    private boolean cachedChestOpen;
 
     // 快取上一次 viewport 寬度。
     private int cachedViewportWidth = Integer.MIN_VALUE;
@@ -208,15 +223,8 @@ public final class HudRenderer implements AutoCloseable {
     public HudRenderer() {
         shader = new ShaderProgram("/shaders/hud.vert", "/shaders/hud.frag");
 
-        float s = 0.015f;
-
-        // 建立中央準星。
-        crosshair = new Mesh(new float[] {
-                -s, 0.0f, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
-                s, 0.0f, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
-                0.0f, -s, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f,
-                0.0f, s, 0.0f, 0.05f, 0.05f, 0.05f, 0.92f
-        }, GL_LINES, 3, 4);
+        // 準星會依 viewport 比例重建，確保實際畫面上是置中的正十字。
+        crosshair = new Mesh(new float[0], GL_TRIANGLES, 3, 4);
 
         // hotbar mesh 一開始先建立空資料，之後再動態更新。
         hotbarMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 4);
@@ -224,7 +232,7 @@ public final class HudRenderer implements AutoCloseable {
 
     // 繪製 HUD。
     public void render(BlockType[] hotbar, int selectedIndex, boolean creativeInventoryOpen, BlockType[] creativeBlocks,
-            int creativePage, int creativeTotalPages) {
+            int creativePage, int creativeTotalPages, boolean chestOpen) {
         glDisable(GL_DEPTH_TEST);
         shader.use();
 
@@ -232,10 +240,15 @@ public final class HudRenderer implements AutoCloseable {
         glGetIntegerv(GL_VIEWPORT, viewport);
         int viewportWidth = Math.max(1, viewport[2]);
         int viewportHeight = Math.max(1, viewport[3]);
+        float viewportAspect = (float) viewportWidth / (float) viewportHeight;
 
         boolean viewportChanged = viewportWidth != cachedViewportWidth || viewportHeight != cachedViewportHeight;
         int hotbarSignature = hotbarSignature(hotbar);
         int creativeSignature = creativeInventoryOpen && creativeBlocks != null ? hotbarSignature(creativeBlocks) : 0;
+
+        if (viewportChanged) {
+            updateCrosshairMesh(viewportAspect);
+        }
 
         // 只有在 hotbar 內容、選取狀態或視窗大小變動時才重建 mesh。
         if (viewportChanged
@@ -244,15 +257,17 @@ public final class HudRenderer implements AutoCloseable {
                 || creativeSignature != cachedCreativeSignature
                 || creativePage != cachedCreativePage
                 || creativeTotalPages != cachedCreativeTotalPages
-                || creativeInventoryOpen != cachedCreativeOpen) {
-            updateHotbarMesh(hotbar, selectedIndex, (float) viewportWidth / (float) viewportHeight,
-                    creativeInventoryOpen, creativeBlocks, creativePage, creativeTotalPages);
+                || creativeInventoryOpen != cachedCreativeOpen
+                || chestOpen != cachedChestOpen) {
+            updateHotbarMesh(hotbar, selectedIndex, viewportAspect,
+                    creativeInventoryOpen, creativeBlocks, creativePage, creativeTotalPages, chestOpen);
             cachedHotbarSignature = hotbarSignature;
             cachedSelectedIndex = selectedIndex;
             cachedCreativeSignature = creativeSignature;
             cachedCreativePage = creativePage;
             cachedCreativeTotalPages = creativeTotalPages;
             cachedCreativeOpen = creativeInventoryOpen;
+            cachedChestOpen = chestOpen;
             cachedViewportWidth = viewportWidth;
             cachedViewportHeight = viewportHeight;
         }
@@ -271,10 +286,12 @@ public final class HudRenderer implements AutoCloseable {
         shader.close();
     }
 
+    // 依方塊總數計算頁數；至少回傳 1，讓沒有資料時 UI 仍有穩定頁碼與快取 key。
     public static int creativeTotalPages(int blockCount) {
         return Math.max(1, (blockCount + CREATIVE_SLOTS_PER_PAGE - 1) / CREATIVE_SLOTS_PER_PAGE);
     }
 
+    // 將 GLFW 視窗座標轉成 HUD 使用的 NDC 座標，再回推目前滑到的創造背包格子。
     public static int creativeSlotAt(double mouseX, double mouseY, int windowWidth, int windowHeight, int page,
             int blockCount) {
         if (windowWidth <= 0 || windowHeight <= 0 || blockCount <= 0) {
@@ -308,12 +325,29 @@ public final class HudRenderer implements AutoCloseable {
         return -1;
     }
 
+    // 準星由兩個矩形組成，寬度按 aspect 修正，避免寬螢幕下變成橫向拉長的十字。
+    private void updateCrosshairMesh(float viewportAspect) {
+        float safeAspect = Math.max(0.1f, viewportAspect);
+        float halfLengthY = 0.026f;
+        float halfThicknessY = 0.0046f;
+        float halfLengthX = halfLengthY / safeAspect;
+        float halfThicknessX = halfThicknessY / safeAspect;
+
+        FloatArrayBuilder out = new FloatArrayBuilder(128);
+        addRect(out, -halfLengthX, -halfThicknessY, halfLengthX * 2.0f, halfThicknessY * 2.0f, CROSSHAIR_COLOR);
+        addRect(out, -halfThicknessX, -halfLengthY, halfThicknessX * 2.0f, halfLengthY * 2.0f, CROSSHAIR_COLOR);
+        crosshair.update(out.toArray(), STRIDE);
+    }
+
     // 依照 hotbar 內容與目前選取狀態，重新建立 hotbar mesh。
     private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex, float viewportAspect,
-            boolean creativeInventoryOpen, BlockType[] creativeBlocks, int creativePage, int creativeTotalPages) {
+            boolean creativeInventoryOpen, BlockType[] creativeBlocks, int creativePage, int creativeTotalPages,
+            boolean chestOpen) {
         hotbarVertices.clear();
 
-        if (creativeInventoryOpen && creativeBlocks != null) {
+        if (chestOpen) {
+            addChestPanel(hotbarVertices);
+        } else if (creativeInventoryOpen && creativeBlocks != null) {
             addCreativeInventoryPanel(hotbarVertices, hotbar, selectedIndex, creativeBlocks, creativePage,
                     creativeTotalPages, viewportAspect);
         }
@@ -358,6 +392,33 @@ public final class HudRenderer implements AutoCloseable {
         hotbarMesh.update(hotbarVertices.toArray(), STRIDE);
     }
 
+    // 目前箱子只畫空格介面；未來接入容器資料時可在這裡填入每格物品圖示。
+    private void addChestPanel(FloatArrayBuilder out) {
+        float gridWidth = CHEST_COLUMNS * CHEST_SLOT_WIDTH + (CHEST_COLUMNS - 1) * CHEST_GAP;
+        float gridHeight = CHEST_ROWS * CHEST_SLOT_HEIGHT + (CHEST_ROWS - 1) * CHEST_GAP;
+        float startX = -gridWidth * 0.5f;
+        float gridBottom = CHEST_GRID_TOP - gridHeight;
+        float panelX = startX - CHEST_PANEL_PAD_X;
+        float panelY = gridBottom - CHEST_PANEL_PAD_BOTTOM;
+        float panelWidth = gridWidth + CHEST_PANEL_PAD_X * 2.0f;
+        float panelHeight = gridHeight + CHEST_PANEL_PAD_TOP + CHEST_PANEL_PAD_BOTTOM;
+
+        addRect(out, panelX + 0.018f, panelY - 0.018f, panelWidth, panelHeight, INVENTORY_PANEL_SHADOW);
+        addRect(out, panelX, panelY, panelWidth, panelHeight, INVENTORY_PANEL_COLOR);
+        addCenteredText(out, "Chest", CHEST_GRID_TOP + 0.046f);
+
+        for (int row = 0; row < CHEST_ROWS; row++) {
+            for (int col = 0; col < CHEST_COLUMNS; col++) {
+                float x = startX + col * (CHEST_SLOT_WIDTH + CHEST_GAP);
+                float y = CHEST_GRID_TOP - row * (CHEST_SLOT_HEIGHT + CHEST_GAP) - CHEST_SLOT_HEIGHT;
+                addRect(out, x - 0.004f, y - 0.004f, CHEST_SLOT_WIDTH + 0.008f,
+                        CHEST_SLOT_HEIGHT + 0.008f, INVENTORY_SLOT_BORDER);
+                addRect(out, x, y, CHEST_SLOT_WIDTH, CHEST_SLOT_HEIGHT, INVENTORY_SLOT_COLOR);
+            }
+        }
+    }
+
+    // 建立創造背包面板與當頁方塊圖示；選中狀態以目前 hotbar 方塊反查，不另外保存 UI 狀態。
     private void addCreativeInventoryPanel(FloatArrayBuilder out, BlockType[] hotbar, int selectedIndex,
             BlockType[] creativeBlocks, int page, int totalPages, float viewportAspect) {
         float gridWidth = creativeGridWidth();
@@ -462,9 +523,12 @@ public final class HudRenderer implements AutoCloseable {
             case OAK_SLAB, STONE_SLAB -> addSlabIcon(out, x, y, width, height, color);
             case OAK_FENCE -> addFenceIcon(out, x, y, width, height, color);
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
-                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP ->
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
+                    OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
+                    OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
+                    OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP ->
                 addDoorIcon(out, x, y, width, height, color);
-            case OAK_TRAPDOOR -> addTrapdoorIcon(out, x, y, width, height, color);
+            case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> addTrapdoorIcon(out, x, y, width, height, color);
             case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST ->
                 addLadderIcon(out, x, y, width, height, color);
             case TORCH -> addTorchIcon(out, x, y, width, height, color);
@@ -823,9 +887,12 @@ public final class HudRenderer implements AutoCloseable {
             case STONE_SLAB -> COLOR_STONE_SLAB;
             case OAK_FENCE -> COLOR_OAK_FENCE;
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
-                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP ->
+                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
+                    OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
+                    OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
+                    OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP ->
                 COLOR_OAK_DOOR;
-            case OAK_TRAPDOOR -> COLOR_OAK_TRAPDOOR;
+            case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> COLOR_OAK_TRAPDOOR;
             case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST -> COLOR_LADDER;
             case TORCH -> COLOR_TORCH;
             case CRAFTING_TABLE -> COLOR_CRAFTING_TABLE;

@@ -24,6 +24,10 @@ public final class Player {
     // 將踏階高度分段測試，避免一次抬太高穿過較薄的碰撞盒。
     private static final int STEP_ATTEMPTS = 8;
 
+    // 梯子沒有碰撞盒，因此用接觸範圍判斷玩家是否正在梯子上。
+    private static final float LADDER_TOUCH_MARGIN = 0.20f;
+    private static final float LADDER_CLIMB_SPEED = 3.2f;
+
     // 兩次按空白鍵的最大間隔，超過就不算雙擊
     private static final float DOUBLE_TAP_SECONDS = 0.28f;
 
@@ -254,6 +258,24 @@ public final class Player {
             velocity.z = approach(velocity.z, 0.0f, friction);
         }
 
+        if (isTouchingLadder(world)) {
+            // 梯子不使用實心碰撞盒，因此用接觸判定進入爬梯狀態，再用 W/Space 與 S/Shift 控制上下。
+            float climbInput = 0.0f;
+            if (input.isKeyDown(GLFW_KEY_W) || input.isKeyDown(GLFW_KEY_SPACE)) {
+                climbInput += 1.0f;
+            }
+            if (input.isKeyDown(GLFW_KEY_S) || input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) {
+                climbInput -= 1.0f;
+            }
+
+            velocity.y = climbInput * LADDER_CLIMB_SPEED;
+            moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
+            onGround = false;
+            moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
+            moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
+            return;
+        }
+
         // 在地面按空白鍵時跳躍
         if (onGround && spacePressed) {
             velocity.y = GameConfig.JUMP_VELOCITY;
@@ -308,6 +330,43 @@ public final class Player {
         return false;
     }
 
+    // 檢查玩家加上一點外擴範圍後是否碰到梯子的 render box；比只看玩家中心點更容易抓到貼邊爬梯。
+    private boolean isTouchingLadder(World world) {
+        float half = GameConfig.PLAYER_WIDTH * 0.5f;
+        float minX = position.x - half - LADDER_TOUCH_MARGIN;
+        float maxX = position.x + half + LADDER_TOUCH_MARGIN;
+        float minY = position.y + EPSILON;
+        float maxY = position.y + GameConfig.PLAYER_HEIGHT - EPSILON;
+        float minZ = position.z - half - LADDER_TOUCH_MARGIN;
+        float maxZ = position.z + half + LADDER_TOUCH_MARGIN;
+
+        int blockMinX = fastFloor(minX);
+        int blockMaxX = fastFloor(maxX);
+        int blockMinY = fastFloor(minY);
+        int blockMaxY = fastFloor(maxY);
+        int blockMinZ = fastFloor(minZ);
+        int blockMaxZ = fastFloor(maxZ);
+
+        for (int by = blockMinY; by <= blockMaxY; by++) {
+            for (int bz = blockMinZ; bz <= blockMaxZ; bz++) {
+                for (int bx = blockMinX; bx <= blockMaxX; bx++) {
+                    BlockType block = world.getBlock(bx, by, bz);
+                    if (!block.isLadderBlock()) {
+                        continue;
+                    }
+
+                    for (BlockBounds bounds : block.renderBoxes()) {
+                        if (bounds.intersectsWorldBox(bx, by, bz, minX, minY, minZ, maxX, maxY, maxZ)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     // 沿著單一軸移動，並在過程中逐步檢查碰撞；呼叫端保證同一時間只傳入一個非零軸。
     private void moveOnAxis(World world, float dx, float dy, float dz) {
         float distance = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -334,6 +393,7 @@ public final class Player {
                 continue;
             }
 
+            // 水平移動撞到非完整方塊時嘗試踏階；垂直移動或飛行不做，避免干擾跳躍/飛行控制。
             if (!flying && dy == 0.0f && tryStepUp(world, targetX, targetZ)) {
                 continue;
             }
@@ -371,13 +431,14 @@ public final class Player {
         return false;
     }
 
-    // 判斷角色碰撞箱在指定位置時，是否會碰到實心方塊
+    // 判斷角色碰撞箱在指定位置時，是否會碰到任何方塊碰撞盒。
     private boolean collides(World world, float x, float y, float z) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
 
         // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
         int minX = fastFloor(x - half + EPSILON);
         int maxX = fastFloor(x + half - EPSILON);
+        // 往下多檢查一格，讓半磚、樓梯這種低於玩家腳底的盒子仍可被偵測到。
         int minY = fastFloor(y + EPSILON) - 1;
         int maxY = fastFloor(y + GameConfig.PLAYER_HEIGHT - EPSILON);
         int minZ = fastFloor(z - half + EPSILON);

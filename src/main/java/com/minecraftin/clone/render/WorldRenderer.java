@@ -5,6 +5,7 @@ import com.minecraftin.clone.engine.Camera;
 import com.minecraftin.clone.engine.Mesh;
 import com.minecraftin.clone.engine.ShaderProgram;
 import com.minecraftin.clone.engine.TextureAtlas;
+import com.minecraftin.clone.util.FloatArrayBuilder;
 import com.minecraftin.clone.world.Chunk;
 import com.minecraftin.clone.world.ChunkMesher;
 import com.minecraftin.clone.world.ChunkPos;
@@ -33,6 +34,10 @@ public final class WorldRenderer implements AutoCloseable {
 
     // 選取方塊外框的顏色。
     private static final Vector3f SELECTION_COLOR = new Vector3f(0.03f, 0.03f, 0.03f);
+
+    // 選取框用實際幾何體加粗，避免部分 OpenGL 驅動忽略 glLineWidth。
+    private static final float SELECTION_OUTLINE_PADDING = 0.003f;
+    private static final float SELECTION_OUTLINE_THICKNESS = 0.0092f;
 
     // 方塊材質圖集。
     private final TextureAtlas atlas;
@@ -77,7 +82,7 @@ public final class WorldRenderer implements AutoCloseable {
         lineShader = new ShaderProgram("/shaders/line.vert", "/shaders/line.frag");
 
         // 一開始先建立空的選取框 mesh，之後有需要再更新內容。
-        selectionMesh = new Mesh(new float[0], GL_LINES, 3);
+        selectionMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
     }
 
     // 繪製整個場景。
@@ -177,7 +182,7 @@ public final class WorldRenderer implements AutoCloseable {
             }
         }
 
-        // 半透明材質不寫入深度，避免玻璃/水先畫到深度後讓後面的透明面消失。
+        // 半透明材質後畫，並由遠到近排序；不寫入深度，避免玻璃/水先畫到深度後讓後面的透明面消失。
         visibleChunkOrder.sort(Comparator.comparingDouble((ChunkPos pos) -> chunkDistanceSq(pos, camera)).reversed());
         glDepthMask(false);
         for (ChunkPos key : visibleChunkOrder) {
@@ -196,6 +201,7 @@ public final class WorldRenderer implements AutoCloseable {
         pruneChunkMeshes(visibleChunks);
     }
 
+    // 用 Chunk 中心到相機的水平距離排序透明 pass；這是便宜近似，不做每個透明面的精確排序。
     private double chunkDistanceSq(ChunkPos pos, Camera camera) {
         float chunkCenterX = pos.x() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
         float chunkCenterZ = pos.z() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
@@ -248,41 +254,69 @@ public final class WorldRenderer implements AutoCloseable {
         lineShader.setMat4("uModel", model);
         lineShader.setVec3("uColor", SELECTION_COLOR);
 
-        // 稍微加粗線條，讓外框更清楚。
-        glLineWidth(2.2f);
         selectionMesh.draw();
-        glLineWidth(1.0f);
     }
 
-    // 建立包住一個方塊的線框頂點資料。
+    // 建立包住一個方塊的粗邊框頂點資料。
     private float[] buildWireCube(int x, int y, int z) {
         // 稍微向外擴一點，避免和方塊表面重疊時閃爍。
-        float minX = x - 0.0015f;
-        float minY = y - 0.0015f;
-        float minZ = z - 0.0015f;
-        float maxX = x + 1.0015f;
-        float maxY = y + 1.0015f;
-        float maxZ = z + 1.0015f;
+        float minX = x - SELECTION_OUTLINE_PADDING;
+        float minY = y - SELECTION_OUTLINE_PADDING;
+        float minZ = z - SELECTION_OUTLINE_PADDING;
+        float maxX = x + 1.0f + SELECTION_OUTLINE_PADDING;
+        float maxY = y + 1.0f + SELECTION_OUTLINE_PADDING;
+        float maxZ = z + 1.0f + SELECTION_OUTLINE_PADDING;
+        float half = SELECTION_OUTLINE_THICKNESS * 0.5f;
 
-        return new float[] {
-                // 底面四條邊
-                minX, minY, minZ, maxX, minY, minZ,
-                maxX, minY, minZ, maxX, minY, maxZ,
-                maxX, minY, maxZ, minX, minY, maxZ,
-                minX, minY, maxZ, minX, minY, minZ,
+        FloatArrayBuilder out = new FloatArrayBuilder(1600);
 
-                // 上面四條邊
-                minX, maxY, minZ, maxX, maxY, minZ,
-                maxX, maxY, minZ, maxX, maxY, maxZ,
-                maxX, maxY, maxZ, minX, maxY, maxZ,
-                minX, maxY, maxZ, minX, maxY, minZ,
+        // X 軸方向邊。
+        addEdgeBox(out, minX - half, minY - half, minZ - half, maxX + half, minY + half, minZ + half);
+        addEdgeBox(out, minX - half, minY - half, maxZ - half, maxX + half, minY + half, maxZ + half);
+        addEdgeBox(out, minX - half, maxY - half, minZ - half, maxX + half, maxY + half, minZ + half);
+        addEdgeBox(out, minX - half, maxY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
 
-                // 四條垂直邊
-                minX, minY, minZ, minX, maxY, minZ,
-                maxX, minY, minZ, maxX, maxY, minZ,
-                maxX, minY, maxZ, maxX, maxY, maxZ,
-                minX, minY, maxZ, minX, maxY, maxZ
-        };
+        // Y 軸方向邊。
+        addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, maxY + half, minZ + half);
+        addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, maxY + half, minZ + half);
+        addEdgeBox(out, minX - half, minY - half, maxZ - half, minX + half, maxY + half, maxZ + half);
+        addEdgeBox(out, maxX - half, minY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
+
+        // Z 軸方向邊。
+        addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, minY + half, maxZ + half);
+        addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, minY + half, maxZ + half);
+        addEdgeBox(out, minX - half, maxY - half, minZ - half, minX + half, maxY + half, maxZ + half);
+        addEdgeBox(out, maxX - half, maxY - half, minZ - half, maxX + half, maxY + half, maxZ + half);
+
+        return out.toArray();
+    }
+
+    // 用一個細長長方體代表線段，組成不依賴 glLineWidth 的粗選取框。
+    private void addEdgeBox(FloatArrayBuilder out, float minX, float minY, float minZ, float maxX, float maxY,
+            float maxZ) {
+        addQuad(out, maxX, minY, minZ, minX, minY, minZ, minX, maxY, minZ, maxX, maxY, minZ);
+        addQuad(out, minX, minY, maxZ, maxX, minY, maxZ, maxX, maxY, maxZ, minX, maxY, maxZ);
+        addQuad(out, minX, minY, minZ, minX, minY, maxZ, minX, maxY, maxZ, minX, maxY, minZ);
+        addQuad(out, maxX, minY, maxZ, maxX, minY, minZ, maxX, maxY, minZ, maxX, maxY, maxZ);
+        addQuad(out, minX, maxY, minZ, maxX, maxY, minZ, maxX, maxY, maxZ, minX, maxY, maxZ);
+        addQuad(out, minX, minY, minZ, minX, minY, maxZ, maxX, minY, maxZ, maxX, minY, minZ);
+    }
+
+    private void addQuad(FloatArrayBuilder out,
+            float ax, float ay, float az,
+            float bx, float by, float bz,
+            float cx, float cy, float cz,
+            float dx, float dy, float dz) {
+        addVertex(out, ax, ay, az);
+        addVertex(out, bx, by, bz);
+        addVertex(out, cx, cy, cz);
+        addVertex(out, cx, cy, cz);
+        addVertex(out, dx, dy, dz);
+        addVertex(out, ax, ay, az);
+    }
+
+    private void addVertex(FloatArrayBuilder out, float x, float y, float z) {
+        out.add(x, y, z);
     }
 
     // 釋放所有渲染資源。
@@ -299,6 +333,7 @@ public final class WorldRenderer implements AutoCloseable {
         atlas.close();
     }
 
+    // 同一個 Chunk 的不透明與半透明 mesh 綁在一起管理，避免剪裁時只釋放其中一個。
     private static final class ChunkMeshes implements AutoCloseable {
         private final Mesh opaque;
         private final Mesh translucent;

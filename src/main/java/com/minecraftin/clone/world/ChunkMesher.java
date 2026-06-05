@@ -47,6 +47,7 @@ public final class ChunkMesher {
                     FloatArrayBuilder targetVertices = block.isTranslucent() ? translucentVertices : opaqueVertices;
 
                     if (!block.isFullCube()) {
+                        // 非完整方塊直接依 renderBoxes 畫出簡化幾何，不做鄰面裁切，避免薄片或樓梯缺面。
                         addBlockBoxes(targetVertices, block, x, y, z, atlas);
                         continue;
                     }
@@ -128,6 +129,7 @@ public final class ChunkMesher {
         }
     }
 
+    // 將同一個非完整方塊的多個局部盒轉成 mesh，例如樓梯兩盒、柵欄三盒。
     private static void addBlockBoxes(FloatArrayBuilder out, BlockType block, float x, float y, float z,
             TextureAtlas atlas) {
         for (BlockBounds bounds : block.renderBoxes()) {
@@ -135,6 +137,7 @@ public final class ChunkMesher {
         }
     }
 
+    // render box 使用 Chunk 本地座標加上局部 AABB，材質仍依原方塊的六面貼圖規則取得。
     private static void addBox(FloatArrayBuilder out, BlockType block, float x, float y, float z,
             BlockBounds bounds, TextureAtlas atlas) {
         float minX = x + bounds.minX();

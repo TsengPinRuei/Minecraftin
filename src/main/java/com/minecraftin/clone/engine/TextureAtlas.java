@@ -22,6 +22,22 @@ public final class TextureAtlas implements AutoCloseable {
     // 整張材質圖集的總高度。
     private static final int HEIGHT = TILE_SIZE * TILES_PER_ROW;
 
+    // 圖集固定為 16x16 tile，UV 座標可預先算好供 mesher 熱路徑查表。
+    private static final int TILE_COUNT = TILES_PER_ROW * TILES_PER_ROW;
+    private static final float[] U0 = new float[TILE_COUNT];
+    private static final float[] V0 = new float[TILE_COUNT];
+    private static final float[] U1 = new float[TILE_COUNT];
+    private static final float[] V1 = new float[TILE_COUNT];
+
+    static {
+        for (int tile = 0; tile < TILE_COUNT; tile++) {
+            U0[tile] = computeU0(tile);
+            V0[tile] = computeV0(tile);
+            U1[tile] = computeU1(tile);
+            V1[tile] = computeV1(tile);
+        }
+    }
+
     // OpenGL 材質物件的 ID。
     private final int textureId;
 
@@ -70,21 +86,37 @@ public final class TextureAtlas implements AutoCloseable {
     // 回傳指定 tile 左上角的 U 座標。
     // 0.01f 是留一點邊界，減少 mipmap 或浮點誤差取樣到隔壁 tile。
     public float u0(int tile) {
-        return ((tile % TILES_PER_ROW) + 0.01f) / TILES_PER_ROW;
+        return tile >= 0 && tile < TILE_COUNT ? U0[tile] : computeU0(tile);
     }
 
     // 回傳指定 tile 左上角的 V 座標。
     public float v0(int tile) {
-        return ((tile / TILES_PER_ROW) + 0.01f) / TILES_PER_ROW;
+        return tile >= 0 && tile < TILE_COUNT ? V0[tile] : computeV0(tile);
     }
 
     // 回傳指定 tile 右下角的 U 座標。
     public float u1(int tile) {
-        return ((tile % TILES_PER_ROW) + 0.99f) / TILES_PER_ROW;
+        return tile >= 0 && tile < TILE_COUNT ? U1[tile] : computeU1(tile);
     }
 
     // 回傳指定 tile 右下角的 V 座標。
     public float v1(int tile) {
+        return tile >= 0 && tile < TILE_COUNT ? V1[tile] : computeV1(tile);
+    }
+
+    private static float computeU0(int tile) {
+        return ((tile % TILES_PER_ROW) + 0.01f) / TILES_PER_ROW;
+    }
+
+    private static float computeV0(int tile) {
+        return ((tile / TILES_PER_ROW) + 0.01f) / TILES_PER_ROW;
+    }
+
+    private static float computeU1(int tile) {
+        return ((tile % TILES_PER_ROW) + 0.99f) / TILES_PER_ROW;
+    }
+
+    private static float computeV1(int tile) {
         return ((tile / TILES_PER_ROW) + 0.99f) / TILES_PER_ROW;
     }
 

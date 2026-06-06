@@ -11,6 +11,10 @@ public final class Camera {
     // 攝影機目前所在的位置。
     private final Vector3f position = new Vector3f();
 
+    // 依目前 yaw/pitch 算出的前方與右方方向；只有旋轉改變時才重算三角函數。
+    private final Vector3f cachedForward = new Vector3f();
+    private final Vector3f cachedRight = new Vector3f();
+
     // 暫存前方方向，避免每次都建立新物件。
     private final Vector3f tmpForward = new Vector3f();
 
@@ -22,6 +26,9 @@ public final class Camera {
 
     // 上下轉動角度。0 度代表水平看出去。
     private float pitch = 0.0f;
+
+    // 方向快取是否需要更新。
+    private boolean directionDirty = true;
 
     // 取得攝影機目前的位置。
     public Vector3f position() {
@@ -48,6 +55,7 @@ public final class Camera {
     public void setRotation(float yawDegrees, float pitchDegrees) {
         yaw = yawDegrees;
         pitch = clampPitch(pitchDegrees);
+        directionDirty = true;
     }
 
     // 在目前角度基礎上繼續旋轉。
@@ -55,30 +63,21 @@ public final class Camera {
     public void rotate(float yawDelta, float pitchDelta) {
         yaw += yawDelta;
         pitch = clampPitch(pitch + pitchDelta);
+        directionDirty = true;
     }
 
     // 計算攝影機目前「往前看」的方向。
     // 結果會寫入傳入的 out，並回傳同一個物件。
     public Vector3f forward(Vector3f out) {
-        // 將角度轉成弧度，因為三角函數使用的是弧度。
-        float yawRad = (float) Math.toRadians(yaw);
-        float pitchRad = (float) Math.toRadians(pitch);
-
-        // 根據 yaw 和 pitch 計算 3D 方向向量。
-        out.x = (float) (Math.cos(yawRad) * Math.cos(pitchRad));
-        out.y = (float) Math.sin(pitchRad);
-        out.z = (float) (Math.sin(yawRad) * Math.cos(pitchRad));
-
-        // 正規化後回傳，讓向量長度固定為 1。
-        return out.normalize();
+        updateDirectionCache();
+        return out.set(cachedForward);
     }
 
     // 計算攝影機右手邊的方向。
     // 做法是用前方方向與世界上方向做叉積，因此 pitch 接近垂直時需要被 clamp。
     public Vector3f right(Vector3f out) {
-        forward(out);
-        out.cross(WORLD_UP).normalize();
-        return out;
+        updateDirectionCache();
+        return out.set(cachedRight);
     }
 
     // 建立攝影機的視角矩陣，用來決定畫面是從哪裡往哪裡看。
@@ -91,6 +90,26 @@ public final class Camera {
 
         // 產生 LookAt 視角矩陣。
         return out.identity().lookAt(position, tmpCenter, WORLD_UP);
+    }
+
+    private void updateDirectionCache() {
+        if (!directionDirty) {
+            return;
+        }
+
+        // 將角度轉成弧度，因為三角函數使用的是弧度。
+        float yawRad = (float) Math.toRadians(yaw);
+        float pitchRad = (float) Math.toRadians(pitch);
+
+        // 根據 yaw 和 pitch 計算 3D 方向向量。
+        cachedForward.x = (float) (Math.cos(yawRad) * Math.cos(pitchRad));
+        cachedForward.y = (float) Math.sin(pitchRad);
+        cachedForward.z = (float) (Math.sin(yawRad) * Math.cos(pitchRad));
+
+        // 正規化後快取，讓向量長度固定為 1。
+        cachedForward.normalize();
+        cachedRight.set(cachedForward).cross(WORLD_UP).normalize();
+        directionDirty = false;
     }
 
     // 限制 pitch 的範圍，避免接近 90 度時造成視角翻轉或數學問題。

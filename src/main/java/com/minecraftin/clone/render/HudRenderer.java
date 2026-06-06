@@ -197,6 +197,10 @@ public final class HudRenderer implements AutoCloseable {
     // 用來累積 hotbar 與文字頂點資料。
     private final FloatArrayBuilder hotbarVertices = new FloatArrayBuilder(32768);
 
+    // 圖示重建時的臨時色彩，避免 lightenColor/darkenColor 每次建立短生命週期陣列。
+    private final float[] tmpLightColor = new float[4];
+    private final float[] tmpDarkColor = new float[4];
+
     // 暫存 viewport 資訊，避免每次重新建立陣列。
     private final int[] viewport = new int[4];
 
@@ -637,11 +641,19 @@ public final class HudRenderer implements AutoCloseable {
     }
 
     private float[] lightenColor(float[] color) {
-        return new float[] { lighten(color[0]), lighten(color[1]), lighten(color[2]), color[3] };
+        tmpLightColor[0] = lighten(color[0]);
+        tmpLightColor[1] = lighten(color[1]);
+        tmpLightColor[2] = lighten(color[2]);
+        tmpLightColor[3] = color[3];
+        return tmpLightColor;
     }
 
     private float[] darkenColor(float[] color) {
-        return new float[] { darken(color[0]), darken(color[1]), darken(color[2]), color[3] };
+        tmpDarkColor[0] = darken(color[0]);
+        tmpDarkColor[1] = darken(color[1]);
+        tmpDarkColor[2] = darken(color[2]);
+        tmpDarkColor[3] = color[3];
+        return tmpDarkColor;
     }
 
     // 讓顏色稍微變亮。

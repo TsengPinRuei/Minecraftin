@@ -434,15 +434,21 @@ public final class Player {
     // 判斷角色碰撞箱在指定位置時，是否會碰到任何方塊碰撞盒。
     private boolean collides(World world, float x, float y, float z) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
+        float minWorldX = x - half;
+        float minWorldY = y;
+        float minWorldZ = z - half;
+        float maxWorldX = x + half;
+        float maxWorldY = y + GameConfig.PLAYER_HEIGHT;
+        float maxWorldZ = z + half;
 
         // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
-        int minX = fastFloor(x - half + EPSILON);
-        int maxX = fastFloor(x + half - EPSILON);
+        int minX = fastFloor(minWorldX + EPSILON);
+        int maxX = fastFloor(maxWorldX - EPSILON);
         // 往下多檢查一格，讓半磚、樓梯這種低於玩家腳底的盒子仍可被偵測到。
-        int minY = fastFloor(y + EPSILON) - 1;
-        int maxY = fastFloor(y + GameConfig.PLAYER_HEIGHT - EPSILON);
-        int minZ = fastFloor(z - half + EPSILON);
-        int maxZ = fastFloor(z + half - EPSILON);
+        int minY = fastFloor(minWorldY + EPSILON) - 1;
+        int maxY = fastFloor(maxWorldY - EPSILON);
+        int minZ = fastFloor(minWorldZ + EPSILON);
+        int maxZ = fastFloor(maxWorldZ - EPSILON);
 
         // 逐一檢查碰撞箱範圍內的所有方塊，只要有實心方塊就算碰撞
         for (int by = minY; by <= maxY; by++) {
@@ -451,8 +457,8 @@ public final class Player {
                     BlockType block = world.getBlock(bx, by, bz);
                     for (BlockBounds bounds : block.collisionBoxes()) {
                         if (bounds.intersectsWorldBox(bx, by, bz,
-                                x - half, y, z - half,
-                                x + half, y + GameConfig.PLAYER_HEIGHT, z + half)) {
+                                minWorldX, minWorldY, minWorldZ,
+                                maxWorldX, maxWorldY, maxWorldZ)) {
                             return true;
                         }
                     }

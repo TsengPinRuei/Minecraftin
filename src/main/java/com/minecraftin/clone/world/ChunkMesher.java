@@ -54,9 +54,14 @@ public final class ChunkMesher {
 
                     // 檢查這個方塊的六個面，判斷哪些面需要被畫出來。
                     for (Face face : FACES) {
-                        BlockType neighbor = world.peekBlock(worldX + face.dx(), y + face.dy(), worldZ + face.dz());
+                        int neighborX = x + face.dx();
+                        int neighborY = y + face.dy();
+                        int neighborZ = z + face.dz();
+                        BlockType neighbor = neighborBlock(chunk, world,
+                                worldX + face.dx(), neighborY, worldZ + face.dz(),
+                                neighborX, neighborZ);
 
-                        // 如果這個面不需要顯示，就跳過；peekBlock 可避免 meshing 時意外生成新 Chunk。
+                        // 如果這個面不需要顯示，就跳過；跨 Chunk 時仍用 peekBlock 避免意外生成新 Chunk。
                         if (!shouldRenderFace(block, neighbor)) {
                             continue;
                         }
@@ -76,6 +81,21 @@ public final class ChunkMesher {
         }
 
         return new MeshData(opaqueVertices.toArray(), translucentVertices.toArray());
+    }
+
+    // 同一個 Chunk 內的鄰格直接讀取，只有跨 Chunk 邊界時才透過 World.peekBlock 查詢。
+    private static BlockType neighborBlock(Chunk chunk, World world, int worldX, int y, int worldZ, int localX,
+            int localZ) {
+        if (y < 0) {
+            return BlockType.BEDROCK;
+        }
+        if (y >= GameConfig.CHUNK_HEIGHT) {
+            return BlockType.AIR;
+        }
+        if (localX >= 0 && localX < GameConfig.CHUNK_SIZE && localZ >= 0 && localZ < GameConfig.CHUNK_SIZE) {
+            return chunk.get(localX, y, localZ);
+        }
+        return world.peekBlock(worldX, y, worldZ);
     }
 
     // 判斷目前方塊的某個面是否需要被繪製。

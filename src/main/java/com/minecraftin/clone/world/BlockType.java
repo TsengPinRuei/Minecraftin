@@ -165,6 +165,12 @@ public enum BlockType {
     // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
     private static final BlockType[] BY_ID;
 
+    // 每種方塊顯示名稱的快取，避免 HUD 或視窗標題更新時重複拆字串與轉大小寫。
+    private static final String[] DISPLAY_NAMES;
+
+    // 每種方塊是否為完整方塊的快取；ChunkMesher 會在熱路徑中頻繁查詢。
+    private static final boolean[] FULL_CUBE_FLAGS;
+
     // 以下碰撞/渲染盒都使用方塊局部座標，讓 Player、ChunkMesher 與互動判定共用同一份形狀定義。
     private static final BlockBounds[] EMPTY_BOUNDS = new BlockBounds[0];
     private static final BlockBounds[] FULL_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) };
@@ -220,9 +226,10 @@ public enum BlockType {
 
     static {
         int maxId = 0;
+        BlockType[] types = values();
 
         // 找出目前所有方塊中最大的 id。
-        for (BlockType type : values()) {
+        for (BlockType type : types) {
             maxId = Math.max(maxId, type.id);
         }
 
@@ -230,8 +237,18 @@ public enum BlockType {
         BY_ID = new BlockType[maxId + 1];
 
         // 將每個方塊放到對應 id 的位置。
-        for (BlockType type : values()) {
+        for (BlockType type : types) {
             BY_ID[type.id] = type;
+        }
+
+        DISPLAY_NAMES = new String[types.length];
+        for (BlockType type : types) {
+            DISPLAY_NAMES[type.ordinal()] = type.computeDisplayName();
+        }
+
+        FULL_CUBE_FLAGS = new boolean[types.length];
+        for (BlockType type : types) {
+            FULL_CUBE_FLAGS[type.ordinal()] = type.computeIsFullCube();
         }
     }
 
@@ -290,6 +307,11 @@ public enum BlockType {
 
     // 回傳顯示給玩家看的名稱。
     public String displayName() {
+        return DISPLAY_NAMES[ordinal()];
+    }
+
+    // 建立顯示名稱；只在 enum 靜態初始化時呼叫一次。
+    private String computeDisplayName() {
         return switch (this) {
             case RED_BLOCK -> "Red";
             case ORANGE_BLOCK -> "Orange";
@@ -351,6 +373,11 @@ public enum BlockType {
 
     // 是否可視為完整 1x1x1 方塊。這會影響 meshing 的鄰面裁切與玩家碰撞盒。
     public boolean isFullCube() {
+        return FULL_CUBE_FLAGS[ordinal()];
+    }
+
+    // 建立完整方塊旗標；只在 enum 靜態初始化時呼叫一次。
+    private boolean computeIsFullCube() {
         return switch (this) {
             case AIR, OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST,
                     OAK_SLAB, STONE_SLAB, OAK_FENCE, OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP,

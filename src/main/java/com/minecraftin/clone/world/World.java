@@ -329,68 +329,86 @@ public final class World {
             return;
         }
 
-        // 用 BFS 方式向外擴散補水，並用 WATER_FLOOD_MAX_BLOCKS 防止大型空腔造成長時間卡頓。
-        ArrayDeque<int[]> queue = new ArrayDeque<>();
-
         if (!setBlockInternal(worldX, y, worldZ, BlockType.WATER, false)) {
             return;
         }
 
-        queue.addLast(new int[] { worldX, y, worldZ });
+        // 用 BFS 方式向外擴散補水，並用 WATER_FLOOD_MAX_BLOCKS 防止大型空腔造成長時間卡頓。
+        int[] queue = new int[WATER_FLOOD_MAX_BLOCKS * 3];
+        int head = 0;
+        int tail = enqueueFloodCell(queue, 0, worldX, y, worldZ);
 
         int filled = 1;
-        while (!queue.isEmpty() && filled < WATER_FLOOD_MAX_BLOCKS) {
-            int[] cell = queue.removeFirst();
-            int cx = cell[0];
-            int cy = cell[1];
-            int cz = cell[2];
+        while (head < tail && filled < WATER_FLOOD_MAX_BLOCKS) {
+            int cx = queue[head++];
+            int cy = queue[head++];
+            int cz = queue[head++];
 
-            filled = tryFloodNeighbor(queue, filled, cx + 1, cy, cz);
+            int previousTail = tail;
+            tail = tryFloodNeighbor(queue, tail, cx + 1, cy, cz);
+            filled += tail == previousTail ? 0 : 1;
             if (filled >= WATER_FLOOD_MAX_BLOCKS) {
                 break;
             }
 
-            filled = tryFloodNeighbor(queue, filled, cx - 1, cy, cz);
+            previousTail = tail;
+            tail = tryFloodNeighbor(queue, tail, cx - 1, cy, cz);
+            filled += tail == previousTail ? 0 : 1;
             if (filled >= WATER_FLOOD_MAX_BLOCKS) {
                 break;
             }
 
-            filled = tryFloodNeighbor(queue, filled, cx, cy, cz + 1);
+            previousTail = tail;
+            tail = tryFloodNeighbor(queue, tail, cx, cy, cz + 1);
+            filled += tail == previousTail ? 0 : 1;
             if (filled >= WATER_FLOOD_MAX_BLOCKS) {
                 break;
             }
 
-            filled = tryFloodNeighbor(queue, filled, cx, cy, cz - 1);
+            previousTail = tail;
+            tail = tryFloodNeighbor(queue, tail, cx, cy, cz - 1);
+            filled += tail == previousTail ? 0 : 1;
             if (filled >= WATER_FLOOD_MAX_BLOCKS) {
                 break;
             }
 
-            filled = tryFloodNeighbor(queue, filled, cx, cy - 1, cz);
+            previousTail = tail;
+            tail = tryFloodNeighbor(queue, tail, cx, cy - 1, cz);
+            filled += tail == previousTail ? 0 : 1;
             if (filled >= WATER_FLOOD_MAX_BLOCKS) {
                 break;
             }
 
-            filled = tryFloodNeighbor(queue, filled, cx, cy + 1, cz);
+            previousTail = tail;
+            tail = tryFloodNeighbor(queue, tail, cx, cy + 1, cz);
+            filled += tail == previousTail ? 0 : 1;
         }
     }
 
     // 嘗試把鄰近的一格空氣補成水。
     // 成功時加入佇列，讓它後續也能繼續擴散。
-    private int tryFloodNeighbor(ArrayDeque<int[]> queue, int filled, int x, int y, int z) {
+    private int tryFloodNeighbor(int[] queue, int tail, int x, int y, int z) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || y > seaLevel()) {
-            return filled;
+            return tail;
         }
 
         if (peekBlock(x, y, z) != BlockType.AIR) {
-            return filled;
+            return tail;
         }
 
         if (!setBlockInternal(x, y, z, BlockType.WATER, false)) {
-            return filled;
+            return tail;
         }
 
-        queue.addLast(new int[] { x, y, z });
-        return filled + 1;
+        return enqueueFloodCell(queue, tail, x, y, z);
+    }
+
+    // 將一個 BFS 格子寫入 primitive queue，避免大型補水時建立大量短生命週期 int[]。
+    private int enqueueFloodCell(int[] queue, int tail, int x, int y, int z) {
+        queue[tail++] = x;
+        queue[tail++] = y;
+        queue[tail++] = z;
+        return tail;
     }
 
     // 玩家放置水後先排入佇列，後續由 updatePlacedWaterFlow 分批擴散。
@@ -496,8 +514,14 @@ public final class World {
 
     // 從上往下找出某個座標最上方的實心地面高度。
     public int topSolidY(int worldX, int worldZ) {
+        int chunkX = Math.floorDiv(worldX, GameConfig.CHUNK_SIZE);
+        int chunkZ = Math.floorDiv(worldZ, GameConfig.CHUNK_SIZE);
+        int localX = Math.floorMod(worldX, GameConfig.CHUNK_SIZE);
+        int localZ = Math.floorMod(worldZ, GameConfig.CHUNK_SIZE);
+        Chunk chunk = getOrCreateChunk(chunkX, chunkZ);
+
         for (int y = GameConfig.CHUNK_HEIGHT - 1; y >= 1; y--) {
-            BlockType block = getBlock(worldX, y, worldZ);
+            BlockType block = chunk.get(localX, y, localZ);
             if (block.isSolid() && block != BlockType.LEAVES && block != BlockType.WATER) {
                 return y;
             }

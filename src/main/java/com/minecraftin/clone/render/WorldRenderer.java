@@ -15,7 +15,6 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -55,7 +54,7 @@ public final class WorldRenderer implements AutoCloseable {
     private final Set<ChunkPos> visibleChunks = new HashSet<>();
 
     // 記錄目前畫面中可見的 Chunk 順序；透明 pass 會用距離排序。
-    private final List<ChunkPos> visibleChunkOrder = new ArrayList<>();
+    private final List<VisibleChunk> visibleChunkOrder = new ArrayList<>();
 
     // 投影矩陣。
     private final Matrix4f projection = new Matrix4f();
@@ -113,11 +112,13 @@ public final class WorldRenderer implements AutoCloseable {
     // 繪製目前可見的所有 Chunk。
     // Mesh 快取以 ChunkPos 為 key，只有 Chunk dirty 或首次可見時才重建頂點資料。
     private void renderChunks(World world, Camera camera) {
+        Vector3f cameraPosition = camera.position();
+
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
         worldShader.setMat4("uView", view);
         worldShader.setVec3("uFogColor", SKY_COLOR);
-        worldShader.setVec3("uCameraPos", camera.position());
+        worldShader.setVec3("uCameraPos", cameraPosition);
         worldShader.setFloat("uFogNear", 70.0f);
         worldShader.setFloat("uFogFar", 250.0f);
         worldShader.setInt("uAtlas", 0);
@@ -125,8 +126,8 @@ public final class WorldRenderer implements AutoCloseable {
         atlas.bind(0);
 
         // 根據相機位置找出目前所在的 Chunk。
-        int centerChunkX = Math.floorDiv((int) Math.floor(camera.position().x), GameConfig.CHUNK_SIZE);
-        int centerChunkZ = Math.floorDiv((int) Math.floor(camera.position().z), GameConfig.CHUNK_SIZE);
+        int centerChunkX = Math.floorDiv((int) Math.floor(cameraPosition.x), GameConfig.CHUNK_SIZE);
+        int centerChunkZ = Math.floorDiv((int) Math.floor(cameraPosition.z), GameConfig.CHUNK_SIZE);
 
         int viewDistance = GameConfig.RENDER_DISTANCE_CHUNKS;
         int maxDistSq = viewDistance * viewDistance;
@@ -153,7 +154,7 @@ public final class WorldRenderer implements AutoCloseable {
 
                 ChunkPos key = new ChunkPos(chunkX, chunkZ);
                 visibleChunks.add(key);
-                visibleChunkOrder.add(key);
+                visibleChunkOrder.add(new VisibleChunk(key, chunkDistanceSq(key, cameraPosition.x, cameraPosition.z)));
 
                 ChunkMeshes meshes = chunkMeshes.get(key);
 
@@ -183,9 +184,10 @@ public final class WorldRenderer implements AutoCloseable {
         }
 
         // 半透明材質後畫，並由遠到近排序；不寫入深度，避免玻璃/水先畫到深度後讓後面的透明面消失。
-        visibleChunkOrder.sort(Comparator.comparingDouble((ChunkPos pos) -> chunkDistanceSq(pos, camera)).reversed());
+        visibleChunkOrder.sort((a, b) -> Float.compare(b.distanceSq(), a.distanceSq()));
         glDepthMask(false);
-        for (ChunkPos key : visibleChunkOrder) {
+        for (VisibleChunk visibleChunk : visibleChunkOrder) {
+            ChunkPos key = visibleChunk.pos();
             ChunkMeshes meshes = chunkMeshes.get(key);
             if (meshes == null) {
                 continue;
@@ -202,11 +204,11 @@ public final class WorldRenderer implements AutoCloseable {
     }
 
     // 用 Chunk 中心到相機的水平距離排序透明 pass；這是便宜近似，不做每個透明面的精確排序。
-    private double chunkDistanceSq(ChunkPos pos, Camera camera) {
+    private float chunkDistanceSq(ChunkPos pos, float cameraX, float cameraZ) {
         float chunkCenterX = pos.x() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
         float chunkCenterZ = pos.z() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
-        float dx = chunkCenterX - camera.position().x;
-        float dz = chunkCenterZ - camera.position().z;
+        float dx = chunkCenterX - cameraX;
+        float dz = chunkCenterZ - cameraZ;
         return dx * dx + dz * dz;
     }
 
@@ -331,6 +333,10 @@ public final class WorldRenderer implements AutoCloseable {
         worldShader.close();
         lineShader.close();
         atlas.close();
+    }
+
+    // 可見 Chunk 與它到相機的距離快取，避免透明排序時重複計算同一個距離。
+    private record VisibleChunk(ChunkPos pos, float distanceSq) {
     }
 
     // 同一個 Chunk 的不透明與半透明 mesh 綁在一起管理，避免剪裁時只釋放其中一個。

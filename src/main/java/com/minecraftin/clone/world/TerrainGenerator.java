@@ -38,14 +38,16 @@ public final class TerrainGenerator {
         int worldMinX = chunk.worldMinX();
         int worldMinZ = chunk.worldMinZ();
 
+        int columnCount = GameConfig.CHUNK_SIZE * GameConfig.CHUNK_SIZE;
+
         // 記錄每個位置的地表高度。
-        int[][] heights = new int[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
+        int[] heights = new int[columnCount];
 
         // 記錄每個位置的生態區。
-        Biome[][] biomes = new Biome[GameConfig.CHUNK_SIZE][GameConfig.CHUNK_SIZE];
+        Biome[] biomes = new Biome[columnCount];
 
         // 先記下要生成的樹，等地形都完成後再放置；這樣樹木不會干擾同一 Chunk 的地表高度判斷。
-        List<TreeSpec> plannedTrees = new ArrayList<>();
+        List<TreeSpec> plannedTrees = new ArrayList<>(16);
 
         // 先產生方塊地形。
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
@@ -61,8 +63,9 @@ public final class TerrainGenerator {
                 // 沙漠與惡地的表層較厚。
                 int topDepth = biome == Biome.DESERT || biome == Biome.BADLANDS ? 5 : 4;
 
-                heights[lx][lz] = height;
-                biomes[lx][lz] = biome;
+                int columnIndex = columnIndex(lx, lz);
+                heights[columnIndex] = height;
+                biomes[columnIndex] = biome;
 
                 for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
                     BlockType block;
@@ -97,7 +100,8 @@ public final class TerrainGenerator {
         // 再規劃樹木要長在哪裡。
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
             for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
-                int height = heights[lx][lz];
+                int columnIndex = columnIndex(lx, lz);
+                int height = heights[columnIndex];
 
                 // 海平面太低的地方不生成樹。
                 if (height <= seaLevel + 1) {
@@ -107,7 +111,7 @@ public final class TerrainGenerator {
                 int worldX = worldMinX + lx;
                 int worldZ = worldMinZ + lz;
 
-                TreeSpec tree = planTree(chunk, biomes[lx][lz], lx, height + 1, lz, worldX, worldZ);
+                TreeSpec tree = planTree(chunk, biomes[columnIndex], lx, height + 1, lz, worldX, worldZ);
                 if (tree != null) {
                     plannedTrees.add(tree);
                 }
@@ -130,6 +134,11 @@ public final class TerrainGenerator {
     // 回傳海平面高度。
     public int seaLevel() {
         return seaLevel;
+    }
+
+    // 將 Chunk 內 X/Z 欄位轉成一維暫存陣列索引，避免每次生成 Chunk 都建立多個小陣列。
+    private static int columnIndex(int localX, int localZ) {
+        return localX * GameConfig.CHUNK_SIZE + localZ;
     }
 
     // 回傳指定世界座標的地表高度。

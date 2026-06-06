@@ -311,6 +311,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
+    // 苔石磚沿用石磚縫線，再局部混入苔色；這樣和普通石磚相鄰時圖案節奏一致。
     private void fillMossyBrickTile(int[] pixels, int tile, int colorA, int mossColor) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -329,6 +330,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
+    // 石英柱側面用垂直溝槽與上下橫帶，讓同一個方塊的 side/top 貼圖在視覺上可區分。
     private void fillPillarSideTile(int[] pixels, int tile, int colorA, int colorB) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -400,6 +402,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
+    // 梯子與火把會寫入透明像素；world.frag 會丟棄低 alpha 像素，讓貼圖輪廓不遮住背景。
     private void fillLadderTile(int[] pixels, int tile, int wood, int dark) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;

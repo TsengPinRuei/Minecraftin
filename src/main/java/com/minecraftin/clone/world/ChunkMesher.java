@@ -177,6 +177,8 @@ public final class ChunkMesher {
         }
     }
 
+    // 和完整方塊的 addFace 相同輸出 6 個頂點，但座標來自 render box 的 min/max。
+    // 這讓樓梯、門板、柵欄等非完整方塊能共用同一套 Mesh/shader attribute 格式。
     private static void addBoxFace(
             FloatArrayBuilder out,
             Face face,

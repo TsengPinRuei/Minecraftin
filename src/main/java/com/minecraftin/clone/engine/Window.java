@@ -207,6 +207,8 @@ public final class Window implements AutoCloseable {
         }
     }
 
+    // 重新取得 GLFW 視窗的邏輯大小。
+    // 這組尺寸與滑鼠座標同一個座標系，HUD hit test 不能直接拿高 DPI framebuffer 尺寸替代。
     private void refreshWindowSize() {
         if (handle == NULL) {
             return;

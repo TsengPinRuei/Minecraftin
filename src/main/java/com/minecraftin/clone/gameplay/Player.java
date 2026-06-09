@@ -408,6 +408,7 @@ public final class Player {
         return false;
     }
 
+    // 蹲下狀態只在地面/非水中流程啟用；放開 Shift 時先確認完整身高不會撞到上方方塊。
     private void updateCrouchState(InputState input, World world, boolean canCrouch) {
         if (canCrouch && input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) {
             crouching = true;
@@ -419,6 +420,7 @@ public final class Player {
         }
     }
 
+    // 水中移動使用自己的垂直輸入、浮力與阻力，不套用一般重力或跳躍流程。
     private void updateSwimming(InputState input, World world, float deltaSeconds) {
         float verticalInput = 0.0f;
         if (input.isKeyDown(GLFW_KEY_SPACE)) {
@@ -437,6 +439,7 @@ public final class Player {
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
     }
 
+    // 用玩家碰撞箱涵蓋範圍判斷是否入水，而不是只看腳底或中心點，避免貼水面時狀態抖動。
     private boolean isInWater(World world) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minWorldX = position.x - half + EPSILON;
@@ -535,6 +538,7 @@ public final class Player {
         return collidesWithHeight(world, x, y, z, playerHeight());
     }
 
+    // height 可傳入蹲下或完整身高，讓一般碰撞與「能否站起來」共用同一套 AABB 測試。
     private boolean collidesWithHeight(World world, float x, float y, float z, float height) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minWorldX = x - half;

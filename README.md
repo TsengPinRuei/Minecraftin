@@ -6,7 +6,7 @@ Minecraftin is a small Java voxel sandbox inspired by classic Minecraft. It is c
 
 - Procedural chunk-based terrain with plains, forests, deserts, snow areas, mountains, and badlands.
 - Generated caves, sea-level water, local water refill, finite placed-water flow, and trees.
-- First-person movement with walking, sprinting, jumping, ladder climbing, and creative flight.
+- First-person movement with walking, sprinting, crouching, jumping, swimming, floating, ladder climbing, and creative flight.
 - Block breaking and block placement with collision checks.
 - Multi-page creative inventory and 9-slot hotbar.
 - Building blocks such as natural terrain blocks, wool colors, colored blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders, torches, crafting tables, furnaces, chests, bookshelves, stone variants, quartz, nether/end themed blocks, glass, water, glowstone, and sea lanterns.
@@ -100,9 +100,13 @@ When the game opens, left-click the window to capture the mouse. Press `Esc` to 
 | Mouse | Look around |
 | `Left Ctrl` | Sprint or fast fly |
 | `Space` | Jump |
+| `Left Shift` while grounded | Crouch |
 | Double-tap `Space` | Toggle creative flight |
 | `Space` while flying | Fly up |
 | `Left Shift` while flying | Fly down |
+| In water + `W` / `A` / `S` / `D` | Swim horizontally |
+| In water + `Space` | Swim or float up |
+| In water + `Left Shift` | Swim down |
 | Ladder + `W` or `Space` | Climb up |
 | Ladder + `S` or `Left Shift` | Climb down |
 | `E` | Open or close the creative inventory |

@@ -411,7 +411,7 @@ public final class Game {
         Vector3f right = camera.right(tmpCameraRight);
         camera.setPosition(
                 player.position().x + right.x * walkBobHorizontal,
-                player.position().y + GameConfig.PLAYER_EYE_HEIGHT + walkBobVertical,
+                player.position().y + player.eyeHeight() + walkBobVertical,
                 player.position().z + right.z * walkBobHorizontal);
     }
 

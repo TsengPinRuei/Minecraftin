@@ -28,6 +28,18 @@ public final class Player {
     private static final float LADDER_TOUCH_MARGIN = 0.20f;
     private static final float LADDER_CLIMB_SPEED = 3.2f;
 
+    // 蹲下會降低碰撞箱與視角，並放慢水平移動。
+    private static final float CROUCH_HEIGHT = 1.45f;
+    private static final float CROUCH_EYE_HEIGHT = 1.25f;
+    private static final float CROUCH_SPEED_MULTIPLIER = 0.42f;
+
+    // 水中移動不套用一般重力，而是用較慢的游泳速度與輕微上浮。
+    private static final float WATER_SWIM_SPEED = 2.45f;
+    private static final float WATER_VERTICAL_SPEED = 2.8f;
+    private static final float WATER_FLOAT_SPEED = 0.55f;
+    private static final float WATER_ACCEL = 12.0f;
+    private static final float WATER_DRAG = 8.0f;
+
     // 兩次按空白鍵的最大間隔，超過就不算雙擊
     private static final float DOUBLE_TAP_SECONDS = 0.28f;
 
@@ -55,6 +67,9 @@ public final class Player {
     // 是否正在飛行
     private boolean flying;
 
+    // 是否正在蹲下
+    private boolean crouching;
+
     // 距離上次按下空白鍵已經過了多久
     private float timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
@@ -73,6 +88,14 @@ public final class Player {
         return onGround;
     }
 
+    public boolean isCrouching() {
+        return crouching;
+    }
+
+    public float eyeHeight() {
+        return crouching ? CROUCH_EYE_HEIGHT : GameConfig.PLAYER_EYE_HEIGHT;
+    }
+
     // 計算水平移動速度，只看 x 和 z，不看上下速度
     public float horizontalSpeed() {
         return (float) Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
@@ -84,12 +107,13 @@ public final class Player {
         velocity.zero();
         onGround = false;
         flying = false;
+        crouching = false;
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
     }
 
     // 取得角色眼睛位置，通常用於相機或視角起點
     public Vector3f eyePosition(Vector3f out) {
-        out.set(position.x, position.y + GameConfig.PLAYER_EYE_HEIGHT, position.z);
+        out.set(position.x, position.y + eyeHeight(), position.z);
         return out;
     }
 
@@ -102,9 +126,10 @@ public final class Player {
         timeSinceLastSpaceTap += deltaSeconds;
 
         boolean spacePressed = input.wasKeyPressed(GLFW_KEY_SPACE);
+        boolean swimmingBeforeFlightToggle = !flying && isInWater(world);
 
         // 創造模式下，雙擊空白鍵可切換飛行
-        if (creativeMode && spacePressed) {
+        if (creativeMode && spacePressed && !swimmingBeforeFlightToggle) {
             if (timeSinceLastSpaceTap <= DOUBLE_TAP_SECONDS) {
                 flying = !flying;
                 timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
@@ -122,6 +147,7 @@ public final class Player {
 
         // 飛行模式和一般地面模式分開處理，因為飛行可使用相機完整 3D 方向，地面移動只取水平分量。
         if (creativeMode && flying) {
+            updateCrouchState(input, world, false);
             updateCreative(input, camera, world, deltaSeconds);
             return;
         }
@@ -223,6 +249,10 @@ public final class Player {
             right.normalize();
         }
 
+        boolean touchingLadder = isTouchingLadder(world);
+        boolean inWater = !touchingLadder && isInWater(world);
+        updateCrouchState(input, world, !touchingLadder && !inWater);
+
         // 根據按鍵決定角色想前後左右移動的方向
         if (input.isKeyDown(GLFW_KEY_W)) {
             wish.add(forward);
@@ -238,8 +268,10 @@ public final class Player {
         }
 
         // 預設走路速度，按住 Ctrl 可加速
-        float targetSpeed = GameConfig.WALK_SPEED;
-        if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL)) {
+        float targetSpeed = inWater ? WATER_SWIM_SPEED : GameConfig.WALK_SPEED;
+        if (!inWater && crouching) {
+            targetSpeed *= CROUCH_SPEED_MULTIPLIER;
+        } else if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL)) {
             targetSpeed *= GameConfig.SPRINT_MULTIPLIER;
         }
 
@@ -248,9 +280,13 @@ public final class Player {
             wish.normalize(targetSpeed);
 
             // 在地上加速比較快，空中加速比較慢
-            float accel = onGround ? 34.0f : 10.0f;
+            float accel = inWater ? WATER_ACCEL : (onGround ? 34.0f : 10.0f);
             velocity.x = approach(velocity.x, wish.x, accel * deltaSeconds);
             velocity.z = approach(velocity.z, wish.z, accel * deltaSeconds);
+        } else if (inWater) {
+            float drag = WATER_DRAG * deltaSeconds;
+            velocity.x = approach(velocity.x, 0.0f, drag);
+            velocity.z = approach(velocity.z, 0.0f, drag);
         } else if (onGround) {
             // 沒有輸入而且在地上時，套用摩擦力讓角色慢慢停下來
             float friction = 20.0f * deltaSeconds;
@@ -258,7 +294,7 @@ public final class Player {
             velocity.z = approach(velocity.z, 0.0f, friction);
         }
 
-        if (isTouchingLadder(world)) {
+        if (touchingLadder) {
             // 梯子不使用實心碰撞盒，因此用接觸判定進入爬梯狀態，再用 W/Space 與 S/Shift 控制上下。
             float climbInput = 0.0f;
             if (input.isKeyDown(GLFW_KEY_W) || input.isKeyDown(GLFW_KEY_SPACE)) {
@@ -273,6 +309,11 @@ public final class Player {
             onGround = false;
             moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
             moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
+            return;
+        }
+
+        if (inWater) {
+            updateSwimming(input, world, deltaSeconds);
             return;
         }
 
@@ -318,7 +359,7 @@ public final class Player {
         float minX = position.x - half;
         float maxX = position.x + half;
         float minY = position.y;
-        float maxY = position.y + GameConfig.PLAYER_HEIGHT;
+        float maxY = position.y + playerHeight();
         float minZ = position.z - half;
         float maxZ = position.z + half;
 
@@ -336,7 +377,7 @@ public final class Player {
         float minX = position.x - half - LADDER_TOUCH_MARGIN;
         float maxX = position.x + half + LADDER_TOUCH_MARGIN;
         float minY = position.y + EPSILON;
-        float maxY = position.y + GameConfig.PLAYER_HEIGHT - EPSILON;
+        float maxY = position.y + playerHeight() - EPSILON;
         float minZ = position.z - half - LADDER_TOUCH_MARGIN;
         float maxZ = position.z + half + LADDER_TOUCH_MARGIN;
 
@@ -359,6 +400,64 @@ public final class Player {
                         if (bounds.intersectsWorldBox(bx, by, bz, minX, minY, minZ, maxX, maxY, maxZ)) {
                             return true;
                         }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void updateCrouchState(InputState input, World world, boolean canCrouch) {
+        if (canCrouch && input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) {
+            crouching = true;
+            return;
+        }
+
+        if (crouching && !collidesWithHeight(world, position.x, position.y, position.z, GameConfig.PLAYER_HEIGHT)) {
+            crouching = false;
+        }
+    }
+
+    private void updateSwimming(InputState input, World world, float deltaSeconds) {
+        float verticalInput = 0.0f;
+        if (input.isKeyDown(GLFW_KEY_SPACE)) {
+            verticalInput += 1.0f;
+        }
+        if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) {
+            verticalInput -= 1.0f;
+        }
+
+        float targetVertical = verticalInput != 0.0f ? verticalInput * WATER_VERTICAL_SPEED : WATER_FLOAT_SPEED;
+        velocity.y = approach(velocity.y, targetVertical, WATER_ACCEL * deltaSeconds);
+
+        moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
+        onGround = false;
+        moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
+        moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
+    }
+
+    private boolean isInWater(World world) {
+        float half = GameConfig.PLAYER_WIDTH * 0.5f;
+        float minWorldX = position.x - half + EPSILON;
+        float minWorldY = position.y + 0.08f;
+        float minWorldZ = position.z - half + EPSILON;
+        float maxWorldX = position.x + half - EPSILON;
+        float maxWorldY = position.y + playerHeight() - EPSILON;
+        float maxWorldZ = position.z + half - EPSILON;
+
+        int minX = fastFloor(minWorldX);
+        int maxX = fastFloor(maxWorldX);
+        int minY = fastFloor(minWorldY);
+        int maxY = fastFloor(maxWorldY);
+        int minZ = fastFloor(minWorldZ);
+        int maxZ = fastFloor(maxWorldZ);
+
+        for (int by = minY; by <= maxY; by++) {
+            for (int bz = minZ; bz <= maxZ; bz++) {
+                for (int bx = minX; bx <= maxX; bx++) {
+                    if (world.getBlock(bx, by, bz) == BlockType.WATER) {
+                        return true;
                     }
                 }
             }
@@ -433,12 +532,16 @@ public final class Player {
 
     // 判斷角色碰撞箱在指定位置時，是否會碰到任何方塊碰撞盒。
     private boolean collides(World world, float x, float y, float z) {
+        return collidesWithHeight(world, x, y, z, playerHeight());
+    }
+
+    private boolean collidesWithHeight(World world, float x, float y, float z, float height) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minWorldX = x - half;
         float minWorldY = y;
         float minWorldZ = z - half;
         float maxWorldX = x + half;
-        float maxWorldY = y + GameConfig.PLAYER_HEIGHT;
+        float maxWorldY = y + height;
         float maxWorldZ = z + half;
 
         // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
@@ -467,6 +570,10 @@ public final class Player {
         }
 
         return false;
+    }
+
+    private float playerHeight() {
+        return crouching ? CROUCH_HEIGHT : GameConfig.PLAYER_HEIGHT;
     }
 
     // 讓 current 以固定步長慢慢接近 target

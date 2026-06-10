@@ -483,7 +483,7 @@ public final class Player {
 
     // 沿著單一軸移動，並在過程中逐步檢查碰撞；呼叫端保證同一時間只傳入一個非零軸。
     private void moveOnAxis(World world, float dx, float dy, float dz) {
-        float distance = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+        float distance = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
 
         // 位移太小就直接略過
         if (distance < 1e-6f) {

@@ -30,6 +30,8 @@ public final class LightEngine {
     // BFS 佇列重複使用，避免每次更新都重新配置。
     private final LongQueue spreadQueue = new LongQueue(4096);
     private final LongQueue removalQueue = new LongQueue(1024);
+    private final LongQueue neighborSeedQueue = new LongQueue(1024);
+    private final LongQueue blockSeedQueue = new LongQueue(1024);
 
     public LightEngine(World world) {
         this.world = world;
@@ -140,28 +142,28 @@ public final class LightEngine {
         int maxZ = minZ + GameConfig.CHUNK_SIZE - 1;
 
         // 先收集種子座標；spread() 會重新讀取當下亮度，所以同一份種子可供兩個通道使用。
-        LongQueue seeds = new LongQueue(1024);
+        neighborSeedQueue.clear();
+        blockSeedQueue.clear();
         for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
             for (int x = minX; x <= maxX; x++) {
-                enqueueIfLoaded(seeds, x, y, minZ - 1);
-                enqueueIfLoaded(seeds, x, y, maxZ + 1);
+                enqueueIfLoaded(neighborSeedQueue, x, y, minZ - 1);
+                enqueueIfLoaded(neighborSeedQueue, x, y, maxZ + 1);
             }
             for (int z = minZ; z <= maxZ; z++) {
-                enqueueIfLoaded(seeds, minX - 1, y, z);
-                enqueueIfLoaded(seeds, maxX + 1, y, z);
+                enqueueIfLoaded(neighborSeedQueue, minX - 1, y, z);
+                enqueueIfLoaded(neighborSeedQueue, maxX + 1, y, z);
             }
         }
 
-        LongQueue blockSeeds = new LongQueue(1024);
-        while (!seeds.isEmpty()) {
-            long value = seeds.poll();
+        while (!neighborSeedQueue.isEmpty()) {
+            long value = neighborSeedQueue.poll();
             spreadQueue.add(value);
-            blockSeeds.add(value);
+            blockSeedQueue.add(value);
         }
         spread(CHANNEL_SKY);
 
-        while (!blockSeeds.isEmpty()) {
-            spreadQueue.add(blockSeeds.poll());
+        while (!blockSeedQueue.isEmpty()) {
+            spreadQueue.add(blockSeedQueue.poll());
         }
         spread(CHANNEL_BLOCK);
     }

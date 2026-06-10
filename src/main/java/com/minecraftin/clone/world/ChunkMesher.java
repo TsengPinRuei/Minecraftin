@@ -53,6 +53,10 @@ public final class ChunkMesher {
             { -1, 1, 1, -1 },   // DOWN
     };
 
+    // 依 AO 對角線方向選擇三角形頂點順序；預先配置，避免每個外露面都建立 int[]。
+    private static final int[] QUAD_ORDER_NORMAL = { 0, 1, 2, 2, 3, 0 };
+    private static final int[] QUAD_ORDER_FLIPPED = { 1, 2, 3, 3, 0, 1 };
+
     // Chunk meshing 分成不透明與半透明兩組，讓 renderer 能先寫入不透明深度，再混合水與玻璃。
     public record MeshData(float[] opaqueVertices, float[] translucentVertices) {
     }
@@ -243,7 +247,7 @@ public final class ChunkMesher {
 
         // 依角落亮度選擇對角線，避免 AO 在四邊形內插時出現方向性條紋。
         boolean flip = shade[0] + shade[2] < shade[1] + shade[3];
-        int[] order = flip ? new int[] { 1, 2, 3, 3, 0, 1 } : new int[] { 0, 1, 2, 2, 3, 0 };
+        int[] order = flip ? QUAD_ORDER_FLIPPED : QUAD_ORDER_NORMAL;
 
         for (int index : order) {
             out.add(px[index], py[index], pz[index], u[index], v[index],

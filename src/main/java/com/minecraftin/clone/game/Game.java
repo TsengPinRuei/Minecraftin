@@ -43,6 +43,7 @@ public final class Game {
 
     // 創造模式背包可選用的全部方塊。
     private final BlockType[] creativeBlocks = BlockType.creativePalette();
+    private final int creativeTotalPages = HudRenderer.creativeTotalPages(creativeBlocks.length);
 
     // 遊戲會用到的核心物件。
     private final Window window = new Window();
@@ -221,7 +222,7 @@ public final class Game {
             // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
             hudRenderer.render(hotbar, hotbarIndex, hotbarLabelTimer > 0.0f, creativeInventoryOpen, creativeBlocks,
-                    creativeInventoryPage, creativeTotalPages(), chestOpen, buildDebugLines());
+                    creativeInventoryPage, creativeTotalPages, chestOpen, buildDebugLines());
 
             // 更新視窗標題中的偵錯資訊
             updateDebugTitle(now);
@@ -407,12 +408,7 @@ public final class Game {
     }
 
     private void setCreativeInventoryPage(int page) {
-        int totalPages = creativeTotalPages();
-        creativeInventoryPage = Math.max(0, Math.min(page, totalPages - 1));
-    }
-
-    private int creativeTotalPages() {
-        return HudRenderer.creativeTotalPages(creativeBlocks.length);
+        creativeInventoryPage = Math.max(0, Math.min(page, creativeTotalPages - 1));
     }
 
     private void applyLookFromMouse() {

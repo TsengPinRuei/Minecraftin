@@ -171,9 +171,20 @@ public enum BlockType {
     // 每種方塊是否為完整方塊的快取；ChunkMesher 會在熱路徑中頻繁查詢。
     private static final boolean[] FULL_CUBE_FLAGS;
 
+    // 互動與碰撞常用分類快取，避免反覆跑大型 enum switch。
+    private static final boolean[] DOOR_FLAGS;
+    private static final boolean[] DOOR_TOP_FLAGS;
+    private static final boolean[] DOOR_OPEN_FLAGS;
+    private static final boolean[] TRAPDOOR_FLAGS;
+    private static final boolean[] LADDER_FLAGS;
+
     // 每種方塊的發光強度與額外光衰減快取；光照 BFS 在熱路徑中頻繁查詢。
     private static final int[] LIGHT_EMISSION;
     private static final int[] LIGHT_OPACITY;
+
+    // 碰撞與渲染盒快取；玩家碰撞和 ChunkMesher 都會高頻查詢。
+    private static final BlockBounds[][] COLLISION_BOXES;
+    private static final BlockBounds[][] RENDER_BOXES;
 
     // 以下碰撞/渲染盒都使用方塊局部座標，讓 Player、ChunkMesher 與互動判定共用同一份形狀定義。
     private static final BlockBounds[] EMPTY_BOUNDS = new BlockBounds[0];
@@ -255,11 +266,31 @@ public enum BlockType {
             FULL_CUBE_FLAGS[type.ordinal()] = type.computeIsFullCube();
         }
 
+        DOOR_FLAGS = new boolean[types.length];
+        DOOR_TOP_FLAGS = new boolean[types.length];
+        DOOR_OPEN_FLAGS = new boolean[types.length];
+        TRAPDOOR_FLAGS = new boolean[types.length];
+        LADDER_FLAGS = new boolean[types.length];
+        for (BlockType type : types) {
+            DOOR_FLAGS[type.ordinal()] = type.computeIsDoorBlock();
+            DOOR_TOP_FLAGS[type.ordinal()] = type.computeIsDoorTop();
+            DOOR_OPEN_FLAGS[type.ordinal()] = type.computeIsDoorOpen();
+            TRAPDOOR_FLAGS[type.ordinal()] = type.computeIsTrapdoorBlock();
+            LADDER_FLAGS[type.ordinal()] = type.computeIsLadderBlock();
+        }
+
         LIGHT_EMISSION = new int[types.length];
         LIGHT_OPACITY = new int[types.length];
         for (BlockType type : types) {
             LIGHT_EMISSION[type.ordinal()] = type.computeLightEmission();
             LIGHT_OPACITY[type.ordinal()] = type.computeLightOpacity();
+        }
+
+        RENDER_BOXES = new BlockBounds[types.length][];
+        COLLISION_BOXES = new BlockBounds[types.length][];
+        for (BlockType type : types) {
+            RENDER_BOXES[type.ordinal()] = type.computeRenderBoxes();
+            COLLISION_BOXES[type.ordinal()] = type.computeCollisionBoxes();
         }
     }
 
@@ -439,6 +470,10 @@ public enum BlockType {
 
     // 門有上下半格與開關狀態多個 enum 變體，互動與破壞時都需要把它們視為同一類方塊。
     public boolean isDoorBlock() {
+        return DOOR_FLAGS[ordinal()];
+    }
+
+    private boolean computeIsDoorBlock() {
         return switch (this) {
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
                     OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
@@ -451,6 +486,10 @@ public enum BlockType {
 
     // 判斷目前門變體是否為上半部，用來定位同一扇門的底部座標。
     public boolean isDoorTop() {
+        return DOOR_TOP_FLAGS[ordinal()];
+    }
+
+    private boolean computeIsDoorTop() {
         return switch (this) {
             case OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_TOP, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_TOP,
                     OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_TOP,
@@ -461,6 +500,10 @@ public enum BlockType {
 
     // 判斷門是否為開啟狀態；開關門時會在開/關變體之間切換，但保留朝向與上下半部。
     public boolean isDoorOpen() {
+        return DOOR_OPEN_FLAGS[ordinal()];
+    }
+
+    private boolean computeIsDoorOpen() {
         return switch (this) {
             case OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
                     OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
@@ -471,11 +514,19 @@ public enum BlockType {
 
     // 活板門目前只有關閉與固定開啟方向兩種狀態。
     public boolean isTrapdoorBlock() {
+        return TRAPDOOR_FLAGS[ordinal()];
+    }
+
+    private boolean computeIsTrapdoorBlock() {
         return this == OAK_TRAPDOOR || this == OAK_TRAPDOOR_OPEN;
     }
 
     // 梯子沒有碰撞盒，但玩家爬梯與渲染仍需要辨識它的方向變體。
     public boolean isLadderBlock() {
+        return LADDER_FLAGS[ordinal()];
+    }
+
+    private boolean computeIsLadderBlock() {
         return this == LADDER || this == LADDER_NORTH || this == LADDER_EAST || this == LADDER_SOUTH
                 || this == LADDER_WEST;
     }
@@ -580,14 +631,22 @@ public enum BlockType {
 
     // 回傳實際會阻擋玩家的碰撞盒。梯子與火把可見但不阻擋，水也不阻擋。
     public BlockBounds[] collisionBoxes() {
-        if (this == AIR || this == WATER || isLadderBlock() || this == TORCH) {
+        return COLLISION_BOXES[ordinal()];
+    }
+
+    private BlockBounds[] computeCollisionBoxes() {
+        if (this == AIR || this == WATER || computeIsLadderBlock() || this == TORCH) {
             return EMPTY_BOUNDS;
         }
-        return renderBoxes();
+        return computeRenderBoxes();
     }
 
     // 回傳渲染用幾何盒；非完整方塊會在 ChunkMesher 中依這些盒子建立簡化模型。
     public BlockBounds[] renderBoxes() {
+        return RENDER_BOXES[ordinal()];
+    }
+
+    private BlockBounds[] computeRenderBoxes() {
         return switch (this) {
             case AIR -> EMPTY_BOUNDS;
             case OAK_STAIRS, OAK_STAIRS_NORTH -> STAIRS_NORTH_BOUNDS;

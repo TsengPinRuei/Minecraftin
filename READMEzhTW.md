@@ -67,6 +67,7 @@ cd C:\path\to\Minecraftin
 - 走路、飛行、衝刺、跳躍與重力數值。
 - 玩家碰撞箱大小。
 - 方塊互動距離與冷卻時間。
+- 晝夜循環長度。
 - 世界存檔路徑：`saves/world.dat`。
 - 預設世界種子：`20260219`。
 
@@ -146,7 +147,7 @@ Windows：
 saves/world.dat
 ```
 
-遊戲每 20 秒會自動儲存有變更的 Chunk。正常關閉遊戲時，也會儲存尚未寫入的世界變更與玩家重生位置。
+遊戲每 20 秒會自動儲存有變更的 Chunk。正常關閉遊戲時，也會儲存尚未寫入的世界變更、玩家重生位置與世界時間。
 
 重設世界：
 
@@ -189,7 +190,7 @@ Windows PowerShell：
 指令說明：
 
 - `run`：啟動遊戲。
-- `test`：執行已設定的 JUnit 測試工作。repository 目前沒有測試原始碼檔案，但 Gradle 測試工作已設定。
+- `test`：執行 JUnit 測試。現有自動化測試主要集中在 `src/test/java` 的光照引擎測試。
 - `build`：編譯專案、執行測試，並產生 Gradle 建置成果。
 - `clean`：刪除建置輸出。
 - `installDist`：在 `build/install/minecraftin-clone` 產生可執行的本機應用程式資料夾。
@@ -235,11 +236,13 @@ Minecraftin/
 │  ├─ render/
 │  │  # 世界渲染、HUD 渲染與貼圖集編號。
 │  ├─ util/
-│  │  # 噪音與 float 陣列輔助工具。
+│  │  # 噪音、佇列與 float 陣列輔助工具。
 │  └─ world/
-│     # Chunk、方塊種類、地形生成、射線檢測、水流、存讀檔。
+│     # Chunk、方塊種類、地形生成、光照、射線檢測、水流、存讀檔。
 ├─ src/main/resources/shaders/
 │  # 世界、HUD 與線框渲染使用的 GLSL shader。
+├─ src/test/java/com/minecraftin/clone/world/
+│  # 世界系統的 JUnit 測試，例如光照引擎。
 ├─ saves/
 │  # 本機世界存檔，已由 Git 忽略。
 ├─ build/
@@ -282,6 +285,10 @@ GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon build
 ```
 
 如果錯誤包含 `java.net.SocketException: Operation not permitted`，請先懷疑是執行環境限制，不要直接判定專案程式碼壞掉。
+
+### Gradle 顯示 deprecation warning
+
+Gradle 可能會印出 `Deprecated Gradle features were used in this build`。這是警告，不代表建置失敗。如果指令最後顯示 `BUILD SUCCESSFUL`，代表指令已完成。需要查詳細來源時，可執行 `./gradlew --warning-mode all build`。
 
 ### macOS GLFW 第一執行緒錯誤
 

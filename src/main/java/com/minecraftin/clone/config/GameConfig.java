@@ -43,8 +43,8 @@ public final class GameConfig {
     // 飛行速度；Minecraft 創造飛行約為 10.89 m/s，約為步行速度的 2.5 倍。
     public static final float FLY_SPEED = WALK_SPEED * 2.5f;
 
-    // 衝刺時的速度倍率；Minecraft 為 1.3 倍。
-    public static final float SPRINT_MULTIPLIER = 1.3f;
+    // 按住 Left Ctrl 時的加速倍率，套用於地面移動與創造模式飛行。
+    public static final float SPRINT_MULTIPLIER = 3.0f;
 
     // 跳躍時向上的初速度；搭配 GRAVITY 可跳約 1.25 格，與 Minecraft 一致。
     public static final float JUMP_VELOCITY = 9.0f;

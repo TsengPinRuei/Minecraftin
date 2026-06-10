@@ -67,6 +67,7 @@ Most game settings are Java constants in `src/main/java/com/minecraftin/clone/co
 - Walk, fly, sprint, jump, and gravity values.
 - Player collision size.
 - Block interaction distance and cooldowns.
+- Day/night cycle length.
 - World save path: `saves/world.dat`.
 - Default world seed: `20260219`.
 
@@ -146,7 +147,7 @@ World data is saved to:
 saves/world.dat
 ```
 
-The game autosaves changed chunks every 20 seconds. It also saves pending world changes and the player respawn position during clean shutdown.
+The game autosaves changed chunks every 20 seconds. It also saves pending world changes, the player respawn position, and world time during clean shutdown.
 
 To reset the world:
 
@@ -189,7 +190,7 @@ Windows PowerShell:
 Command notes:
 
 - `run` starts the game.
-- `test` runs the configured JUnit test task. There are currently no test source files in the repository, but the task is configured.
+- `test` runs the JUnit test suite. Current automated tests focus on the lighting engine in `src/test/java`.
 - `build` compiles the project, runs tests, and creates Gradle build artifacts.
 - `clean` removes build outputs.
 - `installDist` creates a runnable local application layout under `build/install/minecraftin-clone`.
@@ -235,11 +236,13 @@ Minecraftin/
 │  ├─ render/
 │  │  # World renderer, HUD renderer, and atlas tile IDs.
 │  ├─ util/
-│  │  # Noise and float array helpers.
+│  │  # Noise, queue, and float array helpers.
 │  └─ world/
-│     # Chunks, block types, terrain generation, raycast, water flow, save/load.
+│     # Chunks, block types, terrain generation, lighting, raycast, water flow, save/load.
 ├─ src/main/resources/shaders/
 │  # GLSL shaders for world, HUD, and line rendering.
+├─ src/test/java/com/minecraftin/clone/world/
+│  # JUnit tests for world systems such as the lighting engine.
 ├─ saves/
 │  # Local world save data. Ignored by Git.
 ├─ build/
@@ -282,6 +285,10 @@ GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon build
 ```
 
 If the error mentions `java.net.SocketException: Operation not permitted`, first suspect the execution environment before assuming the project code is broken.
+
+### Gradle Shows a Deprecation Warning
+
+Gradle may print `Deprecated Gradle features were used in this build`. This is a warning, not a failed build. If the command ends with `BUILD SUCCESSFUL`, the command completed. Use `./gradlew --warning-mode all build` when you need the detailed warning source.
 
 ### macOS GLFW First Thread Error
 

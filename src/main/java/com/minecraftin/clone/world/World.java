@@ -717,11 +717,12 @@ public final class World {
 
     // 檢查某位置是否能安全出生，且附近確實看得到樹。
     private boolean trySpawnAtForestVisible(Vector3f out, int x, int z) {
-        if (!trySpawnAt(out, x, z)) {
+        int y = topSolidY(x, z);
+        if (!isSafeSpawnAt(x, y, z)) {
             return false;
         }
 
-        int y = topSolidY(x, z);
+        out.set(x + 0.5f, y + SPAWN_Y_OFFSET, z + 0.5f);
         return hasNearbyForestCover(x, y, z);
     }
 
@@ -747,6 +748,16 @@ public final class World {
     // 檢查某個座標是否適合作為玩家出生點。
     private boolean trySpawnAt(Vector3f out, int x, int z) {
         int y = topSolidY(x, z);
+        if (!isSafeSpawnAt(x, y, z)) {
+            return false;
+        }
+
+        out.set(x + 0.5f, y + SPAWN_Y_OFFSET, z + 0.5f);
+        return true;
+    }
+
+    // 共用安全出生點判定，避免森林可見性檢查先 trySpawnAt 後又重掃一次地表高度。
+    private boolean isSafeSpawnAt(int x, int y, int z) {
         if (y <= seaLevel()) {
             return false;
         }
@@ -758,12 +769,7 @@ public final class World {
 
         BlockType feet = getBlock(x, y + 1, z);
         BlockType head = getBlock(x, y + 2, z);
-        if (feet != BlockType.AIR || head != BlockType.AIR) {
-            return false;
-        }
-
-        out.set(x + 0.5f, y + SPAWN_Y_OFFSET, z + 0.5f);
-        return true;
+        return feet == BlockType.AIR && head == BlockType.AIR;
     }
 
     // 從 origin 沿著 direction 發射射線，找出第一個碰到的方塊。

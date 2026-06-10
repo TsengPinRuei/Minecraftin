@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 // 負責管理整個世界的區塊、方塊資料、出生點、射線檢測，以及存檔與讀檔。
 // 這個類別是「世界狀態」的邊界：會生成 Chunk、標記 mesh dirty、追蹤需要持久化的變更。
@@ -59,7 +60,8 @@ public final class World {
     private static final int FOREST_LOCAL_SPAWN_STEP = 8;
 
     // 已載入的所有 Chunk，key 是 Chunk 座標。
-    private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
+    // 非同步 meshing 的工作執行緒會同時讀取這張表，因此必須使用 ConcurrentHashMap。
+    private final Map<ChunkPos, Chunk> chunks = new ConcurrentHashMap<>();
 
     // 維護天空光與方塊光的引擎；區塊載入與方塊變更時負責增量更新。
     private final LightEngine lightEngine = new LightEngine(this);

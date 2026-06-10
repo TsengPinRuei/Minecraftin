@@ -26,6 +26,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.lwjgl.opengl.GL33C.*;
 
@@ -121,6 +124,22 @@ public final class WorldRenderer implements AutoCloseable {
     private final FrustumIntersection frustum = new FrustumIntersection();
     private final Matrix4f projViewMatrix = new Matrix4f();
 
+    // 非同步 meshing：工作執行緒建立頂點資料，主執行緒負責上傳 OpenGL。
+    // 每幀上傳數量設上限，避免初次載入時大量 glBufferData 集中在同一幀。
+    private static final int MAX_MESH_UPLOADS_PER_FRAME = 16;
+    private final ExecutorService meshExecutor;
+    private final Set<ChunkPos> pendingMeshBuilds = new HashSet<>();
+    private final ConcurrentLinkedQueue<MeshBuildResult> completedMeshBuilds = new ConcurrentLinkedQueue<>();
+    private final List<MeshBuildCandidate> meshBuildCandidates = new ArrayList<>();
+
+    // 工作執行緒算完的結果；data 為 null 代表建構失敗，主執行緒會重新標記 dirty 再試一次。
+    private record MeshBuildResult(ChunkPos pos, ChunkMesher.MeshData data) {
+    }
+
+    // 這一幀需要重建 mesh 的候選 Chunk；提交前依距離排序，讓玩家附近的區塊優先完成。
+    private record MeshBuildCandidate(Chunk chunk, ChunkPos pos, float distanceSq) {
+    }
+
     // 目前的天空顏色與天空光倍率，由晝夜循環每幀更新。
     private final Vector3f skyColor = new Vector3f(DAY_SKY_COLOR);
     private float dayLight = 1.0f;
@@ -136,6 +155,14 @@ public final class WorldRenderer implements AutoCloseable {
         atlas = new TextureAtlas();
         worldShader = new ShaderProgram("/shaders/world.vert", "/shaders/world.frag");
         lineShader = new ShaderProgram("/shaders/line.vert", "/shaders/line.frag");
+
+        // mesh 建構執行緒池；用 daemon thread 確保視窗關閉時 JVM 能直接結束。
+        int workers = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() - 2));
+        meshExecutor = Executors.newFixedThreadPool(workers, runnable -> {
+            Thread thread = new Thread(runnable, "chunk-mesher");
+            thread.setDaemon(true);
+            return thread;
+        });
 
         // 一開始先建立空的選取框 mesh，之後有需要再更新內容。
         selectionMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
@@ -453,9 +480,13 @@ public final class WorldRenderer implements AutoCloseable {
     }
 
     // 繪製目前可見的所有 Chunk。
-    // Mesh 快取以 ChunkPos 為 key，只有 Chunk dirty 或首次可見時才重建頂點資料。
+    // Mesh 頂點資料由背景執行緒建構，主執行緒只負責上傳與繪製；
+    // 尚未完成的 Chunk 這一幀先不畫，會在之後的幀由霧中浮現。
     private void renderChunks(World world, Camera camera) {
         Vector3f cameraPosition = camera.position();
+
+        // 先把背景執行緒完成的頂點資料上傳到 GPU。
+        drainCompletedMeshBuilds(world);
 
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
@@ -478,6 +509,7 @@ public final class WorldRenderer implements AutoCloseable {
 
         visibleChunks.clear();
         visibleChunkOrder.clear();
+        meshBuildCandidates.clear();
 
         // 掃描玩家周圍一定距離內的 Chunk。
         for (int dz = -viewDistance; dz <= viewDistance; dz++) {
@@ -508,26 +540,19 @@ public final class WorldRenderer implements AutoCloseable {
                     continue;
                 }
 
-                visibleChunkOrder.add(new VisibleChunk(key, chunkDistanceSq(key, cameraPosition.x, cameraPosition.z)));
+                float distanceSq = chunkDistanceSq(key, cameraPosition.x, cameraPosition.z);
+                visibleChunkOrder.add(new VisibleChunk(key, distanceSq));
 
                 ChunkMeshes meshes = chunkMeshes.get(key);
 
-                // 如果這個 Chunk 還沒有 mesh，或 mesh 已過期，就重新建立。
-                if (meshes == null || chunk.isMeshDirty()) {
-                    ChunkMesher.MeshData meshData = ChunkMesher.build(chunk, world, atlas);
+                // mesh 不存在或已過期時排入背景建構；已在建構中的不重複提交。
+                if ((meshes == null || chunk.isMeshDirty()) && !pendingMeshBuilds.contains(key)) {
+                    meshBuildCandidates.add(new MeshBuildCandidate(chunk, key, distanceSq));
+                }
 
-                    if (meshes == null) {
-                        // 頂點格式為位置 3、UV 2、光照 3（面陰影*AO、天空光、方塊光）。
-                        meshes = new ChunkMeshes(
-                                new Mesh(meshData.opaqueVertices(), GL_TRIANGLES, 3, 2, 3),
-                                new Mesh(meshData.translucentVertices(), GL_TRIANGLES, 3, 2, 3));
-                        chunkMeshes.put(key, meshes);
-                    } else {
-                        meshes.opaque.update(meshData.opaqueVertices(), ChunkMesher.STRIDE_FLOATS);
-                        meshes.translucent.update(meshData.translucentVertices(), ChunkMesher.STRIDE_FLOATS);
-                    }
-
-                    chunk.clearMeshDirty();
+                // 還沒有任何 mesh 的 Chunk 這一幀先跳過繪製。
+                if (meshes == null) {
+                    continue;
                 }
 
                 // 把 Chunk 放到它在世界中的正確位置再繪製。
@@ -536,6 +561,9 @@ public final class WorldRenderer implements AutoCloseable {
                 meshes.opaque.draw();
             }
         }
+
+        // 依距離排序後提交建構工作，讓玩家腳邊與互動中的 Chunk 優先完成。
+        submitMeshBuilds(world);
 
         // 半透明材質後畫，並由遠到近排序；不寫入深度，避免玻璃/水先畫到深度後讓後面的透明面消失。
         visibleChunkOrder.sort((a, b) -> Float.compare(b.distanceSq(), a.distanceSq()));
@@ -555,6 +583,73 @@ public final class WorldRenderer implements AutoCloseable {
 
         // 把這一幀看不到的 Chunk mesh 釋放掉，減少顯示卡資源占用；World 仍保留 Chunk 方塊資料。
         pruneChunkMeshes(visibleChunks);
+    }
+
+    // 把這一幀收集到的建構需求依距離排序後丟給執行緒池。
+    // 提交前先清掉 dirty 標記：建構期間若再次被修改，旗標會重新立起，完成後自然觸發重建。
+    private void submitMeshBuilds(World world) {
+        if (meshBuildCandidates.isEmpty()) {
+            return;
+        }
+
+        meshBuildCandidates.sort((a, b) -> Float.compare(a.distanceSq(), b.distanceSq()));
+
+        for (MeshBuildCandidate candidate : meshBuildCandidates) {
+            Chunk chunk = candidate.chunk();
+            ChunkPos key = candidate.pos();
+
+            chunk.clearMeshDirty();
+            pendingMeshBuilds.add(key);
+
+            meshExecutor.submit(() -> {
+                try {
+                    ChunkMesher.MeshData data = ChunkMesher.build(chunk, world, atlas);
+                    completedMeshBuilds.add(new MeshBuildResult(key, data));
+                } catch (Throwable t) {
+                    // 建構失敗（例如讀到正在更新中的資料）就回報 null，主執行緒會重排一次。
+                    completedMeshBuilds.add(new MeshBuildResult(key, null));
+                }
+            });
+        }
+
+        meshBuildCandidates.clear();
+    }
+
+    // 把背景執行緒完成的頂點資料上傳到 GPU；上傳必須在持有 GL context 的主執行緒進行。
+    private void drainCompletedMeshBuilds(World world) {
+        int uploads = 0;
+
+        while (uploads < MAX_MESH_UPLOADS_PER_FRAME) {
+            MeshBuildResult result = completedMeshBuilds.poll();
+            if (result == null) {
+                return;
+            }
+
+            pendingMeshBuilds.remove(result.pos());
+
+            if (result.data() == null) {
+                // 建構失敗：重新標記 dirty，下一幀重新提交。
+                Chunk chunk = world.getChunkIfLoaded(result.pos().x(), result.pos().z());
+                if (chunk != null) {
+                    chunk.markMeshDirty();
+                }
+                continue;
+            }
+
+            ChunkMeshes meshes = chunkMeshes.get(result.pos());
+            if (meshes == null) {
+                // 頂點格式為位置 3、UV 2、光照 3（面陰影*AO、天空光、方塊光）。
+                meshes = new ChunkMeshes(
+                        new Mesh(result.data().opaqueVertices(), GL_TRIANGLES, 3, 2, 3),
+                        new Mesh(result.data().translucentVertices(), GL_TRIANGLES, 3, 2, 3));
+                chunkMeshes.put(result.pos(), meshes);
+            } else {
+                meshes.opaque.update(result.data().opaqueVertices(), ChunkMesher.STRIDE_FLOATS);
+                meshes.translucent.update(result.data().translucentVertices(), ChunkMesher.STRIDE_FLOATS);
+            }
+
+            uploads++;
+        }
     }
 
     // 用 Chunk 中心到相機的水平距離排序透明 pass；這是便宜近似，不做每個透明面的精確排序。
@@ -765,6 +860,9 @@ public final class WorldRenderer implements AutoCloseable {
     // 釋放所有渲染資源。
     @Override
     public void close() {
+        // 先停掉背景建構，避免關閉過程中還有結果寫入佇列。
+        meshExecutor.shutdownNow();
+
         for (ChunkMeshes meshes : chunkMeshes.values()) {
             meshes.close();
         }

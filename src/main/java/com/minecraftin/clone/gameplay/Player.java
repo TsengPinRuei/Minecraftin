@@ -33,10 +33,13 @@ public final class Player {
     private static final float CROUCH_EYE_HEIGHT = 1.25f;
     private static final float CROUCH_SPEED_MULTIPLIER = 0.3f;
 
-    // 水中移動不套用一般重力，而是用較慢的游泳速度與輕微上浮。
+    // 蹲下/站起時眼睛高度的過渡速度（每秒公尺）；碰撞箱立即切換，只有視角平滑移動。
+    private static final float EYE_HEIGHT_TRANSITION_SPEED = 3.0f;
+
+    // 水中移動不套用一般重力，而是用較慢的游泳速度；無輸入時像 Minecraft 一樣緩慢下沉。
     private static final float WATER_SWIM_SPEED = 2.45f;
     private static final float WATER_VERTICAL_SPEED = 2.8f;
-    private static final float WATER_FLOAT_SPEED = 0.55f;
+    private static final float WATER_SINK_SPEED = -0.55f;
     private static final float WATER_ACCEL = 12.0f;
     private static final float WATER_DRAG = 8.0f;
 
@@ -70,6 +73,9 @@ public final class Player {
     // 是否正在蹲下
     private boolean crouching;
 
+    // 目前的眼睛高度；蹲下/站起時朝目標高度平滑移動，避免視角瞬間跳變。
+    private float currentEyeHeight = GameConfig.PLAYER_EYE_HEIGHT;
+
     // 距離上次按下空白鍵已經過了多久
     private float timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
@@ -93,7 +99,7 @@ public final class Player {
     }
 
     public float eyeHeight() {
-        return crouching ? CROUCH_EYE_HEIGHT : GameConfig.PLAYER_EYE_HEIGHT;
+        return currentEyeHeight;
     }
 
     // 計算水平移動速度，只看 x 和 z，不看上下速度
@@ -108,6 +114,7 @@ public final class Player {
         onGround = false;
         flying = false;
         crouching = false;
+        currentEyeHeight = GameConfig.PLAYER_EYE_HEIGHT;
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
     }
 
@@ -122,14 +129,18 @@ public final class Player {
         // 先嘗試把角色從方塊內推出來，避免出生或移動後卡進牆裡
         resolveIntersections(world);
 
+        // 眼睛高度朝目標平滑過渡，讓蹲下/站起的視角不會瞬間跳變。
+        float targetEyeHeight = crouching ? CROUCH_EYE_HEIGHT : GameConfig.PLAYER_EYE_HEIGHT;
+        currentEyeHeight = approach(currentEyeHeight, targetEyeHeight,
+                EYE_HEIGHT_TRANSITION_SPEED * deltaSeconds);
+
         // 累加距離上次按空白鍵的時間
         timeSinceLastSpaceTap += deltaSeconds;
 
         boolean spacePressed = input.wasKeyPressed(GLFW_KEY_SPACE);
-        boolean swimmingBeforeFlightToggle = !flying && isInWater(world);
 
-        // 創造模式下，雙擊空白鍵可切換飛行
-        if (creativeMode && spacePressed && !swimmingBeforeFlightToggle) {
+        // 創造模式下，雙擊空白鍵可切換飛行；在水中也可以，與 Minecraft 一致。
+        if (creativeMode && spacePressed) {
             if (timeSinceLastSpaceTap <= DOUBLE_TAP_SECONDS) {
                 flying = !flying;
                 timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
@@ -420,7 +431,8 @@ public final class Player {
         }
     }
 
-    // 水中移動使用自己的垂直輸入、浮力與阻力，不套用一般重力或跳躍流程。
+    // 水中移動使用自己的垂直輸入與阻力，不套用一般重力或跳躍流程。
+    // 沒有垂直輸入時緩慢下沉，按住 Space 才會上浮，符合 Minecraft 的游泳直覺。
     private void updateSwimming(InputState input, World world, float deltaSeconds) {
         float verticalInput = 0.0f;
         if (input.isKeyDown(GLFW_KEY_SPACE)) {
@@ -430,7 +442,7 @@ public final class Player {
             verticalInput -= 1.0f;
         }
 
-        float targetVertical = verticalInput != 0.0f ? verticalInput * WATER_VERTICAL_SPEED : WATER_FLOAT_SPEED;
+        float targetVertical = verticalInput != 0.0f ? verticalInput * WATER_VERTICAL_SPEED : WATER_SINK_SPEED;
         velocity.y = approach(velocity.y, targetVertical, WATER_ACCEL * deltaSeconds);
 
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);

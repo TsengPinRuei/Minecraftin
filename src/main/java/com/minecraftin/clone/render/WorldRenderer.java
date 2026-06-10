@@ -13,6 +13,8 @@ import com.minecraftin.clone.world.ChunkPos;
 import com.minecraftin.clone.world.Face;
 import com.minecraftin.clone.world.RaycastHit;
 import com.minecraftin.clone.world.World;
+import com.minecraftin.clone.util.Noise;
+import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -31,8 +33,32 @@ import static org.lwjgl.opengl.GL33C.*;
 // 這裡也擁有所有與世界渲染相關的 OpenGL 資源，Game 結束時必須呼叫 close()。
 public final class WorldRenderer implements AutoCloseable {
 
-    // 天空背景顏色。
-    private static final Vector3f SKY_COLOR = new Vector3f(0.56f, 0.74f, 0.95f);
+    // 白天、夜晚與日落的天空顏色；實際背景色依時間在這些顏色之間漸變。
+    private static final Vector3f DAY_SKY_COLOR = new Vector3f(0.56f, 0.74f, 0.95f);
+    private static final Vector3f NIGHT_SKY_COLOR = new Vector3f(0.015f, 0.025f, 0.07f);
+    private static final Vector3f SUNSET_SKY_COLOR = new Vector3f(0.98f, 0.52f, 0.30f);
+
+    // 夜晚的月光下限；天空光不會暗於這個倍率，與 Minecraft 的夜間亮度曲線類似。
+    private static final float MOONLIGHT_FLOOR = 0.13f;
+
+    // 霧效範圍綁定渲染距離，讓最遠一圈 Chunk 完全沒入霧中，像 Minecraft 一樣由霧中浮現而不是突然出現。
+    private static final float FOG_FAR = GameConfig.RENDER_DISTANCE_CHUNKS * GameConfig.CHUNK_SIZE;
+    private static final float FOG_NEAR = FOG_FAR * 0.6f;
+
+    // 太陽與月亮：方形天體繞世界 X-Y 平面旋轉，是 Minecraft 天空的招牌造型。
+    private static final float SKY_BODY_DISTANCE = 420.0f;
+    private static final float SUN_HALF_SIZE = 36.0f;
+    private static final float MOON_HALF_SIZE = 24.0f;
+    private static final Vector3f SUN_COLOR = new Vector3f(1.0f, 0.97f, 0.82f);
+    private static final Vector3f MOON_COLOR = new Vector3f(0.88f, 0.90f, 0.98f);
+
+    // 雲層：固定高度的平面白雲，按格子由噪聲決定形狀，緩慢向 +X 漂移。
+    private static final float CLOUD_Y = 150.0f;
+    private static final float CLOUD_CELL_SIZE = 12.0f;
+    private static final int CLOUD_RADIUS_CELLS = 30;
+    private static final float CLOUD_DRIFT_SPEED = 0.7f;
+    private static final Vector3f CLOUD_COLOR = new Vector3f(1.0f, 1.0f, 1.0f);
+    private static final float CLOUD_ALPHA = 0.72f;
 
     // 選取方塊外框的顏色。
     private static final Vector3f SELECTION_COLOR = new Vector3f(0.03f, 0.03f, 0.03f);
@@ -82,6 +108,23 @@ public final class WorldRenderer implements AutoCloseable {
     private final Random particleRandom = new Random();
     private boolean breakParticleMeshDirty;
 
+    // 太陽與月亮共用的 mesh，每幀依時間角度重建（頂點數極少）。
+    private final Mesh skyBodyMesh;
+
+    // 雲層 mesh；只有相機跨過雲格或漂移超過一格時才重建。
+    private final Mesh cloudMesh;
+    private int cachedCloudCellX = Integer.MIN_VALUE;
+    private int cachedCloudCellZ = Integer.MIN_VALUE;
+    private float cloudDrift;
+
+    // 視錐剔除：只繪製鏡頭可見的 Chunk，但不影響 mesh 快取的保留範圍。
+    private final FrustumIntersection frustum = new FrustumIntersection();
+    private final Matrix4f projViewMatrix = new Matrix4f();
+
+    // 目前的天空顏色與天空光倍率，由晝夜循環每幀更新。
+    private final Vector3f skyColor = new Vector3f(DAY_SKY_COLOR);
+    private float dayLight = 1.0f;
+
     // 快取上一次被選到的方塊座標。
     // 若目標沒變，就不需要重建外框資料。
     private int lastSelectionX = Integer.MIN_VALUE;
@@ -96,12 +139,21 @@ public final class WorldRenderer implements AutoCloseable {
 
         // 一開始先建立空的選取框 mesh，之後有需要再更新內容。
         selectionMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
-        breakParticleMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 2, 1);
+        breakParticleMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 2, 3);
+        skyBodyMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
+        cloudMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
     }
 
     // 推進方塊破壞碎屑的位置與生命週期；Game loop 每幀呼叫一次。
     public void update(float deltaSeconds) {
-        if (deltaSeconds <= 0.0f || breakParticles.isEmpty()) {
+        if (deltaSeconds <= 0.0f) {
+            return;
+        }
+
+        // 雲層持續漂移；使用累積時間而不是世界時間，避免跨日重置時雲突然跳回。
+        cloudDrift += CLOUD_DRIFT_SPEED * deltaSeconds;
+
+        if (breakParticles.isEmpty()) {
             return;
         }
 
@@ -124,11 +176,14 @@ public final class WorldRenderer implements AutoCloseable {
         breakParticleMeshDirty = true;
     }
 
-    // 產生使用被破壞方塊貼圖的小方塊碎屑。
-    public void spawnBlockBreakEffect(BlockType block, int x, int y, int z) {
+    // 產生使用被破壞方塊貼圖的小方塊碎屑；亮度取被破壞位置周圍最亮的一格。
+    public void spawnBlockBreakEffect(World world, BlockType block, int x, int y, int z) {
         if (block == BlockType.AIR) {
             return;
         }
+
+        float skyLight = neighborMaxSkyLight(world, x, y, z) / (float) 15;
+        float blockLight = neighborMaxBlockLight(world, x, y, z) / (float) 15;
 
         while (breakParticles.size() + BREAK_PARTICLES_PER_BLOCK > MAX_BREAK_PARTICLES) {
             breakParticles.remove(0);
@@ -168,19 +223,46 @@ public final class WorldRenderer implements AutoCloseable {
 
             float size = 0.070f + particleRandom.nextFloat() * 0.055f;
             float lifetime = 0.42f + particleRandom.nextFloat() * 0.28f;
-            breakParticles.add(new BreakParticle(px, py, pz, vx, vy, vz, size, lifetime, u0, v0, u1, v1));
+            breakParticles.add(new BreakParticle(px, py, pz, vx, vy, vz, size, lifetime, u0, v0, u1, v1,
+                    skyLight, blockLight));
         }
 
         breakParticleMeshDirty = true;
     }
 
+    // 取被破壞方塊六個鄰格中最亮的天空光，當作碎屑的亮度來源。
+    private int neighborMaxSkyLight(World world, int x, int y, int z) {
+        int max = world.skyLightAt(x, y, z);
+        max = Math.max(max, world.skyLightAt(x + 1, y, z));
+        max = Math.max(max, world.skyLightAt(x - 1, y, z));
+        max = Math.max(max, world.skyLightAt(x, y + 1, z));
+        max = Math.max(max, world.skyLightAt(x, y - 1, z));
+        max = Math.max(max, world.skyLightAt(x, y, z + 1));
+        max = Math.max(max, world.skyLightAt(x, y, z - 1));
+        return max;
+    }
+
+    private int neighborMaxBlockLight(World world, int x, int y, int z) {
+        int max = world.blockLightAt(x, y, z);
+        max = Math.max(max, world.blockLightAt(x + 1, y, z));
+        max = Math.max(max, world.blockLightAt(x - 1, y, z));
+        max = Math.max(max, world.blockLightAt(x, y + 1, z));
+        max = Math.max(max, world.blockLightAt(x, y - 1, z));
+        max = Math.max(max, world.blockLightAt(x, y, z + 1));
+        max = Math.max(max, world.blockLightAt(x, y, z - 1));
+        return max;
+    }
+
     // 繪製整個場景。
     public void render(World world, Camera camera, int width, int height, RaycastHit selection) {
+        // 依世界時間更新天空顏色與天空光倍率。
+        updateDayCycle(world.timeOfDay());
+
         // 設定 OpenGL 視窗範圍。
         glViewport(0, 0, width, height);
 
         // 清除畫面與深度緩衝，並設定天空底色。
-        glClearColor(SKY_COLOR.x, SKY_COLOR.y, SKY_COLOR.z, 1.0f);
+        glClearColor(skyColor.x, skyColor.y, skyColor.z, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // 建立透視投影矩陣。
@@ -191,13 +273,183 @@ public final class WorldRenderer implements AutoCloseable {
                         GameConfig.NEAR_PLANE,
                         GameConfig.FAR_PLANE);
 
-        // 由相機更新視角矩陣。
+        // 由相機更新視角矩陣，並更新視錐剔除平面。
         camera.viewMatrix(view);
+        projViewMatrix.set(projection).mul(view);
+        frustum.set(projViewMatrix);
 
-        // 先畫世界，再畫選取外框。
+        // 先畫天空（太陽月亮），讓之後的地形可以遮住它們；再畫世界、雲與選取外框。
+        renderSkyBodies(camera, world.timeOfDay());
         renderChunks(world, camera);
         renderBreakParticles(camera);
+        renderClouds(world, camera);
         renderSelectionOutline(selection);
+    }
+
+    // 依時間計算天空顏色與天空光倍率：白天亮藍、夜晚深藍，日出日落帶橘色。
+    private void updateDayCycle(float timeOfDay) {
+        // 太陽仰角：0 是日出、0.25 是正午、0.5 是日落。
+        float elevation = (float) Math.sin(timeOfDay * Math.PI * 2.0);
+
+        // 地平線附近用較窄的窗格做平滑過渡，形成數十秒的晨昏。
+        float daylight = clamp((elevation + 0.15f) / 0.30f, 0.0f, 1.0f);
+        dayLight = MOONLIGHT_FLOOR + (1.0f - MOONLIGHT_FLOOR) * daylight;
+
+        skyColor.set(NIGHT_SKY_COLOR).lerp(DAY_SKY_COLOR, daylight);
+
+        // 太陽貼近地平線時混入日落色。
+        float sunsetStrength = clamp(1.0f - Math.abs(elevation) / 0.15f, 0.0f, 1.0f);
+        skyColor.lerp(SUNSET_SKY_COLOR, sunsetStrength * 0.45f);
+    }
+
+    // 繪製 Minecraft 式的方形太陽與月亮；不寫入深度，之後的地形會自然遮住它們。
+    private void renderSkyBodies(Camera camera, float timeOfDay) {
+        float angle = (float) (timeOfDay * Math.PI * 2.0);
+        float sunX = (float) Math.cos(angle);
+        float sunY = (float) Math.sin(angle);
+
+        FloatArrayBuilder out = new FloatArrayBuilder(96);
+        Vector3f cameraPosition = camera.position();
+
+        boolean sunVisible = sunY > -0.12f;
+        boolean moonVisible = -sunY > -0.12f;
+
+        if (sunVisible) {
+            addSkyBodyQuad(out, cameraPosition, sunX, sunY, SUN_HALF_SIZE);
+        }
+        if (moonVisible) {
+            addSkyBodyQuad(out, cameraPosition, -sunX, -sunY, MOON_HALF_SIZE);
+        }
+
+        if (out.isEmpty()) {
+            return;
+        }
+
+        // 太陽與月亮各 6 個頂點；用同一個 mesh 分兩次上傳會互相覆蓋，因此一次上傳、分段上色。
+        lineShader.use();
+        lineShader.setMat4("uProjection", projection);
+        lineShader.setMat4("uView", view);
+        model.identity();
+        lineShader.setMat4("uModel", model);
+
+        glDepthMask(false);
+
+        if (sunVisible && moonVisible) {
+            // 兩者都可見時拆成兩個批次，讓太陽與月亮可以用不同顏色。
+            float[] vertices = out.toArray();
+            float[] sunVertices = new float[18];
+            float[] moonVertices = new float[18];
+            System.arraycopy(vertices, 0, sunVertices, 0, 18);
+            System.arraycopy(vertices, 18, moonVertices, 0, 18);
+
+            skyBodyMesh.update(sunVertices, 3);
+            lineShader.setVec3("uColor", SUN_COLOR);
+            lineShader.setFloat("uAlpha", 1.0f);
+            skyBodyMesh.draw();
+
+            skyBodyMesh.update(moonVertices, 3);
+            lineShader.setVec3("uColor", MOON_COLOR);
+            skyBodyMesh.draw();
+        } else {
+            skyBodyMesh.update(out.toArray(), 3);
+            lineShader.setVec3("uColor", sunVisible ? SUN_COLOR : MOON_COLOR);
+            lineShader.setFloat("uAlpha", 1.0f);
+            skyBodyMesh.draw();
+        }
+
+        glDepthMask(true);
+    }
+
+    // 在指定方向產生一個面向相機的方形天體。
+    private void addSkyBodyQuad(FloatArrayBuilder out, Vector3f cameraPosition, float dirX, float dirY,
+            float halfSize) {
+        float centerX = cameraPosition.x + dirX * SKY_BODY_DISTANCE;
+        float centerY = cameraPosition.y + dirY * SKY_BODY_DISTANCE;
+        float centerZ = cameraPosition.z;
+
+        // 太陽軌道在 X-Y 平面上，因此 Z 軸與軌道切線方向構成貼面的兩個軸。
+        float tangentX = dirY * halfSize;
+        float tangentY = -dirX * halfSize;
+
+        float ax = centerX - tangentX;
+        float ay = centerY - tangentY;
+        float az = centerZ - halfSize;
+        float bx = centerX + tangentX;
+        float by = centerY + tangentY;
+        float bz = centerZ - halfSize;
+        float cx = centerX + tangentX;
+        float cy = centerY + tangentY;
+        float cz = centerZ + halfSize;
+        float dx = centerX - tangentX;
+        float dy = centerY - tangentY;
+        float dz = centerZ + halfSize;
+
+        out.add(ax, ay, az);
+        out.add(bx, by, bz);
+        out.add(cx, cy, cz);
+        out.add(cx, cy, cz);
+        out.add(dx, dy, dz);
+        out.add(ax, ay, az);
+    }
+
+    // 繪製平面雲層；雲格由噪聲決定，整層隨時間向 +X 漂移。
+    private void renderClouds(World world, Camera camera) {
+        // 在「雲空間」（扣掉漂移量的座標系）建立 mesh，漂移由 model 矩陣處理。
+        float cloudSpaceX = camera.position().x - cloudDrift;
+        int cellX = (int) Math.floor(cloudSpaceX / CLOUD_CELL_SIZE);
+        int cellZ = (int) Math.floor(camera.position().z / CLOUD_CELL_SIZE);
+
+        if (cellX != cachedCloudCellX || cellZ != cachedCloudCellZ) {
+            rebuildCloudMesh(world.seed(), cellX, cellZ);
+            cachedCloudCellX = cellX;
+            cachedCloudCellZ = cellZ;
+        }
+
+        lineShader.use();
+        lineShader.setMat4("uProjection", projection);
+        lineShader.setMat4("uView", view);
+        model.identity().translate(cloudDrift, 0.0f, 0.0f);
+        lineShader.setMat4("uModel", model);
+        lineShader.setVec3("uColor", CLOUD_COLOR);
+        lineShader.setFloat("uAlpha", CLOUD_ALPHA);
+
+        glDepthMask(false);
+        cloudMesh.draw();
+        glDepthMask(true);
+    }
+
+    private void rebuildCloudMesh(long seed, int centerCellX, int centerCellZ) {
+        FloatArrayBuilder out = new FloatArrayBuilder(16384);
+
+        for (int dz = -CLOUD_RADIUS_CELLS; dz <= CLOUD_RADIUS_CELLS; dz++) {
+            for (int dx = -CLOUD_RADIUS_CELLS; dx <= CLOUD_RADIUS_CELLS; dx++) {
+                int cellX = centerCellX + dx;
+                int cellZ = centerCellZ + dz;
+
+                // 噪聲門檻決定雲的覆蓋率與團狀分布。
+                if (Noise.fbm2(cellX * 0.17f, cellZ * 0.17f, 3, 2.0f, 0.5f, seed ^ 0x434C4F5544L) <= 0.12f) {
+                    continue;
+                }
+
+                float minX = cellX * CLOUD_CELL_SIZE;
+                float minZ = cellZ * CLOUD_CELL_SIZE;
+                float maxX = minX + CLOUD_CELL_SIZE;
+                float maxZ = minZ + CLOUD_CELL_SIZE;
+
+                out.add(minX, CLOUD_Y, minZ);
+                out.add(maxX, CLOUD_Y, minZ);
+                out.add(maxX, CLOUD_Y, maxZ);
+                out.add(maxX, CLOUD_Y, maxZ);
+                out.add(minX, CLOUD_Y, maxZ);
+                out.add(minX, CLOUD_Y, minZ);
+            }
+        }
+
+        cloudMesh.update(out.toArray(), 3);
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     // 繪製目前可見的所有 Chunk。
@@ -208,10 +460,11 @@ public final class WorldRenderer implements AutoCloseable {
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
         worldShader.setMat4("uView", view);
-        worldShader.setVec3("uFogColor", SKY_COLOR);
+        worldShader.setVec3("uFogColor", skyColor);
         worldShader.setVec3("uCameraPos", cameraPosition);
-        worldShader.setFloat("uFogNear", 70.0f);
-        worldShader.setFloat("uFogFar", 250.0f);
+        worldShader.setFloat("uFogNear", FOG_NEAR);
+        worldShader.setFloat("uFogFar", FOG_FAR);
+        worldShader.setFloat("uDayLight", dayLight);
         worldShader.setInt("uAtlas", 0);
 
         atlas.bind(0);
@@ -245,6 +498,16 @@ public final class WorldRenderer implements AutoCloseable {
 
                 ChunkPos key = new ChunkPos(chunkX, chunkZ);
                 visibleChunks.add(key);
+
+                // 視錐外的 Chunk 不建 mesh 也不繪製；保留在 visibleChunks 中避免快取被剪掉。
+                int worldMinX = chunkX * GameConfig.CHUNK_SIZE;
+                int worldMinZ = chunkZ * GameConfig.CHUNK_SIZE;
+                if (!frustum.testAab(worldMinX, 0.0f, worldMinZ,
+                        worldMinX + GameConfig.CHUNK_SIZE, GameConfig.CHUNK_HEIGHT,
+                        worldMinZ + GameConfig.CHUNK_SIZE)) {
+                    continue;
+                }
+
                 visibleChunkOrder.add(new VisibleChunk(key, chunkDistanceSq(key, cameraPosition.x, cameraPosition.z)));
 
                 ChunkMeshes meshes = chunkMeshes.get(key);
@@ -254,10 +517,10 @@ public final class WorldRenderer implements AutoCloseable {
                     ChunkMesher.MeshData meshData = ChunkMesher.build(chunk, world, atlas);
 
                     if (meshes == null) {
-                        // 頂點格式為位置 3、UV 2、光照 1。
+                        // 頂點格式為位置 3、UV 2、光照 3（面陰影*AO、天空光、方塊光）。
                         meshes = new ChunkMeshes(
-                                new Mesh(meshData.opaqueVertices(), GL_TRIANGLES, 3, 2, 1),
-                                new Mesh(meshData.translucentVertices(), GL_TRIANGLES, 3, 2, 1));
+                                new Mesh(meshData.opaqueVertices(), GL_TRIANGLES, 3, 2, 3),
+                                new Mesh(meshData.translucentVertices(), GL_TRIANGLES, 3, 2, 3));
                         chunkMeshes.put(key, meshes);
                     } else {
                         meshes.opaque.update(meshData.opaqueVertices(), ChunkMesher.STRIDE_FLOATS);
@@ -346,6 +609,7 @@ public final class WorldRenderer implements AutoCloseable {
         model.identity();
         lineShader.setMat4("uModel", model);
         lineShader.setVec3("uColor", SELECTION_COLOR);
+        lineShader.setFloat("uAlpha", 1.0f);
 
         selectionMesh.draw();
     }
@@ -363,10 +627,11 @@ public final class WorldRenderer implements AutoCloseable {
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
         worldShader.setMat4("uView", view);
-        worldShader.setVec3("uFogColor", SKY_COLOR);
+        worldShader.setVec3("uFogColor", skyColor);
         worldShader.setVec3("uCameraPos", camera.position());
-        worldShader.setFloat("uFogNear", 70.0f);
-        worldShader.setFloat("uFogFar", 250.0f);
+        worldShader.setFloat("uFogNear", FOG_NEAR);
+        worldShader.setFloat("uFogFar", FOG_FAR);
+        worldShader.setFloat("uDayLight", dayLight);
         worldShader.setInt("uAtlas", 0);
         atlas.bind(0);
 
@@ -421,17 +686,18 @@ public final class WorldRenderer implements AutoCloseable {
             float cx, float cy, float cz,
             float dx, float dy, float dz,
             BreakParticle particle) {
-        float light = face.light();
-        putParticleVertex(out, ax, ay, az, particle.u0, particle.v1, light);
-        putParticleVertex(out, bx, by, bz, particle.u1, particle.v1, light);
-        putParticleVertex(out, cx, cy, cz, particle.u1, particle.v0, light);
-        putParticleVertex(out, cx, cy, cz, particle.u1, particle.v0, light);
-        putParticleVertex(out, dx, dy, dz, particle.u0, particle.v0, light);
-        putParticleVertex(out, ax, ay, az, particle.u0, particle.v1, light);
+        float shade = face.light();
+        putParticleVertex(out, ax, ay, az, particle.u0, particle.v1, shade, particle);
+        putParticleVertex(out, bx, by, bz, particle.u1, particle.v1, shade, particle);
+        putParticleVertex(out, cx, cy, cz, particle.u1, particle.v0, shade, particle);
+        putParticleVertex(out, cx, cy, cz, particle.u1, particle.v0, shade, particle);
+        putParticleVertex(out, dx, dy, dz, particle.u0, particle.v0, shade, particle);
+        putParticleVertex(out, ax, ay, az, particle.u0, particle.v1, shade, particle);
     }
 
-    private void putParticleVertex(FloatArrayBuilder out, float x, float y, float z, float u, float v, float light) {
-        out.add(x, y, z, u, v, light);
+    private void putParticleVertex(FloatArrayBuilder out, float x, float y, float z, float u, float v, float shade,
+            BreakParticle particle) {
+        out.add(x, y, z, u, v, shade, particle.skyLight, particle.blockLight);
     }
 
     // 建立包住一個方塊的粗邊框頂點資料。
@@ -506,6 +772,8 @@ public final class WorldRenderer implements AutoCloseable {
 
         selectionMesh.close();
         breakParticleMesh.close();
+        skyBodyMesh.close();
+        cloudMesh.close();
         worldShader.close();
         lineShader.close();
         atlas.close();
@@ -528,10 +796,13 @@ public final class WorldRenderer implements AutoCloseable {
         private final float v0;
         private final float u1;
         private final float v1;
+        private final float skyLight;
+        private final float blockLight;
         private float life;
 
         private BreakParticle(float x, float y, float z, float velocityX, float velocityY, float velocityZ,
-                float size, float lifetime, float u0, float v0, float u1, float v1) {
+                float size, float lifetime, float u0, float v0, float u1, float v1,
+                float skyLight, float blockLight) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -544,6 +815,8 @@ public final class WorldRenderer implements AutoCloseable {
             this.v0 = v0;
             this.u1 = u1;
             this.v1 = v1;
+            this.skyLight = skyLight;
+            this.blockLight = blockLight;
         }
     }
 

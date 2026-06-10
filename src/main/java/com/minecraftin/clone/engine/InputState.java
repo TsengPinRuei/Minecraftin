@@ -20,6 +20,9 @@ public final class InputState {
     // 記錄滑鼠按鍵在「這一幀是否剛被按下」。
     private final boolean[] mousePressed = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
 
+    // 記錄每個滑鼠按鍵目前是否正在被按住；連續破壞與放置方塊需要這個狀態。
+    private final boolean[] mouseDown = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
+
     // 用來判斷滑鼠是否第一次移動，避免第一次就產生很大的位移量。
     private boolean firstMouse = true;
 
@@ -58,9 +61,12 @@ public final class InputState {
             return;
         }
 
-        // 只在按下當下記錄一次。
+        // 按下時記錄瞬時與持續狀態，放開時清除持續狀態。
         if (action == GLFW_PRESS) {
             mousePressed[button] = true;
+            mouseDown[button] = true;
+        } else if (action == GLFW_RELEASE) {
+            mouseDown[button] = false;
         }
     };
 
@@ -106,6 +112,11 @@ public final class InputState {
     // 檢查某個滑鼠按鍵是否在這一幀剛被按下。
     public boolean wasMousePressed(int button) {
         return button >= 0 && button < mousePressed.length && mousePressed[button];
+    }
+
+    // 檢查某個滑鼠按鍵目前是否正在被按住。
+    public boolean isMouseDown(int button) {
+        return button >= 0 && button < mouseDown.length && mouseDown[button];
     }
 
     // 取得這一幀滑鼠在 X 軸上的移動量。

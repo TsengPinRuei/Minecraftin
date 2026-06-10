@@ -12,7 +12,12 @@ Minecraftin is a small Java + LWJGL voxel sandbox inspired by classic Minecraft.
 - Building blocks such as natural terrain blocks, wool colors, colored blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders, torches, crafting tables, furnaces, chests, bookshelves, stone variants, quartz, nether/end themed blocks, glass, water, glowstone, and sea lanterns.
 - Door and trapdoor right-click interaction.
 - Empty chest UI placeholder.
-- Persistent local world save/load, including the last saved player respawn position.
+- Minecraft-style lighting engine: BFS-propagated sky light and block light, glowing torches, glowstone, and sea lanterns, with water and leaves attenuating light.
+- Smooth lighting with ambient occlusion for soft corner shadows.
+- Day/night cycle (20-minute days) with a square sun and moon, sunrise/sunset sky tones, moonlit nights, and fog that follows the sky color.
+- Drifting flat cloud layer and frustum culling.
+- `F3` debug overlay: FPS, position, chunk, facing, light levels, and world time.
+- Persistent local world save/load, including the last saved player respawn position and world time.
 - OpenGL 3.3 rendering through LWJGL, with GLSL shader files and a procedural pixel-art block texture atlas.
 
 ## Requirements
@@ -98,7 +103,7 @@ When the game opens, left-click the window to capture the mouse. Press `Esc` to 
 | --- | --- |
 | `W` / `A` / `S` / `D` | Move |
 | Mouse | Look around |
-| `Left Ctrl` | Sprint or fast fly |
+| `Left Ctrl` + `W` | Sprint forward or fast fly |
 | `Space` | Jump |
 | `Left Shift` while grounded | Crouch |
 | Double-tap `Space` | Toggle creative flight |
@@ -110,27 +115,27 @@ When the game opens, left-click the window to capture the mouse. Press `Esc` to 
 | Ladder + `W` or `Space` | Climb up |
 | Ladder + `S` or `Left Shift` | Climb down |
 | `E` | Open or close the creative inventory |
-| `Left Click` | Capture mouse, or break the targeted block while captured |
-| `Right Click` | Place the selected block, or interact with doors, trapdoors, and chests |
+| `Left Click` | Capture mouse, or break the targeted block while captured; hold to break continuously |
+| `Right Click` | Place the selected block, or interact with doors, trapdoors, and chests; hold to place repeatedly |
 | `1`-`9` | Select a hotbar slot |
 | Mouse wheel | Change hotbar slot |
 | Mouse wheel in creative inventory | Change inventory page |
 | Left click in creative inventory | Assign a block to the selected hotbar slot |
 | Right click in creative inventory | Assign a block and close the inventory |
 | `Esc` | Release mouse, close open UI, or return to first-person control |
-| `Q` | Quit the game |
+| `F3` | Toggle the debug overlay |
 
 ### Starter Hotbar
 
-1. Red block
-2. Orange block
-3. Yellow block
-4. Green block
-5. Blue block
-6. Purple block
-7. Dirt
-8. Stone
-9. Glass
+1. Grass Block
+2. Dirt
+3. Stone
+4. Cobblestone
+5. Oak Planks
+6. Oak Log
+7. Glass
+8. Torch
+9. Crafting Table
 
 ### Save Files
 

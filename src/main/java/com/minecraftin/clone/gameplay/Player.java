@@ -24,14 +24,14 @@ public final class Player {
     // 將踏階高度分段測試，避免一次抬太高穿過較薄的碰撞盒。
     private static final int STEP_ATTEMPTS = 8;
 
-    // 梯子沒有碰撞盒，因此用接觸範圍判斷玩家是否正在梯子上。
+    // 梯子沒有碰撞盒，因此用接觸範圍判斷玩家是否正在梯子上；爬升速度對齊 Minecraft 的 2.35 m/s。
     private static final float LADDER_TOUCH_MARGIN = 0.20f;
-    private static final float LADDER_CLIMB_SPEED = 3.2f;
+    private static final float LADDER_CLIMB_SPEED = 2.35f;
 
-    // 蹲下會降低碰撞箱與視角，並放慢水平移動。
+    // 蹲下會降低碰撞箱與視角，並放慢水平移動；Minecraft 的潛行速度為步行的 0.3 倍。
     private static final float CROUCH_HEIGHT = 1.45f;
     private static final float CROUCH_EYE_HEIGHT = 1.25f;
-    private static final float CROUCH_SPEED_MULTIPLIER = 0.42f;
+    private static final float CROUCH_SPEED_MULTIPLIER = 0.3f;
 
     // 水中移動不套用一般重力，而是用較慢的游泳速度與輕微上浮。
     private static final float WATER_SWIM_SPEED = 2.45f;
@@ -202,9 +202,9 @@ public final class Player {
             wish.add(0.0f, -1.0f, 0.0f);
         }
 
-        // 預設飛行速度，按住 Ctrl 可加速
+        // 預設飛行速度；和 Minecraft 一樣，衝刺加速只在向前移動時生效。
         float targetSpeed = GameConfig.FLY_SPEED;
-        if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL)) {
+        if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL) && input.isKeyDown(GLFW_KEY_W)) {
             targetSpeed *= GameConfig.SPRINT_MULTIPLIER;
         }
 
@@ -267,11 +267,11 @@ public final class Player {
             wish.sub(right);
         }
 
-        // 預設走路速度，按住 Ctrl 可加速
+        // 預設走路速度；和 Minecraft 一樣，衝刺只在向前移動（按住 W）時生效。
         float targetSpeed = inWater ? WATER_SWIM_SPEED : GameConfig.WALK_SPEED;
         if (!inWater && crouching) {
             targetSpeed *= CROUCH_SPEED_MULTIPLIER;
-        } else if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL)) {
+        } else if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL) && input.isKeyDown(GLFW_KEY_W)) {
             targetSpeed *= GameConfig.SPRINT_MULTIPLIER;
         }
 
@@ -326,9 +326,9 @@ public final class Player {
         // 套用重力
         velocity.y -= GameConfig.GRAVITY * deltaSeconds;
 
-        // 限制最大下落速度，避免掉太快
-        if (velocity.y < -65.0f) {
-            velocity.y = -65.0f;
+        // 限制最大下落速度；Minecraft 的終端速度約為 78.4 m/s。
+        if (velocity.y < -78.4f) {
+            velocity.y = -78.4f;
         }
 
         // 依序處理各軸，讓碰撞行為接近 AABB 滑牆：某一軸被擋住時，其他軸仍可繼續前進。

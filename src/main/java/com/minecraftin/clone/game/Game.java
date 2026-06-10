@@ -28,17 +28,17 @@ public final class Game {
     private static final float WALK_BOB_HORIZONTAL_FACTOR = 0.60f;
     private static final float WALK_BOB_RESET_SPEED = 8.0f;
 
-    // 快捷欄中可選擇的方塊，順序對應數字鍵 1 到 9。
+    // 快捷欄中可選擇的方塊，順序對應數字鍵 1 到 9；預設放 Minecraft 風格的基礎建材。
     private final BlockType[] hotbar = {
-            BlockType.RED_BLOCK,
-            BlockType.ORANGE_BLOCK,
-            BlockType.YELLOW_BLOCK,
-            BlockType.GREEN_BLOCK,
-            BlockType.BLUE_BLOCK,
-            BlockType.PURPLE_BLOCK,
+            BlockType.GRASS,
             BlockType.DIRT,
             BlockType.STONE,
-            BlockType.GLASS
+            BlockType.COBBLESTONE,
+            BlockType.PLANKS,
+            BlockType.LOG,
+            BlockType.GLASS,
+            BlockType.TORCH,
+            BlockType.CRAFTING_TABLE
     };
 
     // 創造模式背包可選用的全部方塊。
@@ -63,8 +63,15 @@ public final class Game {
     // 是否已鎖定滑鼠到遊戲視窗內。
     private boolean cursorCaptured = false;
 
+    // 點擊視窗鎖定滑鼠的那一下不應該同時破壞方塊；按住直到放開前都先忽略互動。
+    private boolean suppressInteractionUntilRelease;
+
     // 目前快捷欄選到的方塊索引。
     private int hotbarIndex;
+
+    // 切換快捷欄後顯示方塊名稱的剩餘秒數；Minecraft 的名稱提示約顯示 2 秒後消失。
+    private static final float HOTBAR_LABEL_SECONDS = 2.0f;
+    private float hotbarLabelTimer;
 
     // 創造模式背包狀態；開啟 UI 時會暫時釋放滑鼠，關閉時依原本狀態恢復。
     private boolean creativeInventoryOpen;
@@ -86,6 +93,10 @@ public final class Game {
     // FPS 計算用。
     private double fpsTimer;
     private int fpsFrames;
+    private int lastFps;
+
+    // F3 偵錯畫面開關。
+    private boolean debugOverlayVisible;
 
     // 用來確認世界與玩家出生點是否已完成初始化。
     private boolean worldInitialized;
@@ -137,8 +148,8 @@ public final class Game {
                 world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
             }
 
-            // 若世界或重生點有尚未存檔的變更，離開前先存檔。
-            if (worldInitialized && world.hasPendingSave()) {
+            // 離開前固定存檔一次，讓世界時間等持續變動的狀態也能保留。
+            if (worldInitialized) {
                 safeSaveWorld();
             }
 
@@ -204,10 +215,13 @@ public final class Game {
             world.update(delta);
             worldRenderer.update(delta);
 
+            // 倒數方塊名稱提示的顯示時間。
+            hotbarLabelTimer = Math.max(0.0f, hotbarLabelTimer - delta);
+
             // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
-            hudRenderer.render(hotbar, hotbarIndex, creativeInventoryOpen, creativeBlocks, creativeInventoryPage,
-                    creativeTotalPages(), chestOpen);
+            hudRenderer.render(hotbar, hotbarIndex, hotbarLabelTimer > 0.0f, creativeInventoryOpen, creativeBlocks,
+                    creativeInventoryPage, creativeTotalPages(), chestOpen, buildDebugLines());
 
             // 更新視窗標題中的偵錯資訊
             updateDebugTitle(now);
@@ -228,9 +242,9 @@ public final class Game {
     }
 
     private void handleInputState() {
-        // 按 Q 關閉遊戲
-        if (input.wasKeyPressed(GLFW_KEY_Q)) {
-            window.requestClose();
+        // F3 在任何狀態下都能切換偵錯畫面，與 Minecraft 一致。
+        if (input.wasKeyPressed(GLFW_KEY_F3)) {
+            debugOverlayVisible = !debugOverlayVisible;
         }
 
         if (chestOpen) {
@@ -267,9 +281,10 @@ public final class Game {
             input.resetMouseTracking();
         }
 
-        // 尚未鎖定滑鼠時，點左鍵可進入遊戲控制模式
+        // 尚未鎖定滑鼠時，點左鍵可進入遊戲控制模式；這一下點擊不應該同時破壞方塊。
         if (!cursorCaptured && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
             cursorCaptured = true;
+            suppressInteractionUntilRelease = true;
             window.captureCursor(true);
             input.resetMouseTracking();
         }
@@ -282,6 +297,7 @@ public final class Game {
         if (scroll != 0.0) {
             int direction = scroll > 0.0 ? -1 : 1;
             hotbarIndex = Math.floorMod(hotbarIndex + direction, hotbar.length);
+            hotbarLabelTimer = HOTBAR_LABEL_SECONDS;
         }
     }
 
@@ -290,6 +306,7 @@ public final class Game {
             int key = GLFW_KEY_1 + i;
             if (input.wasKeyPressed(key)) {
                 hotbarIndex = i;
+                hotbarLabelTimer = HOTBAR_LABEL_SECONDS;
             }
         }
     }
@@ -321,6 +338,7 @@ public final class Game {
         }
 
         hotbar[hotbarIndex] = creativeBlocks[blockIndex];
+        hotbarLabelTimer = HOTBAR_LABEL_SECONDS;
 
         // 右鍵可快速選取並回到遊戲，左鍵則保留背包開啟方便連續換槽。
         if (rightClick) {
@@ -465,16 +483,32 @@ public final class Game {
         breakCooldown -= deltaSeconds;
         placeCooldown -= deltaSeconds;
 
-        // 左鍵破壞方塊，但不能破壞基岩；World.setBlock 會負責標記存檔與 mesh 失效。
-        if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
+        // 鎖定滑鼠的那一下點擊先忽略互動，等放開後才恢復；避免進入遊戲瞬間就挖掉準星下的方塊。
+        if (suppressInteractionUntilRelease) {
+            if (input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT) || input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT)) {
+                return;
+            }
+            suppressInteractionUntilRelease = false;
+        }
+
+        // 新的一次點擊立即生效，不必等上一輪冷卻結束。
+        if (input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
+            breakCooldown = 0.0f;
+        }
+        if (input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+            placeCooldown = 0.0f;
+        }
+
+        // 和 Minecraft 一樣，按住左鍵會連續破壞方塊；基岩不可破壞。
+        if (targetedBlock != null && input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
             if (targetedBlock.block() != BlockType.BEDROCK) {
                 breakTargetedBlock();
             }
             breakCooldown = GameConfig.BREAK_COOLDOWN_SECONDS;
         }
 
-        // 右鍵優先互動；若目標不是可互動方塊，才在旁邊放置新方塊。
-        if (targetedBlock != null && input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
+        // 右鍵優先互動；若目標不是可互動方塊，按住右鍵會以固定節奏連續放置。
+        if (targetedBlock != null && input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
             if (!interactWithTargetedBlock()) {
                 int px = targetedBlock.x() + targetedBlock.normalX();
                 int py = targetedBlock.y() + targetedBlock.normalY();
@@ -555,7 +589,7 @@ public final class Game {
         int y = targetedBlock.y();
         int z = targetedBlock.z();
 
-        worldRenderer.spawnBlockBreakEffect(block, x, y, z);
+        worldRenderer.spawnBlockBreakEffect(world, block, x, y, z);
         world.setBlock(x, y, z, BlockType.AIR);
 
         if (!block.isDoorBlock()) {
@@ -565,7 +599,7 @@ public final class Game {
         int otherY = block.isDoorTop() ? y - 1 : y + 1;
         BlockType other = world.getBlock(x, otherY, z);
         if (other == block.matchingDoorHalf()) {
-            worldRenderer.spawnBlockBreakEffect(other, x, otherY, z);
+            worldRenderer.spawnBlockBreakEffect(world, other, x, otherY, z);
             world.setBlock(x, otherY, z, BlockType.AIR);
         }
     }
@@ -642,6 +676,43 @@ public final class Game {
         return facingFromCamera();
     }
 
+    // 組出 F3 偵錯畫面的文字內容；未開啟時回傳 null 讓 HUD 跳過繪製。
+    private String[] buildDebugLines() {
+        if (!debugOverlayVisible) {
+            return null;
+        }
+
+        Vector3f position = player.position();
+        int blockX = (int) Math.floor(position.x);
+        int blockY = (int) Math.floor(position.y);
+        int blockZ = (int) Math.floor(position.z);
+        int chunkX = Math.floorDiv(blockX, GameConfig.CHUNK_SIZE);
+        int chunkZ = Math.floorDiv(blockZ, GameConfig.CHUNK_SIZE);
+
+        // 世界時間 0 對應清晨 6 點。
+        float dayHours = (6.0f + world.timeOfDay() * 24.0f) % 24.0f;
+        int hour = (int) dayHours;
+        int minute = (int) ((dayHours - hour) * 60.0f);
+
+        String facing = switch (facingFromCamera()) {
+            case 0 -> "north";
+            case 1 -> "east";
+            case 2 -> "south";
+            default -> "west";
+        };
+
+        return new String[] {
+                "Minecraftin " + lastFps + " fps",
+                String.format("XYZ: %.2f / %.2f / %.2f", position.x, position.y, position.z),
+                "Block: " + blockX + " " + blockY + " " + blockZ,
+                "Chunk: " + chunkX + " " + chunkZ + " loaded: " + world.chunkCount(),
+                "Facing: " + facing,
+                "Light: " + world.skyLightAt(blockX, blockY, blockZ) + " sky, "
+                        + world.blockLightAt(blockX, blockY, blockZ) + " block",
+                String.format("Time: %02d:%02d", hour, minute),
+        };
+    }
+
     private void updateDebugTitle(double now) {
         // 每幀都累計一次，用來計算 FPS
         fpsFrames++;
@@ -655,6 +726,7 @@ public final class Game {
         // 每秒更新一次視窗標題
         if (elapsed >= 1.0) {
             int fps = (int) Math.round(fpsFrames / elapsed);
+            lastFps = fps;
             BlockType selected = hotbar[hotbarIndex];
 
             String title = GameConfig.WINDOW_TITLE

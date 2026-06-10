@@ -16,6 +16,10 @@ public final class Chunk {
     // 用一維陣列儲存 Chunk 內所有方塊 id，排序為 y -> z -> x，需與存檔讀寫保持一致。
     private final short[] blocks;
 
+    // 天空光與方塊光（0 到 15），索引與 blocks 相同；由 LightEngine 維護，不寫入存檔。
+    private final byte[] skyLight;
+    private final byte[] blockLight;
+
     // 表示這個 Chunk 的模型是否需要重新生成；方塊改變或鄰近 Chunk 邊界改變時都要標記。
     private boolean meshDirty = true;
 
@@ -28,6 +32,8 @@ public final class Chunk {
         this.chunkZ = chunkZ;
         this.blocks = new short[GameConfig.CHUNK_SIZE * GameConfig.CHUNK_HEIGHT * GameConfig.CHUNK_SIZE];
         Arrays.fill(this.blocks, (short) BlockType.AIR.id());
+        this.skyLight = new byte[this.blocks.length];
+        this.blockLight = new byte[this.blocks.length];
     }
 
     // 回傳 Chunk 的 X 座標。
@@ -93,6 +99,48 @@ public final class Chunk {
             return;
         }
         blocks[index(localX, y, localZ)] = blockId;
+    }
+
+    // 取得指定座標的天空光（0 到 15）。
+    public int skyLight(int localX, int y, int localZ) {
+        if (!inBounds(localX, y, localZ)) {
+            return 0;
+        }
+        return skyLight[index(localX, y, localZ)];
+    }
+
+    // 設定指定座標的天空光；回傳值是否有變化。
+    public boolean setSkyLight(int localX, int y, int localZ, int value) {
+        if (!inBounds(localX, y, localZ)) {
+            return false;
+        }
+        int index = index(localX, y, localZ);
+        if (skyLight[index] == (byte) value) {
+            return false;
+        }
+        skyLight[index] = (byte) value;
+        return true;
+    }
+
+    // 取得指定座標的方塊光（0 到 15）。
+    public int blockLight(int localX, int y, int localZ) {
+        if (!inBounds(localX, y, localZ)) {
+            return 0;
+        }
+        return blockLight[index(localX, y, localZ)];
+    }
+
+    // 設定指定座標的方塊光；回傳值是否有變化。
+    public boolean setBlockLight(int localX, int y, int localZ, int value) {
+        if (!inBounds(localX, y, localZ)) {
+            return false;
+        }
+        int index = index(localX, y, localZ);
+        if (blockLight[index] == (byte) value) {
+            return false;
+        }
+        blockLight[index] = (byte) value;
+        return true;
     }
 
     // 回傳目前是否需要重新生成模型。

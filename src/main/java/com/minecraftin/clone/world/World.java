@@ -21,8 +21,12 @@ public final class World {
     // 存檔檔頭，用來確認這是不是本遊戲建立的存檔；值為 "MCLN" 的整數形式。
     private static final int SAVE_MAGIC = 0x4D434C4E;
 
-    // 目前存檔格式版本；load() 仍接受版本 1，讓沒有重生點欄位的舊存檔可讀取。
-    private static final int SAVE_VERSION = 2;
+    // 目前存檔格式版本；load() 仍接受版本 1 與 2，舊存檔缺少的欄位會用預設值。
+    // 版本 3 新增世界時間。
+    private static final int SAVE_VERSION = 3;
+
+    // 新世界的初始時間：清晨剛過日出。
+    private static final float DEFAULT_TIME_OF_DAY = 0.03f;
 
     // 玩家出生時，腳底上方的偏移量，避免卡進地面。
     private static final float SPAWN_Y_OFFSET = 1.05f;
@@ -56,6 +60,12 @@ public final class World {
 
     // 已載入的所有 Chunk，key 是 Chunk 座標。
     private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
+
+    // 維護天空光與方塊光的引擎；區塊載入與方塊變更時負責增量更新。
+    private final LightEngine lightEngine = new LightEngine(this);
+
+    // 世界時間，0 到 1 為一天；0 是日出、0.25 是正午、0.5 是日落。
+    private float timeOfDay = DEFAULT_TIME_OF_DAY;
 
     // 玩家放置水後的待擴散佇列，由 update() 分批處理以形成水流動畫。
     private final ArrayDeque<WaterFlowCell> placedWaterFlowQueue = new ArrayDeque<>();
@@ -104,6 +114,7 @@ public final class World {
             chunks.clear();
             terrainGenerator = new TerrainGenerator(seed, 62);
             clearSavedRespawnPosition();
+            timeOfDay = DEFAULT_TIME_OF_DAY;
         }
     }
 
@@ -117,9 +128,27 @@ public final class World {
         return terrainGenerator.seaLevel();
     }
 
-    // 更新世界中的非玩家即時狀態。目前主要用來推進放置水的逐步流動動畫。
+    // 更新世界中的非玩家即時狀態：世界時間與放置水的逐步流動動畫。
     public void update(float deltaSeconds) {
+        if (deltaSeconds > 0.0f) {
+            timeOfDay = (timeOfDay + deltaSeconds / GameConfig.DAY_LENGTH_SECONDS) % 1.0f;
+        }
         updatePlacedWaterFlow(deltaSeconds);
+    }
+
+    // 回傳目前世界時間（0 到 1）。
+    public float timeOfDay() {
+        return timeOfDay;
+    }
+
+    // 取得世界座標的天空光強度（0 到 15）。
+    public int skyLightAt(int x, int y, int z) {
+        return lightEngine.skyLightAt(x, y, z);
+    }
+
+    // 取得世界座標的方塊光強度（0 到 15）。
+    public int blockLightAt(int x, int y, int z) {
+        return lightEngine.blockLightAt(x, y, z);
     }
 
     // 回傳目前已載入的 Chunk 數量。
@@ -198,6 +227,9 @@ public final class World {
         Chunk chunk = new Chunk(chunkX, chunkZ);
         terrainGenerator.generate(chunk);
         chunks.put(key, chunk);
+
+        // 計算新 Chunk 的初始光照，並與已載入鄰居互相傳播。
+        lightEngine.onChunkLoaded(chunk);
 
         // 新增 Chunk 後，周圍 Chunk 的邊界顯示可能受影響，因此一併標記為需要重建 mesh。
         markChunkMeshDirty(chunkX - 1, chunkZ);
@@ -294,6 +326,9 @@ public final class World {
         }
 
         chunk.set(localX, y, localZ, type);
+
+        // 增量更新光照；引擎會把光照變化波及的 Chunk 標記為需要重建 mesh。
+        lightEngine.onBlockChanged(worldX, y, worldZ, type);
 
         // 如果修改位置在 Chunk 邊界，鄰近 Chunk 的 mesh 也要重建。
         if (localX == 0) {
@@ -821,6 +856,9 @@ public final class World {
                 out.writeFloat(savedRespawnPosition.z);
             }
 
+            // 版本 3 起保存世界時間。
+            out.writeFloat(timeOfDay);
+
             out.writeInt(chunks.size());
 
             for (Chunk chunk : chunks.values()) {
@@ -854,7 +892,7 @@ public final class World {
             int magic = in.readInt();
             int version = in.readInt();
 
-            if (magic != SAVE_MAGIC || (version != 1 && version != SAVE_VERSION)) {
+            if (magic != SAVE_MAGIC || version < 1 || version > SAVE_VERSION) {
                 return false;
             }
 
@@ -871,6 +909,14 @@ public final class World {
                 }
             } else {
                 clearSavedRespawnPosition();
+            }
+
+            // 版本 3 之後才有世界時間資料。
+            if (version >= 3) {
+                float loadedTime = in.readFloat();
+                timeOfDay = (loadedTime >= 0.0f && loadedTime < 1.0f) ? loadedTime : DEFAULT_TIME_OF_DAY;
+            } else {
+                timeOfDay = DEFAULT_TIME_OF_DAY;
             }
 
             respawnPositionDirty = false;
@@ -902,6 +948,12 @@ public final class World {
 
             chunks.clear();
             chunks.putAll(loadedChunks);
+
+            // 全部 Chunk 就位後再計算光照，鄰居邊界的光才能正確互相流入。
+            for (Chunk chunk : chunks.values()) {
+                lightEngine.onChunkLoaded(chunk);
+            }
+
             respawnPositionDirty = false;
             return true;
         } catch (IOException e) {

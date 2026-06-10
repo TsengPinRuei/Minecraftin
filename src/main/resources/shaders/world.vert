@@ -1,17 +1,17 @@
 #version 330 core
 // 世界方塊的頂點著色器。
-// attribute layout 必須與 ChunkMesher.STRIDE_FLOATS 以及 WorldRenderer 建立 Mesh 時的 (3, 2, 1) 對齊。
+// attribute layout 必須與 ChunkMesher.STRIDE_FLOATS 以及 WorldRenderer 建立 Mesh 時的 (3, 2, 3) 對齊。
 
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec2 aUv;
-layout (location = 2) in float aLight;
+layout (location = 2) in vec3 aLight; // x = 面陰影*AO，y = 天空光，z = 方塊光
 
 uniform mat4 uProjection;
 uniform mat4 uView;
 uniform mat4 uModel;
 
 out vec2 vUv;
-out float vLight;
+out vec3 vLight;
 out vec3 vWorldPos;
 
 void main() {

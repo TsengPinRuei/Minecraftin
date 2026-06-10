@@ -32,80 +32,70 @@ public final class HudRenderer implements AutoCloseable {
     // 字元與字元之間保留 1 格間距。
     private static final int FONT_GLYPH_SPACING = 1;
 
-    // hotbar 單一格子的寬度。
-    private static final float HOTBAR_SLOT_WIDTH = 0.1f;
-
-    // hotbar 單一格子的高度。
+    // hotbar 單一格子的高度；寬度依視窗比例換算成正方形，與 Minecraft 的方形格子一致。
     private static final float HOTBAR_SLOT_HEIGHT = 0.15f;
 
-    // hotbar 各格子之間的間距。
-    private static final float HOTBAR_GAP = 0.014f;
-
-    // hotbar 底部在畫面中的 Y 座標。
-    private static final float HOTBAR_Y = -0.90f;
+    // hotbar 底部在畫面中的 Y 座標；Minecraft 的 hotbar 貼齊畫面底部。
+    private static final float HOTBAR_Y = -0.97f;
 
     // 目前選取方塊名稱與 hotbar 頂部之間的距離。
-    private static final float HOTBAR_LABEL_MARGIN = 0.032f;
+    private static final float HOTBAR_LABEL_MARGIN = 0.045f;
 
     // 創造模式背包的格子配置，接近 Minecraft 的 9 欄方塊頁。
     public static final int CREATIVE_COLUMNS = 9;
     public static final int CREATIVE_ROWS = 5;
     public static final int CREATIVE_SLOTS_PER_PAGE = CREATIVE_COLUMNS * CREATIVE_ROWS;
 
-    // 創造背包與箱子面板也使用 NDC 尺寸；滑鼠命中測試需與這些常數保持一致。
-    private static final float CREATIVE_SLOT_WIDTH = 0.105f;
+    // 創造背包與箱子面板也使用 NDC 尺寸；格子為正方形（寬度依比例換算），與 Minecraft 的緊密網格一致。
     private static final float CREATIVE_SLOT_HEIGHT = 0.125f;
-    private static final float CREATIVE_GAP = 0.012f;
+    private static final float CREATIVE_GAP = 0.0f;
     private static final float CREATIVE_GRID_TOP = 0.56f;
     private static final float CREATIVE_PANEL_PAD_X = 0.065f;
     private static final float CREATIVE_PANEL_PAD_TOP = 0.13f;
     private static final float CREATIVE_PANEL_PAD_BOTTOM = 0.11f;
 
-    // Minecraft 風格只取「方塊 UI 語言」：石色面板、土色凹槽、金色選取，不使用原版素材。
-    private static final float[] UI_INK = new float[] { 0.045f, 0.036f, 0.024f, 0.98f };
-    private static final float[] UI_SHADOW = new float[] { 0.02f, 0.018f, 0.014f, 0.68f };
-    private static final float[] UI_STONE_FACE = new float[] { 0.48f, 0.47f, 0.40f, 0.96f };
-    private static final float[] UI_STONE_LIGHT = new float[] { 0.68f, 0.65f, 0.53f, 0.96f };
-    private static final float[] UI_STONE_DARK = new float[] { 0.21f, 0.20f, 0.17f, 0.95f };
-    private static final float[] UI_DIRT_FACE = new float[] { 0.24f, 0.16f, 0.10f, 0.92f };
-    private static final float[] UI_RECESS = new float[] { 0.10f, 0.08f, 0.055f, 0.92f };
-    private static final float[] UI_GOLD = new float[] { 0.95f, 0.78f, 0.28f, 0.98f };
-    private static final float[] UI_GOLD_DARK = new float[] { 0.48f, 0.34f, 0.10f, 0.96f };
-    private static final float[] UI_BADGE_FACE = new float[] { 0.20f, 0.13f, 0.08f, 0.90f };
-    private static final float[] UI_PANEL_MOTE = new float[] { 0.38f, 0.36f, 0.30f, 0.30f };
+    // Minecraft 風格的灰階 UI 色票：#C6C6C6 面板、#8B8B8B 凹陷格、#373737 暗緣、白色高光與選取框。
+    private static final float[] UI_BLACK_BORDER = new float[] { 0.0f, 0.0f, 0.0f, 1.0f };
+    private static final float[] UI_PANEL_FACE = new float[] { 0.776f, 0.776f, 0.776f, 1.0f };
+    private static final float[] UI_PANEL_LIGHT = new float[] { 1.0f, 1.0f, 1.0f, 1.0f };
+    private static final float[] UI_PANEL_DARK = new float[] { 0.333f, 0.333f, 0.333f, 1.0f };
+    private static final float[] UI_SLOT_FACE = new float[] { 0.545f, 0.545f, 0.545f, 1.0f };
+    private static final float[] UI_SLOT_DARK = new float[] { 0.216f, 0.216f, 0.216f, 1.0f };
+    private static final float[] UI_SLOT_LIGHT = new float[] { 1.0f, 1.0f, 1.0f, 1.0f };
 
-    // 被選取格子的外框顏色。
-    private static final float[] BORDER_COLOR_SELECTED = UI_GOLD;
+    // 開啟容器 UI 時的全螢幕變暗效果，模擬 Minecraft 的背景遮罩。
+    private static final float[] UI_SCREEN_DIM = new float[] { 0.0f, 0.0f, 0.0f, 0.62f };
 
-    // 一般格子的外框顏色。
-    private static final float[] BORDER_COLOR_NORMAL = UI_STONE_DARK;
+    // hotbar 使用半透明深色底與灰色格線，選取格用白色粗框，貼近 Minecraft 原版外觀。
+    private static final float[] HOTBAR_BG = new float[] { 0.0f, 0.0f, 0.0f, 0.5f };
+    private static final float[] HOTBAR_BORDER = new float[] { 0.55f, 0.55f, 0.55f, 0.75f };
+    private static final float[] HOTBAR_SELECTION = new float[] { 1.0f, 1.0f, 1.0f, 1.0f };
 
-    // 被選取格子的背景顏色。
-    private static final float[] SLOT_COLOR_SELECTED = new float[] { 0.29f, 0.20f, 0.11f, 0.95f };
+    // 選取中的背包格子用半透明白色覆蓋，類似 Minecraft 的格子 hover 高亮。
+    private static final float[] SLOT_HIGHLIGHT = new float[] { 1.0f, 1.0f, 1.0f, 0.45f };
 
-    // 一般格子的背景顏色。
-    private static final float[] SLOT_COLOR_NORMAL = UI_DIRT_FACE;
+    // 一般文字為白色加深色陰影；面板標題用 Minecraft 的 #404040 深灰、不加陰影。
+    private static final float[] TEXT_COLOR = new float[] { 1.0f, 1.0f, 1.0f, 1.0f };
+    private static final float[] TEXT_SHADOW_COLOR = new float[] { 0.25f, 0.25f, 0.25f, 1.0f };
+    private static final float[] TITLE_COLOR = new float[] { 0.25f, 0.25f, 0.25f, 1.0f };
 
-    // 文字顏色。
-    private static final float[] TEXT_COLOR = new float[] { 0.98f, 0.94f, 0.82f, 0.98f };
+    // F3 偵錯文字每行的半透明底色。
+    private static final float[] DEBUG_BG_COLOR = new float[] { 0.0f, 0.0f, 0.0f, 0.35f };
 
-    // 文字背景顏色。
-    private static final float[] TEXT_BG_COLOR = UI_BADGE_FACE;
+    // 圖示細節沿用的暗色邊。
+    private static final float[] INVENTORY_SLOT_BORDER = UI_SLOT_DARK;
 
-    // 背包/箱子共用的 UI 色票，集中管理以避免面板與格子在不同函式中出現不一致色彩。
-    private static final float[] INVENTORY_PANEL_COLOR = UI_STONE_FACE;
-    private static final float[] INVENTORY_PANEL_SHADOW = UI_SHADOW;
-    private static final float[] INVENTORY_SLOT_COLOR = UI_RECESS;
-    private static final float[] INVENTORY_SLOT_BORDER = UI_STONE_DARK;
-    private static final float[] INVENTORY_SLOT_SELECTED = UI_GOLD;
+    // Minecraft 的準星是淺色小十字。
+    private static final float[] CROSSHAIR_COLOR = new float[] { 0.92f, 0.92f, 0.92f, 0.9f };
 
-    private static final float[] CROSSHAIR_COLOR = UI_INK;
+    // 面板與格子的立體邊厚度（NDC Y 單位；X 方向依視窗比例換算）。
+    private static final float PANEL_BORDER_Y = 0.010f;
+    private static final float BEVEL_Y = 0.008f;
 
     private static final int CHEST_COLUMNS = 9;
     private static final int CHEST_ROWS = 3;
-    private static final float CHEST_SLOT_WIDTH = 0.105f;
     private static final float CHEST_SLOT_HEIGHT = 0.125f;
-    private static final float CHEST_GAP = 0.012f;
+    private static final float CHEST_GAP = 0.0f;
     private static final float CHEST_GRID_TOP = 0.42f;
     private static final float CHEST_PANEL_PAD_X = 0.065f;
     private static final float CHEST_PANEL_PAD_TOP = 0.13f;
@@ -230,6 +220,12 @@ public final class HudRenderer implements AutoCloseable {
     private boolean cachedCreativeOpen;
     private boolean cachedChestOpen;
 
+    // 快取上一次方塊名稱提示是否顯示。
+    private boolean cachedLabelVisible;
+
+    // 快取上一次 F3 偵錯文字的內容簽章。
+    private int cachedDebugSignature;
+
     // 快取上一次 viewport 寬度。
     private int cachedViewportWidth = Integer.MIN_VALUE;
 
@@ -247,9 +243,10 @@ public final class HudRenderer implements AutoCloseable {
         hotbarMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 4);
     }
 
-    // 繪製 HUD。
-    public void render(BlockType[] hotbar, int selectedIndex, boolean creativeInventoryOpen, BlockType[] creativeBlocks,
-            int creativePage, int creativeTotalPages, boolean chestOpen) {
+    // 繪製 HUD。debugLines 為 null 時不顯示 F3 偵錯文字。
+    public void render(BlockType[] hotbar, int selectedIndex, boolean showHotbarLabel, boolean creativeInventoryOpen,
+            BlockType[] creativeBlocks, int creativePage, int creativeTotalPages, boolean chestOpen,
+            String[] debugLines) {
         glDisable(GL_DEPTH_TEST);
         shader.use();
 
@@ -262,6 +259,7 @@ public final class HudRenderer implements AutoCloseable {
         boolean viewportChanged = viewportWidth != cachedViewportWidth || viewportHeight != cachedViewportHeight;
         int hotbarSignature = hotbarSignature(hotbar);
         int creativeSignature = creativeInventoryOpen && creativeBlocks != null ? hotbarSignature(creativeBlocks) : 0;
+        int debugSignature = debugLines != null ? java.util.Arrays.hashCode(debugLines) : 0;
 
         if (viewportChanged) {
             updateCrosshairMesh(viewportAspect);
@@ -271,20 +269,24 @@ public final class HudRenderer implements AutoCloseable {
         if (viewportChanged
                 || hotbarSignature != cachedHotbarSignature
                 || selectedIndex != cachedSelectedIndex
+                || showHotbarLabel != cachedLabelVisible
                 || creativeSignature != cachedCreativeSignature
                 || creativePage != cachedCreativePage
                 || creativeTotalPages != cachedCreativeTotalPages
                 || creativeInventoryOpen != cachedCreativeOpen
-                || chestOpen != cachedChestOpen) {
-            updateHotbarMesh(hotbar, selectedIndex, viewportAspect,
-                    creativeInventoryOpen, creativeBlocks, creativePage, creativeTotalPages, chestOpen);
+                || chestOpen != cachedChestOpen
+                || debugSignature != cachedDebugSignature) {
+            updateHotbarMesh(hotbar, selectedIndex, showHotbarLabel, viewportAspect,
+                    creativeInventoryOpen, creativeBlocks, creativePage, creativeTotalPages, chestOpen, debugLines);
             cachedHotbarSignature = hotbarSignature;
             cachedSelectedIndex = selectedIndex;
+            cachedLabelVisible = showHotbarLabel;
             cachedCreativeSignature = creativeSignature;
             cachedCreativePage = creativePage;
             cachedCreativeTotalPages = creativeTotalPages;
             cachedCreativeOpen = creativeInventoryOpen;
             cachedChestOpen = chestOpen;
+            cachedDebugSignature = debugSignature;
             cachedViewportWidth = viewportWidth;
             cachedViewportHeight = viewportHeight;
         }
@@ -318,8 +320,10 @@ public final class HudRenderer implements AutoCloseable {
         double ndcX = (mouseX / (double) windowWidth) * 2.0 - 1.0;
         double ndcY = 1.0 - (mouseY / (double) windowHeight) * 2.0;
 
-        float startX = creativeGridStartX();
-        float cellWidth = CREATIVE_SLOT_WIDTH + CREATIVE_GAP;
+        float aspect = (float) windowWidth / (float) windowHeight;
+        float slotWidth = squareSlotWidth(CREATIVE_SLOT_HEIGHT, aspect);
+        float startX = creativeGridStartX(aspect);
+        float cellWidth = slotWidth + CREATIVE_GAP;
         float cellHeight = CREATIVE_SLOT_HEIGHT + CREATIVE_GAP;
 
         for (int row = 0; row < CREATIVE_ROWS; row++) {
@@ -330,7 +334,7 @@ public final class HudRenderer implements AutoCloseable {
 
             for (int col = 0; col < CREATIVE_COLUMNS; col++) {
                 float slotX = startX + col * cellWidth;
-                if (ndcX < slotX || ndcX > slotX + CREATIVE_SLOT_WIDTH) {
+                if (ndcX < slotX || ndcX > slotX + slotWidth) {
                     continue;
                 }
 
@@ -340,6 +344,11 @@ public final class HudRenderer implements AutoCloseable {
         }
 
         return -1;
+    }
+
+    // 把 NDC 高度換算成在目前視窗比例下看起來是正方形的 NDC 寬度。
+    private static float squareSlotWidth(float slotHeight, float aspect) {
+        return slotHeight / Math.max(0.1f, aspect);
     }
 
     // 準星由兩個矩形組成，寬度按 aspect 修正，避免寬螢幕下變成橫向拉長的十字。
@@ -357,69 +366,88 @@ public final class HudRenderer implements AutoCloseable {
     }
 
     // 依照 hotbar 內容與目前選取狀態，重新建立 hotbar mesh。
-    private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex, float viewportAspect,
-            boolean creativeInventoryOpen, BlockType[] creativeBlocks, int creativePage, int creativeTotalPages,
-            boolean chestOpen) {
+    private void updateHotbarMesh(BlockType[] hotbar, int selectedIndex, boolean showHotbarLabel,
+            float viewportAspect, boolean creativeInventoryOpen, BlockType[] creativeBlocks, int creativePage,
+            int creativeTotalPages, boolean chestOpen, String[] debugLines) {
         hotbarVertices.clear();
 
         if (chestOpen) {
-            addChestPanel(hotbarVertices);
+            addChestPanel(hotbarVertices, viewportAspect);
         } else if (creativeInventoryOpen && creativeBlocks != null) {
             addCreativeInventoryPanel(hotbarVertices, hotbar, selectedIndex, creativeBlocks, creativePage,
                     creativeTotalPages, viewportAspect);
         }
 
+        if (debugLines != null) {
+            addDebugOverlay(hotbarVertices, debugLines);
+        }
+
+        float aspect = Math.max(0.1f, viewportAspect);
+        float slotWidth = squareSlotWidth(HOTBAR_SLOT_HEIGHT, aspect);
         int slots = hotbar.length;
-        float totalWidth = slots * HOTBAR_SLOT_WIDTH + (slots - 1) * HOTBAR_GAP;
+        float totalWidth = slots * slotWidth;
         float startX = -totalWidth * 0.5f;
         float y = HOTBAR_Y;
-        float barPad = 0.024f;
+        float lineY = 0.006f;
+        float lineX = lineY / aspect;
 
-        addBlockPanel(hotbarVertices, startX - barPad, y - barPad,
-                totalWidth + barPad * 2.0f, HOTBAR_SLOT_HEIGHT + barPad * 2.0f, false);
+        // Minecraft 式 hotbar：半透明深色底、灰色外框與格線。
+        addRect(hotbarVertices, startX - lineX * 2.0f, y - lineY * 2.0f,
+                totalWidth + lineX * 4.0f, HOTBAR_SLOT_HEIGHT + lineY * 4.0f, HOTBAR_BORDER);
+        addRect(hotbarVertices, startX - lineX, y - lineY,
+                totalWidth + lineX * 2.0f, HOTBAR_SLOT_HEIGHT + lineY * 2.0f, HOTBAR_BG);
 
         for (int i = 0; i < slots; i++) {
-            if (i == selectedIndex) {
-                continue;
-            }
-            addHotbarSlot(hotbarVertices, hotbar[i], startX + i * (HOTBAR_SLOT_WIDTH + HOTBAR_GAP), y,
-                    viewportAspect, false);
+            float slotX = startX + i * slotWidth;
+            addFrame(hotbarVertices, slotX, y, slotWidth, HOTBAR_SLOT_HEIGHT, lineX, lineY, HOTBAR_BORDER);
+            addHotbarIcon(hotbarVertices, hotbar[i], slotX, y, slotWidth, aspect);
         }
 
+        // 被選取的格子用比格子稍大的白色粗框標示，與 Minecraft 的選取框一致。
         if (selectedIndex >= 0 && selectedIndex < slots) {
-            addHotbarSlot(hotbarVertices, hotbar[selectedIndex],
-                    startX + selectedIndex * (HOTBAR_SLOT_WIDTH + HOTBAR_GAP), y, viewportAspect, true);
+            float selX = startX + selectedIndex * slotWidth;
+            addFrame(hotbarVertices, selX - lineX * 2.0f, y - lineY * 2.0f,
+                    slotWidth + lineX * 4.0f, HOTBAR_SLOT_HEIGHT + lineY * 4.0f,
+                    lineX * 2.0f, lineY * 2.0f, HOTBAR_SELECTION);
         }
 
-        // 在 hotbar 上方顯示目前選取方塊的名稱。
-        if (selectedIndex >= 0 && selectedIndex < hotbar.length) {
+        // 切換選取後，名稱在 hotbar 上方短暫顯示，逾時後由 Game 收回 showHotbarLabel。
+        if (showHotbarLabel && selectedIndex >= 0 && selectedIndex < hotbar.length) {
             String label = hotbar[selectedIndex].displayName();
-            addCenteredText(hotbarVertices, label, HOTBAR_Y + HOTBAR_SLOT_HEIGHT + HOTBAR_LABEL_MARGIN);
+            addCenteredText(hotbarVertices, label, HOTBAR_Y + HOTBAR_SLOT_HEIGHT + HOTBAR_LABEL_MARGIN,
+                    TEXT_COLOR, true);
         }
 
         hotbarMesh.update(hotbarVertices.toArray(), STRIDE);
     }
 
-    private void addHotbarSlot(FloatArrayBuilder out, BlockType block, float x, float y, float viewportAspect,
-            boolean selected) {
-        addSlot(out, x, y, HOTBAR_SLOT_WIDTH, HOTBAR_SLOT_HEIGHT, selected, false);
-
-        // 根據畫面比例調整圖示寬度，避免寬螢幕下被拉扁。
-        float pixelAspect = Math.max(0.5f, viewportAspect);
-        float cubeHeight = Math.min(HOTBAR_SLOT_WIDTH, HOTBAR_SLOT_HEIGHT) * 0.44f;
-        float cubeWidth = cubeHeight / pixelAspect;
+    // 在 hotbar 格子內畫出方塊小圖示。
+    private void addHotbarIcon(FloatArrayBuilder out, BlockType block, float x, float y, float slotWidth,
+            float aspect) {
+        float cubeHeight = HOTBAR_SLOT_HEIGHT * 0.44f;
+        float cubeWidth = cubeHeight / Math.max(0.5f, aspect);
         float depthX = cubeWidth * 0.30f;
         float depthY = cubeHeight * 0.22f;
-        float cubeX = x + (HOTBAR_SLOT_WIDTH - (cubeWidth + depthX)) * 0.5f;
+        float cubeX = x + (slotWidth - (cubeWidth + depthX)) * 0.5f;
         float cubeY = y + (HOTBAR_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
 
-        // 畫出代表方塊或基本物品的小圖示。
         addBlockIcon(out, block, cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY);
     }
 
+    // 用四條邊框條組成一個空心矩形框。
+    private void addFrame(FloatArrayBuilder out, float x, float y, float width, float height,
+            float thicknessX, float thicknessY, float[] color) {
+        addRect(out, x, y + height - thicknessY, width, thicknessY, color);
+        addRect(out, x, y, width, thicknessY, color);
+        addRect(out, x, y + thicknessY, thicknessX, height - thicknessY * 2.0f, color);
+        addRect(out, x + width - thicknessX, y + thicknessY, thicknessX, height - thicknessY * 2.0f, color);
+    }
+
     // 目前箱子只畫空格介面；未來接入容器資料時可在這裡填入每格物品圖示。
-    private void addChestPanel(FloatArrayBuilder out) {
-        float gridWidth = CHEST_COLUMNS * CHEST_SLOT_WIDTH + (CHEST_COLUMNS - 1) * CHEST_GAP;
+    private void addChestPanel(FloatArrayBuilder out, float viewportAspect) {
+        float aspect = Math.max(0.1f, viewportAspect);
+        float slotWidth = squareSlotWidth(CHEST_SLOT_HEIGHT, aspect);
+        float gridWidth = CHEST_COLUMNS * slotWidth + (CHEST_COLUMNS - 1) * CHEST_GAP;
         float gridHeight = CHEST_ROWS * CHEST_SLOT_HEIGHT + (CHEST_ROWS - 1) * CHEST_GAP;
         float startX = -gridWidth * 0.5f;
         float gridBottom = CHEST_GRID_TOP - gridHeight;
@@ -428,14 +456,17 @@ public final class HudRenderer implements AutoCloseable {
         float panelWidth = gridWidth + CHEST_PANEL_PAD_X * 2.0f;
         float panelHeight = gridHeight + CHEST_PANEL_PAD_TOP + CHEST_PANEL_PAD_BOTTOM;
 
-        addBlockPanel(out, panelX, panelY, panelWidth, panelHeight);
-        addCenteredText(out, "Chest", CHEST_GRID_TOP + 0.046f);
+        // Minecraft 開啟容器時，背後的世界會整體變暗。
+        addRect(out, -1.0f, -1.0f, 2.0f, 2.0f, UI_SCREEN_DIM);
+
+        addBlockPanel(out, panelX, panelY, panelWidth, panelHeight, aspect);
+        addCenteredText(out, "Chest", CHEST_GRID_TOP + 0.046f, TITLE_COLOR, false);
 
         for (int row = 0; row < CHEST_ROWS; row++) {
             for (int col = 0; col < CHEST_COLUMNS; col++) {
-                float x = startX + col * (CHEST_SLOT_WIDTH + CHEST_GAP);
+                float x = startX + col * (slotWidth + CHEST_GAP);
                 float y = CHEST_GRID_TOP - row * (CHEST_SLOT_HEIGHT + CHEST_GAP) - CHEST_SLOT_HEIGHT;
-                addSlot(out, x, y, CHEST_SLOT_WIDTH, CHEST_SLOT_HEIGHT, false);
+                addSlot(out, x, y, slotWidth, CHEST_SLOT_HEIGHT, false, aspect);
             }
         }
     }
@@ -443,20 +474,25 @@ public final class HudRenderer implements AutoCloseable {
     // 建立創造背包面板與當頁方塊圖示；選中狀態以目前 hotbar 方塊反查，不另外保存 UI 狀態。
     private void addCreativeInventoryPanel(FloatArrayBuilder out, BlockType[] hotbar, int selectedIndex,
             BlockType[] creativeBlocks, int page, int totalPages, float viewportAspect) {
-        float gridWidth = creativeGridWidth();
+        float aspect = Math.max(0.1f, viewportAspect);
+        float slotWidth = squareSlotWidth(CREATIVE_SLOT_HEIGHT, aspect);
+        float gridWidth = creativeGridWidth(aspect);
         float gridHeight = CREATIVE_ROWS * CREATIVE_SLOT_HEIGHT + (CREATIVE_ROWS - 1) * CREATIVE_GAP;
-        float startX = creativeGridStartX();
+        float startX = creativeGridStartX(aspect);
         float gridBottom = CREATIVE_GRID_TOP - gridHeight;
         float panelX = startX - CREATIVE_PANEL_PAD_X;
         float panelY = gridBottom - CREATIVE_PANEL_PAD_BOTTOM;
         float panelWidth = gridWidth + CREATIVE_PANEL_PAD_X * 2.0f;
         float panelHeight = gridHeight + CREATIVE_PANEL_PAD_TOP + CREATIVE_PANEL_PAD_BOTTOM;
 
-        addBlockPanel(out, panelX, panelY, panelWidth, panelHeight);
-        addCenteredText(out, "Creative", CREATIVE_GRID_TOP + 0.046f);
+        // Minecraft 開啟背包時，背後的世界會整體變暗。
+        addRect(out, -1.0f, -1.0f, 2.0f, 2.0f, UI_SCREEN_DIM);
+
+        addBlockPanel(out, panelX, panelY, panelWidth, panelHeight, aspect);
+        addCenteredText(out, "Creative", CREATIVE_GRID_TOP + 0.046f, TITLE_COLOR, false);
 
         BlockType selected = selectedIndex >= 0 && selectedIndex < hotbar.length ? hotbar[selectedIndex] : null;
-        float cellWidth = CREATIVE_SLOT_WIDTH + CREATIVE_GAP;
+        float cellWidth = slotWidth + CREATIVE_GAP;
         float cellHeight = CREATIVE_SLOT_HEIGHT + CREATIVE_GAP;
         int firstBlock = Math.max(0, page) * CREATIVE_SLOTS_PER_PAGE;
 
@@ -468,18 +504,17 @@ public final class HudRenderer implements AutoCloseable {
                 boolean hasBlock = blockIndex < creativeBlocks.length;
                 boolean selectedBlock = hasBlock && creativeBlocks[blockIndex] == selected;
 
-                addSlot(out, x, y, CREATIVE_SLOT_WIDTH, CREATIVE_SLOT_HEIGHT, selectedBlock);
+                addSlot(out, x, y, slotWidth, CREATIVE_SLOT_HEIGHT, selectedBlock, aspect);
 
                 if (!hasBlock) {
                     continue;
                 }
 
-                float pixelAspect = Math.max(0.5f, viewportAspect);
-                float cubeHeight = Math.min(CREATIVE_SLOT_WIDTH, CREATIVE_SLOT_HEIGHT) * 0.46f;
-                float cubeWidth = cubeHeight / pixelAspect;
+                float cubeHeight = CREATIVE_SLOT_HEIGHT * 0.46f;
+                float cubeWidth = cubeHeight / Math.max(0.5f, aspect);
                 float depthX = cubeWidth * 0.30f;
                 float depthY = cubeHeight * 0.22f;
-                float cubeX = x + (CREATIVE_SLOT_WIDTH - (cubeWidth + depthX)) * 0.5f;
+                float cubeX = x + (slotWidth - (cubeWidth + depthX)) * 0.5f;
                 float cubeY = y + (CREATIVE_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
 
                 addBlockIcon(out, creativeBlocks[blockIndex], cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY);
@@ -487,109 +522,58 @@ public final class HudRenderer implements AutoCloseable {
         }
 
         String pageLabel = "Page " + Math.min(page + 1, Math.max(1, totalPages)) + "/" + Math.max(1, totalPages);
-        addCenteredText(out, pageLabel, panelY + 0.035f);
+        addCenteredText(out, pageLabel, panelY + 0.035f, TITLE_COLOR, false);
     }
 
-    private static float creativeGridWidth() {
-        return CREATIVE_COLUMNS * CREATIVE_SLOT_WIDTH + (CREATIVE_COLUMNS - 1) * CREATIVE_GAP;
+    private static float creativeGridWidth(float aspect) {
+        return CREATIVE_COLUMNS * squareSlotWidth(CREATIVE_SLOT_HEIGHT, aspect)
+                + (CREATIVE_COLUMNS - 1) * CREATIVE_GAP;
     }
 
-    private static float creativeGridStartX() {
-        return -creativeGridWidth() * 0.5f;
+    private static float creativeGridStartX(float aspect) {
+        return -creativeGridWidth(aspect) * 0.5f;
     }
 
-    // 共用方塊面板：暗色外框、石質面、簡單高光與低調格狀紋理。
-    private void addBlockPanel(FloatArrayBuilder out, float x, float y, float width, float height) {
-        addBlockPanel(out, x, y, width, height, true);
+    // Minecraft 式面板：黑色外框、#C6C6C6 灰面、左上白色高光與右下深灰陰影。
+    private void addBlockPanel(FloatArrayBuilder out, float x, float y, float width, float height, float aspect) {
+        float borderY = PANEL_BORDER_Y;
+        float borderX = borderY / Math.max(0.1f, aspect);
+        float bevelY = BEVEL_Y;
+        float bevelX = bevelY / Math.max(0.1f, aspect);
+
+        addRect(out, x, y, width, height, UI_BLACK_BORDER);
+
+        float faceX = x + borderX;
+        float faceY = y + borderY;
+        float faceWidth = width - borderX * 2.0f;
+        float faceHeight = height - borderY * 2.0f;
+        addRect(out, faceX, faceY, faceWidth, faceHeight, UI_PANEL_FACE);
+
+        // 光源來自左上：上與左是白色高光，下與右是深灰陰影。
+        addRect(out, faceX, faceY + faceHeight - bevelY, faceWidth, bevelY, UI_PANEL_LIGHT);
+        addRect(out, faceX, faceY, bevelX, faceHeight, UI_PANEL_LIGHT);
+        addRect(out, faceX + bevelX, faceY, faceWidth - bevelX, bevelY, UI_PANEL_DARK);
+        addRect(out, faceX + faceWidth - bevelX, faceY, bevelX, faceHeight - bevelY, UI_PANEL_DARK);
     }
 
-    private void addBlockPanel(FloatArrayBuilder out, float x, float y, float width, float height,
-            boolean shadow) {
-        float shadowOffset = 0.018f;
-        float outer = 0.014f;
-        float inner = 0.010f;
-
-        if (shadow) {
-            addRect(out, x + shadowOffset, y - shadowOffset, width, height, INVENTORY_PANEL_SHADOW);
-        }
-        addRect(out, x, y, width, height, UI_INK);
-        addRect(out, x + outer, y + outer, width - outer * 2.0f, height - outer * 2.0f, UI_STONE_DARK);
-        addRect(out, x + outer + inner, y + outer + inner,
-                width - (outer + inner) * 2.0f, height - (outer + inner) * 2.0f, INVENTORY_PANEL_COLOR);
-
-        float faceX = x + outer + inner;
-        float faceY = y + outer + inner;
-        float faceWidth = width - (outer + inner) * 2.0f;
-        float faceHeight = height - (outer + inner) * 2.0f;
-        addPanelMosaic(out, faceX, faceY, faceWidth, faceHeight);
-
-        float bevel = 0.006f;
-        addRect(out, faceX, faceY + faceHeight - bevel, faceWidth, bevel, UI_STONE_LIGHT);
-        addRect(out, faceX, faceY, bevel, faceHeight, UI_STONE_LIGHT);
-        addRect(out, faceX, faceY, faceWidth, bevel, UI_STONE_DARK);
-        addRect(out, faceX + faceWidth - bevel, faceY, bevel, faceHeight, UI_STONE_DARK);
-    }
-
-    private void addPanelMosaic(FloatArrayBuilder out, float x, float y, float width, float height) {
-        float step = 0.060f;
-        float tile = 0.018f;
-        int cols = Math.max(1, (int) (width / step));
-        int rows = Math.max(1, (int) (height / step));
-
-        for (int row = 0; row < rows; row++) {
-            for (int col = 0; col < cols; col++) {
-                if ((row + col * 2) % 5 != 0) {
-                    continue;
-                }
-
-                float tx = x + 0.018f + col * step;
-                float ty = y + 0.018f + row * step;
-                if (tx + tile > x + width || ty + tile > y + height) {
-                    continue;
-                }
-                addRect(out, tx, ty, tile, tile, UI_PANEL_MOTE);
-            }
-        }
-    }
-
-    // 共用 inventory/action-bar 格子：外框、凹槽、高光與選中狀態一致處理。
-    private void addSlot(FloatArrayBuilder out, float x, float y, float width, float height, boolean selected) {
-        addSlot(out, x, y, width, height, selected, true);
-    }
-
+    // Minecraft 式凹陷格子：#8B8B8B 灰面、左上 #373737 暗緣、右下白色亮緣。
     private void addSlot(FloatArrayBuilder out, float x, float y, float width, float height, boolean selected,
-            boolean shadow) {
-        float border = selected ? 0.010f : 0.006f;
-        float[] outerColor = selected ? UI_GOLD_DARK : BORDER_COLOR_NORMAL;
-        float[] rimColor = selected ? BORDER_COLOR_SELECTED : UI_INK;
-        float[] faceColor = selected ? SLOT_COLOR_SELECTED : SLOT_COLOR_NORMAL;
+            float aspect) {
+        float bevelY = BEVEL_Y * 0.75f;
+        float bevelX = bevelY / Math.max(0.1f, aspect);
 
-        if (shadow) {
-            addRect(out, x + 0.006f, y - 0.006f, width, height, UI_SHADOW);
+        addRect(out, x, y, width, height, UI_SLOT_FACE);
+
+        // 凹陷面的光影與面板相反：上與左是暗緣，下與右是亮緣。
+        addRect(out, x, y + height - bevelY, width, bevelY, UI_SLOT_DARK);
+        addRect(out, x, y, bevelX, height - bevelY, UI_SLOT_DARK);
+        addRect(out, x + bevelX, y, width - bevelX, bevelY, UI_SLOT_LIGHT);
+        addRect(out, x + width - bevelX, y + bevelY, bevelX, height - bevelY * 2.0f, UI_SLOT_LIGHT);
+
+        // 對應目前 hotbar 選取方塊的格子，用半透明白色覆蓋標示。
+        if (selected) {
+            addRect(out, x + bevelX, y + bevelY, width - bevelX * 2.0f, height - bevelY * 2.0f, SLOT_HIGHLIGHT);
         }
-        addRect(out, x - border * 1.45f, y - border * 1.45f,
-                width + border * 2.9f, height + border * 2.9f, outerColor);
-        addRect(out, x - border, y - border, width + border * 2.0f, height + border * 2.0f, rimColor);
-        addRect(out, x, y, width, height, faceColor);
-
-        float inset = Math.min(width, height) * 0.12f;
-        addRect(out, x + inset, y + inset, width - inset * 2.0f, height - inset * 2.0f, INVENTORY_SLOT_COLOR);
-
-        float bevel = Math.min(width, height) * 0.055f;
-        addRect(out, x, y + height - bevel, width, bevel, selected ? UI_GOLD : UI_STONE_LIGHT);
-        addRect(out, x, y, bevel, height, selected ? UI_GOLD : UI_STONE_LIGHT);
-        addRect(out, x, y, width, bevel, selected ? UI_GOLD_DARK : UI_STONE_DARK);
-        addRect(out, x + width - bevel, y, bevel, height, selected ? UI_GOLD_DARK : UI_STONE_DARK);
-    }
-
-    private void addTextBadge(FloatArrayBuilder out, float x, float y, float width, float height) {
-        float border = 0.008f;
-        addRect(out, x + 0.010f, y - 0.010f, width, height, UI_SHADOW);
-        addRect(out, x, y, width, height, UI_INK);
-        addRect(out, x + border, y + border, width - border * 2.0f, height - border * 2.0f, TEXT_BG_COLOR);
-        addRect(out, x + border, y + height - border * 1.4f, width - border * 2.0f, border * 0.7f,
-                UI_STONE_LIGHT);
-        addRect(out, x + border, y + border, width - border * 2.0f, border * 0.7f, UI_STONE_DARK);
     }
 
     // 加入一個矩形。
@@ -774,29 +758,62 @@ public final class HudRenderer implements AutoCloseable {
         return Math.max(channel * 0.72f, 0.0f);
     }
 
-    // 在畫面中央加入一段置中的文字。
-    private void addCenteredText(FloatArrayBuilder out, String text, float y) {
+    // 在畫面中央加入一段置中的文字；Minecraft 的文字不畫底框，亮色文字配右下深色陰影。
+    private void addCenteredText(FloatArrayBuilder out, String text, float y, float[] color, boolean shadow) {
         if (text == null || text.isBlank()) {
             return;
         }
+        addText(out, text, -textWidth(text) * 0.5f, y, color, shadow);
+    }
 
-        int charCount = text.length();
-        int pixelColumns = charCount * FONT_GLYPH_WIDTH + Math.max(0, charCount - 1) * FONT_GLYPH_SPACING;
-        float textWidth = pixelColumns * TEXT_PIXEL_WIDTH;
-        float textHeight = FONT_GLYPH_HEIGHT * TEXT_PIXEL_HEIGHT;
-        float startX = -textWidth * 0.5f;
+    // 從指定起點往右畫一段文字。
+    private void addText(FloatArrayBuilder out, String text, float startX, float y, float[] color, boolean shadow) {
+        float advance = (FONT_GLYPH_WIDTH + FONT_GLYPH_SPACING) * TEXT_PIXEL_WIDTH;
 
-        // 先畫文字背景框。
-        float padX = TEXT_PIXEL_WIDTH * 4.0f;
-        float padY = TEXT_PIXEL_HEIGHT * 2.6f;
-        addTextBadge(out, startX - padX, y - padY, textWidth + padX * 2.0f, textHeight + padY * 2.0f);
+        // 陰影向右下偏移一個文字像素，模擬 Minecraft 字型的投影。
+        if (shadow) {
+            float cursorX = startX + TEXT_PIXEL_WIDTH;
+            for (int i = 0; i < text.length(); i++) {
+                String[] glyph = glyphFor(text.charAt(i));
+                addGlyph(out, cursorX, y - TEXT_PIXEL_HEIGHT, glyph, TEXT_SHADOW_COLOR);
+                cursorX += advance;
+            }
+        }
 
-        // 再逐字畫出文字。
         float cursorX = startX;
         for (int i = 0; i < text.length(); i++) {
             String[] glyph = glyphFor(text.charAt(i));
-            addGlyph(out, cursorX, y, glyph, TEXT_COLOR);
-            cursorX += (FONT_GLYPH_WIDTH + FONT_GLYPH_SPACING) * TEXT_PIXEL_WIDTH;
+            addGlyph(out, cursorX, y, glyph, color);
+            cursorX += advance;
+        }
+    }
+
+    // 計算一段文字的 NDC 寬度。
+    private static float textWidth(String text) {
+        int charCount = text.length();
+        int pixelColumns = charCount * FONT_GLYPH_WIDTH + Math.max(0, charCount - 1) * FONT_GLYPH_SPACING;
+        return pixelColumns * TEXT_PIXEL_WIDTH;
+    }
+
+    // 左上角的 F3 偵錯文字；每行帶半透明深色底，仿照新版 Minecraft 的 F3 樣式。
+    private void addDebugOverlay(FloatArrayBuilder out, String[] lines) {
+        float x = -0.985f;
+        float lineHeight = FONT_GLYPH_HEIGHT * TEXT_PIXEL_HEIGHT;
+        float lineStep = lineHeight + TEXT_PIXEL_HEIGHT * 3.0f;
+        float y = 0.96f - lineHeight;
+
+        for (String line : lines) {
+            if (line == null || line.isBlank()) {
+                y -= lineStep;
+                continue;
+            }
+
+            float padX = TEXT_PIXEL_WIDTH * 2.0f;
+            float padY = TEXT_PIXEL_HEIGHT * 1.2f;
+            addRect(out, x - padX, y - padY, textWidth(line) + padX * 2.0f, lineHeight + padY * 2.0f,
+                    DEBUG_BG_COLOR);
+            addText(out, line, x, y, TEXT_COLOR, true);
+            y -= lineStep;
         }
     }
 
@@ -898,6 +915,10 @@ public final class HudRenderer implements AutoCloseable {
         putGlyph(font, '8', "01110", "10001", "10001", "01110", "10001", "10001", "01110");
         putGlyph(font, '9', "01110", "10001", "10001", "01111", "00001", "00001", "01110");
         putGlyph(font, '/', "00001", "00010", "00010", "00100", "01000", "01000", "10000");
+        putGlyph(font, ':', "00000", "01100", "01100", "00000", "01100", "01100", "00000");
+        putGlyph(font, '.', "00000", "00000", "00000", "00000", "00000", "01100", "01100");
+        putGlyph(font, ',', "00000", "00000", "00000", "00000", "01100", "01100", "01000");
+        putGlyph(font, '-', "00000", "00000", "00000", "01110", "00000", "00000", "00000");
 
         return font;
     }

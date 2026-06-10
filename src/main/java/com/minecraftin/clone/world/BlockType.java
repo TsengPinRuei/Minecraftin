@@ -171,6 +171,10 @@ public enum BlockType {
     // 每種方塊是否為完整方塊的快取；ChunkMesher 會在熱路徑中頻繁查詢。
     private static final boolean[] FULL_CUBE_FLAGS;
 
+    // 每種方塊的發光強度與額外光衰減快取；光照 BFS 在熱路徑中頻繁查詢。
+    private static final int[] LIGHT_EMISSION;
+    private static final int[] LIGHT_OPACITY;
+
     // 以下碰撞/渲染盒都使用方塊局部座標，讓 Player、ChunkMesher 與互動判定共用同一份形狀定義。
     private static final BlockBounds[] EMPTY_BOUNDS = new BlockBounds[0];
     private static final BlockBounds[] FULL_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) };
@@ -250,6 +254,13 @@ public enum BlockType {
         for (BlockType type : types) {
             FULL_CUBE_FLAGS[type.ordinal()] = type.computeIsFullCube();
         }
+
+        LIGHT_EMISSION = new int[types.length];
+        LIGHT_OPACITY = new int[types.length];
+        for (BlockType type : types) {
+            LIGHT_EMISSION[type.ordinal()] = type.computeLightEmission();
+            LIGHT_OPACITY[type.ordinal()] = type.computeLightOpacity();
+        }
     }
 
     // 方塊的數字編號。
@@ -310,15 +321,20 @@ public enum BlockType {
         return DISPLAY_NAMES[ordinal()];
     }
 
-    // 建立顯示名稱；只在 enum 靜態初始化時呼叫一次。
+    // 建立顯示名稱；只在 enum 靜態初始化時呼叫一次，名稱盡量對齊 Minecraft 的英文方塊名。
     private String computeDisplayName() {
         return switch (this) {
-            case RED_BLOCK -> "Red";
-            case ORANGE_BLOCK -> "Orange";
-            case YELLOW_BLOCK -> "Yellow";
-            case GREEN_BLOCK -> "Green";
-            case BLUE_BLOCK -> "Blue";
-            case PURPLE_BLOCK -> "Purple";
+            case GRASS -> "Grass Block";
+            case LOG -> "Oak Log";
+            case PLANKS -> "Oak Planks";
+            case LEAVES -> "Oak Leaves";
+            case SNOW -> "Snow Block";
+            case RED_BLOCK -> "Red Concrete";
+            case ORANGE_BLOCK -> "Orange Concrete";
+            case YELLOW_BLOCK -> "Yellow Concrete";
+            case GREEN_BLOCK -> "Green Concrete";
+            case BLUE_BLOCK -> "Blue Concrete";
+            case PURPLE_BLOCK -> "Purple Concrete";
             case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST -> "Oak Stairs";
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
                     OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
@@ -374,6 +390,36 @@ public enum BlockType {
     // 是否可視為完整 1x1x1 方塊。這會影響 meshing 的鄰面裁切與玩家碰撞盒。
     public boolean isFullCube() {
         return FULL_CUBE_FLAGS[ordinal()];
+    }
+
+    // 方塊本身的發光強度（0 到 15）。
+    public int lightEmission() {
+        return LIGHT_EMISSION[ordinal()];
+    }
+
+    // 光線穿過這個方塊時的額外衰減；15 代表完全阻擋（每跨一格本來就會衰減 1）。
+    public int lightOpacity() {
+        return LIGHT_OPACITY[ordinal()];
+    }
+
+    // 建立發光強度；只在 enum 靜態初始化時呼叫一次，數值對齊 Minecraft。
+    private int computeLightEmission() {
+        return switch (this) {
+            case TORCH -> 14;
+            case GLOWSTONE, SEA_LANTERN -> 15;
+            default -> 0;
+        };
+    }
+
+    // 建立額外光衰減；只在 enum 靜態初始化時呼叫一次。
+    private int computeLightOpacity() {
+        if (this == WATER) {
+            return 2;
+        }
+        if (this == LEAVES) {
+            return 1;
+        }
+        return isOpaque() && isFullCube() ? 15 : 0;
     }
 
     // 建立完整方塊旗標；只在 enum 靜態初始化時呼叫一次。

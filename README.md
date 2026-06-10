@@ -1,6 +1,6 @@
 # Minecraftin
 
-Minecraftin is a small Java voxel sandbox inspired by classic Minecraft. It is currently a creative-mode project: you can explore procedural terrain, move in first person, fly, place and break blocks, use a creative block palette, and save the local world.
+Minecraftin is a small Java + LWJGL voxel sandbox inspired by classic Minecraft. It is currently a creative-mode project: you can explore procedural terrain, move in first person, fly, place and break blocks, use a creative block palette, and save the local world.
 
 ## Key Features
 
@@ -316,23 +316,3 @@ Check that the project folder is writable and that the `saves/` directory can be
 ### Changed the Default Seed but the World Did Not Change
 
 Delete `saves/world.dat`. Existing saves keep their original seed.
-
-## Limitations and Notes
-
-- The project is creative-mode only. Survival systems such as health, hunger, crafting, item stacks, and full inventory management are not implemented.
-- Chests open an empty UI placeholder. They do not store items yet.
-- Furnaces and crafting tables are placeable blocks, but they do not have crafting or smelting behavior yet.
-- There are no mobs, entity AI, day/night cycle, or weather systems.
-- The structured pixel-art texture atlas is generated in code. There are no external block texture image files to replace.
-- Save compatibility depends on stable `BlockType.id()` values. Do not reorder existing block IDs when adding blocks.
-- Shader files should keep `#version 330 core` as the first line.
-- Generated files and local data such as `build/`, `.gradle/`, `.gradle-home/`, and `saves/` are ignored by Git.
-
-## Development Notes
-
-- Keep changes small and focused. Match the existing Java and Gradle style.
-- Use `GameConfig.java` for simple gameplay constants before adding new configuration systems.
-- Use `./gradlew test` and `./gradlew build` before sharing changes.
-- When editing rendering code, keep `ChunkMesher`, `WorldRenderer`, and `world.vert` attribute layouts in sync.
-- When editing save-related code, preserve the existing save format rules unless you intentionally add a migration path.
-- When adding blocks, append new enum values instead of changing existing IDs.

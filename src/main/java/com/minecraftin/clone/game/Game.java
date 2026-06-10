@@ -202,6 +202,7 @@ public final class Game {
 
             // 推進世界內的非玩家狀態，例如放置水的逐步流動動畫。
             world.update(delta);
+            worldRenderer.update(delta);
 
             // 渲染世界與快捷欄
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
@@ -554,6 +555,7 @@ public final class Game {
         int y = targetedBlock.y();
         int z = targetedBlock.z();
 
+        worldRenderer.spawnBlockBreakEffect(block, x, y, z);
         world.setBlock(x, y, z, BlockType.AIR);
 
         if (!block.isDoorBlock()) {
@@ -563,6 +565,7 @@ public final class Game {
         int otherY = block.isDoorTop() ? y - 1 : y + 1;
         BlockType other = world.getBlock(x, otherY, z);
         if (other == block.matchingDoorHalf()) {
+            worldRenderer.spawnBlockBreakEffect(other, x, otherY, z);
             world.setBlock(x, otherY, z, BlockType.AIR);
         }
     }

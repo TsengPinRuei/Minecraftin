@@ -7,13 +7,13 @@ Minecraftin is a small Java voxel sandbox inspired by classic Minecraft. It is c
 - Procedural chunk-based terrain with plains, forests, deserts, snow areas, mountains, and badlands.
 - Generated caves, sea-level water, local water refill, finite placed-water flow, and trees.
 - First-person movement with walking, sprinting, crouching, jumping, swimming, floating, ladder climbing, and creative flight.
-- Block breaking and block placement with collision checks.
+- Block breaking with debris particles, plus block placement with collision checks.
 - Multi-page creative inventory and 9-slot hotbar.
 - Building blocks such as natural terrain blocks, wool colors, colored blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders, torches, crafting tables, furnaces, chests, bookshelves, stone variants, quartz, nether/end themed blocks, glass, water, glowstone, and sea lanterns.
 - Door and trapdoor right-click interaction.
 - Empty chest UI placeholder.
 - Persistent local world save/load, including the last saved player respawn position.
-- OpenGL 3.3 rendering through LWJGL, with GLSL shader files in `src/main/resources/shaders`.
+- OpenGL 3.3 rendering through LWJGL, with GLSL shader files and a procedural pixel-art block texture atlas.
 
 ## Requirements
 
@@ -323,7 +323,7 @@ Delete `saves/world.dat`. Existing saves keep their original seed.
 - Chests open an empty UI placeholder. They do not store items yet.
 - Furnaces and crafting tables are placeable blocks, but they do not have crafting or smelting behavior yet.
 - There are no mobs, entity AI, day/night cycle, or weather systems.
-- The procedural texture atlas is generated in code. There are no external block texture image files to replace.
+- The structured pixel-art texture atlas is generated in code. There are no external block texture image files to replace.
 - Save compatibility depends on stable `BlockType.id()` values. Do not reorder existing block IDs when adding blocks.
 - Shader files should keep `#version 330 core` as the first line.
 - Generated files and local data such as `build/`, `.gradle/`, `.gradle-home/`, and `saves/` are ignored by Git.

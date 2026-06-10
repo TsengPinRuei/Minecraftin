@@ -6,9 +6,11 @@ import com.minecraftin.clone.engine.Mesh;
 import com.minecraftin.clone.engine.ShaderProgram;
 import com.minecraftin.clone.engine.TextureAtlas;
 import com.minecraftin.clone.util.FloatArrayBuilder;
+import com.minecraftin.clone.world.BlockType;
 import com.minecraftin.clone.world.Chunk;
 import com.minecraftin.clone.world.ChunkMesher;
 import com.minecraftin.clone.world.ChunkPos;
+import com.minecraftin.clone.world.Face;
 import com.minecraftin.clone.world.RaycastHit;
 import com.minecraftin.clone.world.World;
 import org.joml.Matrix4f;
@@ -20,6 +22,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 import static org.lwjgl.opengl.GL33C.*;
@@ -37,6 +40,11 @@ public final class WorldRenderer implements AutoCloseable {
     // 選取框用實際幾何體加粗，避免部分 OpenGL 驅動忽略 glLineWidth。
     private static final float SELECTION_OUTLINE_PADDING = 0.003f;
     private static final float SELECTION_OUTLINE_THICKNESS = 0.0092f;
+
+    // 破壞方塊時噴出的碎屑數量與物理參數；創造模式仍保留 Minecraft 式的瞬間破壞回饋。
+    private static final int BREAK_PARTICLES_PER_BLOCK = 28;
+    private static final int MAX_BREAK_PARTICLES = 512;
+    private static final float BREAK_PARTICLE_GRAVITY = 5.2f;
 
     // 方塊材質圖集。
     private final TextureAtlas atlas;
@@ -68,6 +76,12 @@ public final class WorldRenderer implements AutoCloseable {
     // 被選取方塊的外框 mesh。
     private final Mesh selectionMesh;
 
+    // 方塊破壞碎屑共用一個動態 mesh，每幀依目前粒子位置重建。
+    private final Mesh breakParticleMesh;
+    private final List<BreakParticle> breakParticles = new ArrayList<>();
+    private final Random particleRandom = new Random();
+    private boolean breakParticleMeshDirty;
+
     // 快取上一次被選到的方塊座標。
     // 若目標沒變，就不需要重建外框資料。
     private int lastSelectionX = Integer.MIN_VALUE;
@@ -82,6 +96,82 @@ public final class WorldRenderer implements AutoCloseable {
 
         // 一開始先建立空的選取框 mesh，之後有需要再更新內容。
         selectionMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
+        breakParticleMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 2, 1);
+    }
+
+    // 推進方塊破壞碎屑的位置與生命週期；Game loop 每幀呼叫一次。
+    public void update(float deltaSeconds) {
+        if (deltaSeconds <= 0.0f || breakParticles.isEmpty()) {
+            return;
+        }
+
+        Iterator<BreakParticle> iterator = breakParticles.iterator();
+        while (iterator.hasNext()) {
+            BreakParticle particle = iterator.next();
+            particle.life += deltaSeconds;
+
+            if (particle.life >= particle.lifetime) {
+                iterator.remove();
+                continue;
+            }
+
+            particle.velocityY -= BREAK_PARTICLE_GRAVITY * deltaSeconds;
+            particle.x += particle.velocityX * deltaSeconds;
+            particle.y += particle.velocityY * deltaSeconds;
+            particle.z += particle.velocityZ * deltaSeconds;
+        }
+
+        breakParticleMeshDirty = true;
+    }
+
+    // 產生使用被破壞方塊貼圖的小方塊碎屑。
+    public void spawnBlockBreakEffect(BlockType block, int x, int y, int z) {
+        if (block == BlockType.AIR) {
+            return;
+        }
+
+        while (breakParticles.size() + BREAK_PARTICLES_PER_BLOCK > MAX_BREAK_PARTICLES) {
+            breakParticles.remove(0);
+        }
+
+        Face[] faces = Face.values();
+        for (int i = 0; i < BREAK_PARTICLES_PER_BLOCK; i++) {
+            float px = x + 0.18f + particleRandom.nextFloat() * 0.64f;
+            float py = y + 0.18f + particleRandom.nextFloat() * 0.64f;
+            float pz = z + 0.18f + particleRandom.nextFloat() * 0.64f;
+
+            float dx = px - (x + 0.5f);
+            float dy = py - (y + 0.5f);
+            float dz = pz - (z + 0.5f);
+            float length = Math.max(0.001f, (float) Math.sqrt(dx * dx + dy * dy + dz * dz));
+            float burst = 0.95f + particleRandom.nextFloat() * 0.75f;
+
+            float vx = dx / length * burst + (particleRandom.nextFloat() - 0.5f) * 0.55f;
+            float vy = dy / length * burst + 1.05f + particleRandom.nextFloat() * 0.55f;
+            float vz = dz / length * burst + (particleRandom.nextFloat() - 0.5f) * 0.55f;
+
+            Face face = faces[particleRandom.nextInt(faces.length)];
+            int tile = block.tileForFace(face);
+            float tileU0 = atlas.u0(tile);
+            float tileV0 = atlas.v0(tile);
+            float tileU1 = atlas.u1(tile);
+            float tileV1 = atlas.v1(tile);
+            float patchU = (tileU1 - tileU0) * 0.25f;
+            float patchV = (tileV1 - tileV0) * 0.25f;
+            int patchX = particleRandom.nextInt(4);
+            int patchY = particleRandom.nextInt(4);
+
+            float u0 = tileU0 + patchU * patchX;
+            float v0 = tileV0 + patchV * patchY;
+            float u1 = u0 + patchU;
+            float v1 = v0 + patchV;
+
+            float size = 0.070f + particleRandom.nextFloat() * 0.055f;
+            float lifetime = 0.42f + particleRandom.nextFloat() * 0.28f;
+            breakParticles.add(new BreakParticle(px, py, pz, vx, vy, vz, size, lifetime, u0, v0, u1, v1));
+        }
+
+        breakParticleMeshDirty = true;
     }
 
     // 繪製整個場景。
@@ -106,6 +196,7 @@ public final class WorldRenderer implements AutoCloseable {
 
         // 先畫世界，再畫選取外框。
         renderChunks(world, camera);
+        renderBreakParticles(camera);
         renderSelectionOutline(selection);
     }
 
@@ -259,6 +350,90 @@ public final class WorldRenderer implements AutoCloseable {
         selectionMesh.draw();
     }
 
+    // 繪製方塊破壞碎屑；共用世界 shader，讓碎屑也有霧效、面亮度與 atlas 貼圖。
+    private void renderBreakParticles(Camera camera) {
+        if (breakParticleMeshDirty) {
+            updateBreakParticleMesh();
+        }
+
+        if (breakParticles.isEmpty()) {
+            return;
+        }
+
+        worldShader.use();
+        worldShader.setMat4("uProjection", projection);
+        worldShader.setMat4("uView", view);
+        worldShader.setVec3("uFogColor", SKY_COLOR);
+        worldShader.setVec3("uCameraPos", camera.position());
+        worldShader.setFloat("uFogNear", 70.0f);
+        worldShader.setFloat("uFogFar", 250.0f);
+        worldShader.setInt("uAtlas", 0);
+        atlas.bind(0);
+
+        model.identity();
+        worldShader.setMat4("uModel", model);
+        breakParticleMesh.draw();
+    }
+
+    private void updateBreakParticleMesh() {
+        if (breakParticles.isEmpty()) {
+            breakParticleMesh.update(new float[0], ChunkMesher.STRIDE_FLOATS);
+            breakParticleMeshDirty = false;
+            return;
+        }
+
+        FloatArrayBuilder out = new FloatArrayBuilder(breakParticles.size() * 216);
+        for (BreakParticle particle : breakParticles) {
+            addParticleCube(out, particle);
+        }
+        breakParticleMesh.update(out.toArray(), ChunkMesher.STRIDE_FLOATS);
+        breakParticleMeshDirty = false;
+    }
+
+    private void addParticleCube(FloatArrayBuilder out, BreakParticle particle) {
+        float half = particle.size * 0.5f;
+        float minX = particle.x - half;
+        float minY = particle.y - half;
+        float minZ = particle.z - half;
+        float maxX = particle.x + half;
+        float maxY = particle.y + half;
+        float maxZ = particle.z + half;
+
+        addParticleFace(out, Face.NORTH, maxX, minY, minZ, minX, minY, minZ, minX, maxY, minZ, maxX, maxY, minZ,
+                particle);
+        addParticleFace(out, Face.SOUTH, minX, minY, maxZ, maxX, minY, maxZ, maxX, maxY, maxZ, minX, maxY, maxZ,
+                particle);
+        addParticleFace(out, Face.WEST, minX, minY, minZ, minX, minY, maxZ, minX, maxY, maxZ, minX, maxY, minZ,
+                particle);
+        addParticleFace(out, Face.EAST, maxX, minY, maxZ, maxX, minY, minZ, maxX, maxY, minZ, maxX, maxY, maxZ,
+                particle);
+        addParticleFace(out, Face.UP, minX, maxY, minZ, maxX, maxY, minZ, maxX, maxY, maxZ, minX, maxY, maxZ,
+                particle);
+        addParticleFace(out, Face.DOWN, minX, minY, minZ, minX, minY, maxZ, maxX, minY, maxZ, maxX, minY, minZ,
+                particle);
+    }
+
+    private void addParticleFace(
+            FloatArrayBuilder out,
+            Face face,
+            float ax, float ay, float az,
+            float bx, float by, float bz,
+            float cx, float cy, float cz,
+            float dx, float dy, float dz,
+            BreakParticle particle) {
+        float light = face.light();
+        putParticleVertex(out, ax, ay, az, particle.u0, particle.v1, light);
+        putParticleVertex(out, bx, by, bz, particle.u1, particle.v1, light);
+        putParticleVertex(out, cx, cy, cz, particle.u1, particle.v0, light);
+        putParticleVertex(out, cx, cy, cz, particle.u1, particle.v0, light);
+        putParticleVertex(out, dx, dy, dz, particle.u0, particle.v0, light);
+        putParticleVertex(out, ax, ay, az, particle.u0, particle.v1, light);
+    }
+
+    private void putParticleVertex(FloatArrayBuilder out, float x, float y, float z, float u, float v, float light) {
+        out.add(x, y, z, u, v, light);
+    }
+
     // 建立包住一個方塊的粗邊框頂點資料。
     private float[] buildWireCube(int x, int y, int z) {
         // 稍微向外擴一點，避免和方塊表面重疊時閃爍。
@@ -330,6 +505,7 @@ public final class WorldRenderer implements AutoCloseable {
         chunkMeshes.clear();
 
         selectionMesh.close();
+        breakParticleMesh.close();
         worldShader.close();
         lineShader.close();
         atlas.close();
@@ -337,6 +513,38 @@ public final class WorldRenderer implements AutoCloseable {
 
     // 可見 Chunk 與它到相機的距離快取，避免透明排序時重複計算同一個距離。
     private record VisibleChunk(ChunkPos pos, float distanceSq) {
+    }
+
+    private static final class BreakParticle {
+        private float x;
+        private float y;
+        private float z;
+        private final float velocityX;
+        private float velocityY;
+        private final float velocityZ;
+        private final float size;
+        private final float lifetime;
+        private final float u0;
+        private final float v0;
+        private final float u1;
+        private final float v1;
+        private float life;
+
+        private BreakParticle(float x, float y, float z, float velocityX, float velocityY, float velocityZ,
+                float size, float lifetime, float u0, float v0, float u1, float v1) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.velocityX = velocityX;
+            this.velocityY = velocityY;
+            this.velocityZ = velocityZ;
+            this.size = size;
+            this.lifetime = lifetime;
+            this.u0 = u0;
+            this.v0 = v0;
+            this.u1 = u1;
+            this.v1 = v1;
+        }
     }
 
     // 同一個 Chunk 的不透明與半透明 mesh 綁在一起管理，避免剪裁時只釋放其中一個。

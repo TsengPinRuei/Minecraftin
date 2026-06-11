@@ -5,7 +5,7 @@ Minecraftin is a small Java + LWJGL voxel sandbox inspired by classic Minecraft.
 ## Key Features
 
 - Procedural chunk-based terrain with plains, forests, deserts, snow areas, mountains, and badlands.
-- Generated caves, sea-level water, local water refill, finite placed-water flow, and trees.
+- Generated caves, sea-level water, and trees, with Minecraft-style source/flowing water simulation: water flows into broken blocks, recedes when its source is blocked, and two sources create a new source.
 - First-person movement with walking, sprinting, crouching (with smooth camera transition), jumping, swimming, ladder climbing, and creative flight.
 - Block breaking with debris particles, plus block placement with collision checks.
 - Multi-page creative inventory and 9-slot hotbar.

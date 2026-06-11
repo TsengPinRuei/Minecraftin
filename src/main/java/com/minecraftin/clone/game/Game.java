@@ -423,10 +423,11 @@ public final class Game {
         updateWalkBob(deltaSeconds);
 
         // 鏡頭位置跟著玩家眼睛高度移動，左右晃動沿相機 right 向量偏移，避免與玩家碰撞箱直接耦合。
+        // stepSmoothingOffset 讓踏上樓梯/半磚時鏡頭平滑上升而不是瞬移。
         Vector3f right = camera.right(tmpCameraRight);
         camera.setPosition(
                 player.position().x + right.x * walkBobHorizontal,
-                player.position().y + player.eyeHeight() + walkBobVertical,
+                player.position().y + player.eyeHeight() + walkBobVertical + player.stepSmoothingOffset(),
                 player.position().z + right.z * walkBobHorizontal);
     }
 
@@ -633,14 +634,14 @@ public final class Game {
         }
     }
 
-    // 只能放在空氣或水的位置，且實際放入的碰撞盒不能和玩家身體重疊。
+    // 只能放在空氣或水（含流動水）的位置，且實際放入的碰撞盒不能和玩家身體重疊。
     private boolean canPlaceAt(int x, int y, int z, BlockType type) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return false;
         }
 
         BlockType current = world.getBlock(x, y, z);
-        return (current == BlockType.AIR || current == BlockType.WATER) && !player.intersectsBlock(x, y, z, type);
+        return (current == BlockType.AIR || current.isWaterBlock()) && !player.intersectsBlock(x, y, z, type);
     }
 
     // 依照玩家目前水平視角決定方向：0=N、1=E、2=S、3=W。

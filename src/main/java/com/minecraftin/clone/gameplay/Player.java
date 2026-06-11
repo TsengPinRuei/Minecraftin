@@ -36,6 +36,9 @@ public final class Player {
     // 蹲下/站起時眼睛高度的過渡速度（每秒公尺）；碰撞箱立即切換，只有視角平滑移動。
     private static final float EYE_HEIGHT_TRANSITION_SPEED = 3.0f;
 
+    // 踏上樓梯/半磚時，視覺偏移歸零的速度（每秒公尺）；數值越大鏡頭追上實際位置越快。
+    private static final float STEP_SMOOTHING_SPEED = 6.0f;
+
     // 水中移動不套用一般重力，而是用較慢的游泳速度；無輸入時像 Minecraft 一樣緩慢下沉。
     private static final float WATER_SWIM_SPEED = 2.45f;
     private static final float WATER_VERTICAL_SPEED = 2.8f;
@@ -76,6 +79,9 @@ public final class Player {
     // 目前的眼睛高度；蹲下/站起時朝目標高度平滑移動，避免視角瞬間跳變。
     private float currentEyeHeight = GameConfig.PLAYER_EYE_HEIGHT;
 
+    // 踏階造成的視覺偏移：身體瞬間抬高時鏡頭先停在原高度（負值），再逐漸追上。
+    private float stepSmoothingOffset;
+
     // 距離上次按下空白鍵已經過了多久
     private float timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
@@ -102,6 +108,11 @@ public final class Player {
         return currentEyeHeight;
     }
 
+    // 踏階視覺偏移（負值或 0）；Game 把它加到鏡頭高度上，讓上樓梯的視角平滑而不影響碰撞。
+    public float stepSmoothingOffset() {
+        return stepSmoothingOffset;
+    }
+
     // 計算水平移動速度，只看 x 和 z，不看上下速度
     public float horizontalSpeed() {
         return (float) Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
@@ -115,6 +126,7 @@ public final class Player {
         flying = false;
         crouching = false;
         currentEyeHeight = GameConfig.PLAYER_EYE_HEIGHT;
+        stepSmoothingOffset = 0.0f;
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
     }
 
@@ -133,6 +145,9 @@ public final class Player {
         float targetEyeHeight = crouching ? CROUCH_EYE_HEIGHT : GameConfig.PLAYER_EYE_HEIGHT;
         currentEyeHeight = approach(currentEyeHeight, targetEyeHeight,
                 EYE_HEIGHT_TRANSITION_SPEED * deltaSeconds);
+
+        // 踏階視覺偏移逐漸歸零，讓鏡頭平滑追上身體的實際高度。
+        stepSmoothingOffset = approach(stepSmoothingOffset, 0.0f, STEP_SMOOTHING_SPEED * deltaSeconds);
 
         // 累加距離上次按空白鍵的時間
         timeSinceLastSpaceTap += deltaSeconds;
@@ -471,7 +486,7 @@ public final class Player {
         for (int by = minY; by <= maxY; by++) {
             for (int bz = minZ; bz <= maxZ; bz++) {
                 for (int bx = minX; bx <= maxX; bx++) {
-                    if (world.getBlock(bx, by, bz) == BlockType.WATER) {
+                    if (world.getBlock(bx, by, bz).isWaterBlock()) {
                         return true;
                     }
                 }
@@ -537,6 +552,8 @@ public final class Player {
         for (int i = 1; i <= STEP_ATTEMPTS; i++) {
             float candidateY = position.y + (STEP_HEIGHT * i / STEP_ATTEMPTS);
             if (!collides(world, targetX, candidateY, targetZ)) {
+                // 身體瞬間抬高，但把高度差記成負的視覺偏移，鏡頭再逐漸追上來。
+                stepSmoothingOffset = Math.max(-1.0f, stepSmoothingOffset - (candidateY - position.y));
                 position.set(targetX, candidateY, targetZ);
                 onGround = false;
                 return true;

@@ -32,20 +32,14 @@ public final class World {
     // 玩家出生時，腳底上方的偏移量，避免卡進地面。
     private static final float SPAWN_Y_OFFSET = 1.05f;
 
-    // 一次補水最多處理多少格，避免大型空腔造成明顯卡頓。
-    private static final int WATER_FLOOD_MAX_BLOCKS = 32768;
+    // 水流模擬的 tick 間隔；Minecraft 的水每 5 game tick（0.25 秒）更新一次。
+    private static final float WATER_TICK_SECONDS = 0.25f;
 
-    // 玩家主動放置水時，最多保留多少待擴散格，避免連續放水造成過大的更新佇列。
-    private static final int PLACED_WATER_FLOW_MAX_PENDING_CELLS = 4096;
+    // 每個 tick 最多處理多少格水，避免大規模改動造成單幀卡頓；剩餘格子留到下一個 tick。
+    private static final int WATER_MAX_CELLS_PER_TICK = 4096;
 
-    // 放置水落地後最多橫向流動幾格，接近 Minecraft 水流的有限距離感。
-    private static final int PLACED_WATER_FLOW_HORIZONTAL_DISTANCE = 7;
-
-    // 放置水每次擴散的時間間隔；讓玩家能看見水流逐步蔓延，而不是瞬間完成。
-    private static final float PLACED_WATER_FLOW_STEP_SECONDS = 0.1f;
-
-    // 每個水流更新步驟最多處理幾格，數值越小動畫越明顯。
-    private static final int PLACED_WATER_FLOW_CELLS_PER_STEP = 5;
+    // 排程佇列的上限，防止極端情況下無限堆積。
+    private static final int WATER_MAX_SCHEDULED_CELLS = 65536;
 
     // 搜尋大片森林出生區域時，最遠搜尋半徑。
     private static final int FOREST_SPAWN_SEARCH_MAX_RADIUS = 1536;
@@ -69,8 +63,8 @@ public final class World {
     // 世界時間，0 到 1 為一天；0 是日出、0.25 是正午、0.5 是日落。
     private float timeOfDay = DEFAULT_TIME_OF_DAY;
 
-    // 玩家放置水後的待擴散佇列，由 update() 分批處理以形成水流動畫。
-    private final ArrayDeque<WaterFlowCell> placedWaterFlowQueue = new ArrayDeque<>();
+    // 待更新的水格排程（去重、保留插入順序）；方塊變更會把自己與鄰居排進來，由固定 tick 處理。
+    private final java.util.LinkedHashSet<Long> scheduledWaterCells = new java.util.LinkedHashSet<>();
 
     // 世界存檔路徑。
     private final Path worldFile;
@@ -90,8 +84,8 @@ public final class World {
     // 重生點資料是否有變更，之後需要存檔。
     private boolean respawnPositionDirty;
 
-    // 水流動畫累積時間。
-    private float placedWaterFlowTimer;
+    // 水流 tick 累積時間。
+    private float waterTickTimer;
 
     // 建立世界物件，並先設定預設種子與地形產生器。
     public World(Path worldFile, long defaultSeed) {
@@ -130,12 +124,12 @@ public final class World {
         return terrainGenerator.seaLevel();
     }
 
-    // 更新世界中的非玩家即時狀態：世界時間與放置水的逐步流動動畫。
+    // 更新世界中的非玩家即時狀態：世界時間與水流模擬。
     public void update(float deltaSeconds) {
         if (deltaSeconds > 0.0f) {
             timeOfDay = (timeOfDay + deltaSeconds / GameConfig.DAY_LENGTH_SECONDS) % 1.0f;
         }
-        updatePlacedWaterFlow(deltaSeconds);
+        updateWaterSimulation(deltaSeconds);
     }
 
     // 回傳目前世界時間（0 到 1）。
@@ -286,23 +280,10 @@ public final class World {
     }
 
     // 設定世界座標上的方塊。
-    // 若成功破壞方塊形成空腔，會處理補水；若放置水，會啟動有限水流擴散。
+    // 水流行為不需要特例：setBlockInternal 會把鄰近水格排進水流模擬，
+    // 破壞方塊時水自然流入、擋住水源時失去支撐的流動水會自動退去。
     public boolean setBlock(int worldX, int y, int worldZ, BlockType type) {
-        boolean changed = setBlockInternal(worldX, y, worldZ, type, true);
-        if (!changed) {
-            return false;
-        }
-
-        // 挖掉方塊後，若附近有水，嘗試讓水流入空腔。
-        if (type == BlockType.AIR) {
-            floodWaterIntoAirPocket(worldX, y, worldZ);
-        }
-
-        if (type == BlockType.WATER) {
-            queuePlacedWaterFlow(worldX, y, worldZ);
-        }
-
-        return true;
+        return setBlockInternal(worldX, y, worldZ, type, true);
     }
 
     // 實際執行方塊更新的內部方法。
@@ -332,6 +313,9 @@ public final class World {
         // 增量更新光照；引擎會把光照變化波及的 Chunk 標記為需要重建 mesh。
         lightEngine.onBlockChanged(worldX, y, worldZ, type);
 
+        // 任何方塊變更都喚醒自己與六個鄰格的水流更新；水流模擬本身的寫入也靠這裡形成連鎖。
+        scheduleWaterNeighborhood(worldX, y, worldZ);
+
         // 如果修改位置在 Chunk 邊界，鄰近 Chunk 的 mesh 也要重建。
         if (localX == 0) {
             markChunkMeshDirty(chunkX - 1, chunkZ);
@@ -348,197 +332,175 @@ public final class World {
         return true;
     }
 
-    // 當玩家挖出海平面以下的空腔時，嘗試讓附近的水填進來。
-    // 只在已載入 Chunk 內擴散，避免一次挖方塊就生成大片未知地形。
-    private void floodWaterIntoAirPocket(int worldX, int y, int worldZ) {
-        // 只處理海平面以下的情況。
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || y > seaLevel()) {
+    // ====== 水流模擬 ======
+    // 模型與 Minecraft 相同：WATER 是水源（強度 8），WATER_FLOW_7..1 是流動水。
+    // 每個 tick 重算排程格子的強度（失去支撐就退去），再向外擴散（向下優先、水平遞減）。
+
+    // 依累積時間推進水流 tick；一次最多補跑 4 個 tick，避免卡頓後爆量。
+    private void updateWaterSimulation(float deltaSeconds) {
+        if (scheduledWaterCells.isEmpty()) {
+            waterTickTimer = 0.0f;
             return;
         }
 
-        // 目標不是空氣就不用補水。
-        if (peekBlock(worldX, y, worldZ) != BlockType.AIR) {
-            return;
-        }
+        waterTickTimer += Math.max(0.0f, deltaSeconds);
 
-        // 只有相鄰位置本來就有水時，才開始補水。
-        if (!hasAdjacentLoadedWater(worldX, y, worldZ)) {
-            return;
-        }
-
-        if (!setBlockInternal(worldX, y, worldZ, BlockType.WATER, false)) {
-            return;
-        }
-
-        // 用 BFS 方式向外擴散補水，並用 WATER_FLOOD_MAX_BLOCKS 防止大型空腔造成長時間卡頓。
-        int[] queue = new int[WATER_FLOOD_MAX_BLOCKS * 3];
-        int head = 0;
-        int tail = enqueueFloodCell(queue, 0, worldX, y, worldZ);
-
-        int filled = 1;
-        while (head < tail && filled < WATER_FLOOD_MAX_BLOCKS) {
-            int cx = queue[head++];
-            int cy = queue[head++];
-            int cz = queue[head++];
-
-            int previousTail = tail;
-            tail = tryFloodNeighbor(queue, tail, cx + 1, cy, cz);
-            filled += tail == previousTail ? 0 : 1;
-            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
-                break;
-            }
-
-            previousTail = tail;
-            tail = tryFloodNeighbor(queue, tail, cx - 1, cy, cz);
-            filled += tail == previousTail ? 0 : 1;
-            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
-                break;
-            }
-
-            previousTail = tail;
-            tail = tryFloodNeighbor(queue, tail, cx, cy, cz + 1);
-            filled += tail == previousTail ? 0 : 1;
-            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
-                break;
-            }
-
-            previousTail = tail;
-            tail = tryFloodNeighbor(queue, tail, cx, cy, cz - 1);
-            filled += tail == previousTail ? 0 : 1;
-            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
-                break;
-            }
-
-            previousTail = tail;
-            tail = tryFloodNeighbor(queue, tail, cx, cy - 1, cz);
-            filled += tail == previousTail ? 0 : 1;
-            if (filled >= WATER_FLOOD_MAX_BLOCKS) {
-                break;
-            }
-
-            previousTail = tail;
-            tail = tryFloodNeighbor(queue, tail, cx, cy + 1, cz);
-            filled += tail == previousTail ? 0 : 1;
+        int ticks = 0;
+        while (waterTickTimer >= WATER_TICK_SECONDS && ticks < 4) {
+            waterTickTimer -= WATER_TICK_SECONDS;
+            ticks++;
+            runWaterTick();
         }
     }
 
-    // 嘗試把鄰近的一格空氣補成水。
-    // 成功時加入佇列，讓它後續也能繼續擴散。
-    private int tryFloodNeighbor(int[] queue, int tail, int x, int y, int z) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || y > seaLevel()) {
-            return tail;
-        }
-
-        if (peekBlock(x, y, z) != BlockType.AIR) {
-            return tail;
-        }
-
-        if (!setBlockInternal(x, y, z, BlockType.WATER, false)) {
-            return tail;
-        }
-
-        return enqueueFloodCell(queue, tail, x, y, z);
-    }
-
-    // 將一個 BFS 格子寫入 primitive queue，避免大型補水時建立大量短生命週期 int[]。
-    private int enqueueFloodCell(int[] queue, int tail, int x, int y, int z) {
-        queue[tail++] = x;
-        queue[tail++] = y;
-        queue[tail++] = z;
-        return tail;
-    }
-
-    // 玩家放置水後先排入佇列，後續由 updatePlacedWaterFlow 分批擴散。
-    private void queuePlacedWaterFlow(int worldX, int y, int worldZ) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || peekBlock(worldX, y, worldZ) != BlockType.WATER) {
+    // 處理一個水流 tick：取出目前排程的格子逐一更新。
+    // 更新過程排入的新格子留到下一個 tick，水才會一格一格地往外流。
+    private void runWaterTick() {
+        int count = Math.min(scheduledWaterCells.size(), WATER_MAX_CELLS_PER_TICK);
+        if (count == 0) {
             return;
         }
 
-        if (placedWaterFlowQueue.size() < PLACED_WATER_FLOW_MAX_PENDING_CELLS) {
-            placedWaterFlowQueue.addLast(new WaterFlowCell(worldX, y, worldZ, 0));
+        long[] batch = new long[count];
+        var iterator = scheduledWaterCells.iterator();
+        for (int i = 0; i < count; i++) {
+            batch[i] = iterator.next();
+            iterator.remove();
+        }
+
+        for (long packed : batch) {
+            updateWaterCell(unpackWaterX(packed), unpackWaterY(packed), unpackWaterZ(packed));
         }
     }
 
-    // 分批處理放置水擴散，形成可見的流動過程。
-    private void updatePlacedWaterFlow(float deltaSeconds) {
-        if (placedWaterFlowQueue.isEmpty()) {
-            placedWaterFlowTimer = 0.0f;
+    // 更新單一水格：流動水先依鄰居重算強度，然後嘗試向外流。
+    private void updateWaterCell(int x, int y, int z) {
+        BlockType block = peekBlock(x, y, z);
+        if (!block.isWaterBlock()) {
             return;
         }
 
-        placedWaterFlowTimer += Math.max(0.0f, deltaSeconds);
+        int strength = block.waterStrength();
 
-        int steps = 0;
-        while (placedWaterFlowTimer >= PLACED_WATER_FLOW_STEP_SECONDS && steps < 4) {
-            placedWaterFlowTimer -= PLACED_WATER_FLOW_STEP_SECONDS;
-            steps++;
-
-            for (int i = 0; i < PLACED_WATER_FLOW_CELLS_PER_STEP && !placedWaterFlowQueue.isEmpty(); i++) {
-                WaterFlowCell cell = placedWaterFlowQueue.removeFirst();
-                spreadPlacedWaterCell(cell);
+        // 流動水沒有自己的水量，強度完全由支撐決定；支撐消失就降級直到退成空氣。
+        if (strength < 8) {
+            int desired = computeWaterStrength(x, y, z);
+            if (desired != strength) {
+                BlockType next = desired <= 0 ? BlockType.AIR
+                        : desired >= 8 ? BlockType.WATER : BlockType.flowingWaterOfStrength(desired);
+                setBlockInternal(x, y, z, next, false);
+                if (desired <= 0) {
+                    return;
+                }
+                strength = desired;
             }
         }
+
+        spreadWater(x, y, z, strength);
     }
 
-    // 優先往下流；下方被擋住時才向四周擴散。
-    private void spreadPlacedWaterCell(WaterFlowCell cell) {
-        int cx = cell.x();
-        int cy = cell.y();
-        int cz = cell.z();
-        int horizontalDistance = cell.horizontalDistance();
+    // 依鄰居計算一格流動水應有的強度。
+    private int computeWaterStrength(int x, int y, int z) {
+        // 上方有水：垂直落水保持高強度。
+        if (y + 1 < GameConfig.CHUNK_HEIGHT && peekBlock(x, y + 1, z).isWaterBlock()) {
+            return 7;
+        }
 
-        if (peekBlock(cx, cy, cz) != BlockType.WATER) {
+        int bestHorizontal = 0;
+        int sourceNeighbors = 0;
+        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x + 1, y, z));
+        sourceNeighbors += peekBlock(x + 1, y, z) == BlockType.WATER ? 1 : 0;
+        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x - 1, y, z));
+        sourceNeighbors += peekBlock(x - 1, y, z) == BlockType.WATER ? 1 : 0;
+        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x, y, z + 1));
+        sourceNeighbors += peekBlock(x, y, z + 1) == BlockType.WATER ? 1 : 0;
+        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x, y, z - 1));
+        sourceNeighbors += peekBlock(x, y, z - 1) == BlockType.WATER ? 1 : 0;
+
+        // 無限水源規則：兩個以上水源相鄰且下方有支撐，這一格升級為新的水源。
+        if (sourceNeighbors >= 2) {
+            BlockType below = peekBlock(x, y - 1, z);
+            if (below.isSolid() || below == BlockType.WATER) {
+                return 8;
+            }
+        }
+
+        return Math.min(7, bestHorizontal - 1);
+    }
+
+    private int horizontalWaterStrength(int x, int y, int z) {
+        return peekBlock(x, y, z).waterStrength();
+    }
+
+    // 把水向外推：能往下流就往下；瀑布中段不水平攤開，只有水源或落在地面/水面上的水才向四周擴散。
+    private void spreadWater(int x, int y, int z, int strength) {
+        BlockType below = y > 0 ? peekBlock(x, y - 1, z) : BlockType.BEDROCK;
+
+        if (canWaterFlowInto(below, 7)) {
+            setBlockInternal(x, y - 1, z, BlockType.flowingWaterOfStrength(7), false);
             return;
         }
 
-        if (trySpreadPlacedWaterNeighbor(cx, cy - 1, cz, horizontalDistance)) {
+        // 只有「落定」的水會水平擴散：水源、踩在實心方塊上，或浮在水源面上（瀑布落入水池的那一層）。
+        boolean landed = strength == 8 || below.isSolid() || below == BlockType.WATER;
+        if (!landed || strength <= 1) {
             return;
         }
 
-        if (horizontalDistance >= PLACED_WATER_FLOW_HORIZONTAL_DISTANCE) {
+        int spreadStrength = Math.min(7, strength - 1);
+        trySpreadWaterTo(x + 1, y, z, spreadStrength);
+        trySpreadWaterTo(x - 1, y, z, spreadStrength);
+        trySpreadWaterTo(x, y, z + 1, spreadStrength);
+        trySpreadWaterTo(x, y, z - 1, spreadStrength);
+    }
+
+    private void trySpreadWaterTo(int x, int y, int z, int strength) {
+        if (canWaterFlowInto(peekBlock(x, y, z), strength)) {
+            setBlockInternal(x, y, z, BlockType.flowingWaterOfStrength(strength), false);
+        }
+    }
+
+    // 水能否流入：空氣可以，較弱的流動水會被蓋掉；不會吞掉火把、門這類非完整方塊。
+    private boolean canWaterFlowInto(BlockType target, int incomingStrength) {
+        if (target == BlockType.AIR) {
+            return true;
+        }
+        return target.isFlowingWater() && target.waterStrength() < incomingStrength;
+    }
+
+    // 把一格與它的六個鄰格排入水流更新；setBlockInternal 在每次方塊變更後呼叫。
+    private void scheduleWaterNeighborhood(int x, int y, int z) {
+        scheduleWaterCell(x, y, z);
+        scheduleWaterCell(x + 1, y, z);
+        scheduleWaterCell(x - 1, y, z);
+        scheduleWaterCell(x, y + 1, z);
+        scheduleWaterCell(x, y - 1, z);
+        scheduleWaterCell(x, y, z + 1);
+        scheduleWaterCell(x, y, z - 1);
+    }
+
+    private void scheduleWaterCell(int x, int y, int z) {
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || scheduledWaterCells.size() >= WATER_MAX_SCHEDULED_CELLS) {
             return;
         }
-
-        int nextDistance = horizontalDistance + 1;
-        trySpreadPlacedWaterNeighbor(cx + 1, cy, cz, nextDistance);
-        trySpreadPlacedWaterNeighbor(cx - 1, cy, cz, nextDistance);
-        trySpreadPlacedWaterNeighbor(cx, cy, cz + 1, nextDistance);
-        trySpreadPlacedWaterNeighbor(cx, cy, cz - 1, nextDistance);
+        scheduledWaterCells.add(packWaterCell(x, y, z));
     }
 
-    // 嘗試讓放置水流入鄰近空氣；只更新已載入 Chunk，避免水流查詢生成新地形。
-    private boolean trySpreadPlacedWaterNeighbor(int x, int y, int z, int horizontalDistance) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
-            return false;
-        }
-
-        if (placedWaterFlowQueue.size() >= PLACED_WATER_FLOW_MAX_PENDING_CELLS) {
-            return false;
-        }
-
-        if (peekBlock(x, y, z) != BlockType.AIR) {
-            return false;
-        }
-
-        if (!setBlockInternal(x, y, z, BlockType.WATER, false)) {
-            return false;
-        }
-
-        placedWaterFlowQueue.addLast(new WaterFlowCell(x, y, z, horizontalDistance));
-        return true;
+    // 將座標壓進一個 long：x 與 z 各 26 bits（含符號）、y 12 bits。
+    private static long packWaterCell(int x, int y, int z) {
+        return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
 
-    private record WaterFlowCell(int x, int y, int z, int horizontalDistance) {
+    private static int unpackWaterX(long packed) {
+        return (int) (packed >> 38);
     }
 
-    // 檢查目標位置六個方向是否有已載入的水方塊。
-    private boolean hasAdjacentLoadedWater(int worldX, int y, int worldZ) {
-        return peekBlock(worldX + 1, y, worldZ) == BlockType.WATER
-                || peekBlock(worldX - 1, y, worldZ) == BlockType.WATER
-                || peekBlock(worldX, y, worldZ + 1) == BlockType.WATER
-                || peekBlock(worldX, y, worldZ - 1) == BlockType.WATER
-                || peekBlock(worldX, y + 1, worldZ) == BlockType.WATER
-                || peekBlock(worldX, y - 1, worldZ) == BlockType.WATER;
+    private static int unpackWaterZ(long packed) {
+        return (int) (packed << 26 >> 38);
+    }
+
+    private static int unpackWaterY(long packed) {
+        return (int) (packed & 0xFFF);
     }
 
     // 將指定 Chunk 標記為需要重建 mesh。
@@ -804,10 +766,10 @@ public final class World {
         int normalY = 0;
         int normalZ = 0;
 
-        // 使用類似 3D DDA 的方式，沿著方塊格子一步一步前進。
+        // 使用類似 3D DDA 的方式，沿著方塊格子一步一步前進；水（含流動水）不會被準星選中。
         while (traveled <= maxDistance) {
             BlockType block = getBlock(x, y, z);
-            if (block != BlockType.AIR && block != BlockType.WATER) {
+            if (block != BlockType.AIR && !block.isWaterBlock()) {
                 return new RaycastHit(x, y, z, normalX, normalY, normalZ, traveled, block);
             }
 

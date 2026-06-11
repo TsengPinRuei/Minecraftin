@@ -160,7 +160,17 @@ public enum BlockType {
     OAK_DOOR_SOUTH_OPEN_TOP(92, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
     OAK_DOOR_WEST_OPEN_BOTTOM(93, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
     OAK_DOOR_WEST_OPEN_TOP(94, true, false, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR, AtlasTiles.OAK_DOOR),
-    OAK_TRAPDOOR_OPEN(95, true, false, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR);
+    OAK_TRAPDOOR_OPEN(95, true, false, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR),
+
+    // 流動水，強度 7（緊鄰水源）遞減到 1（最遠端）。只由水流模擬寫入世界，不出現在背包；
+    // WATER 本身代表水源，失去支撐的流動水會逐步退去。
+    WATER_FLOW_7(96, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
+    WATER_FLOW_6(97, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
+    WATER_FLOW_5(98, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
+    WATER_FLOW_4(99, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
+    WATER_FLOW_3(100, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
+    WATER_FLOW_2(101, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
+    WATER_FLOW_1(102, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER);
 
     // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
     private static final BlockType[] BY_ID;
@@ -344,7 +354,50 @@ public enum BlockType {
 
     // 需要以半透明 pass 繪製的方塊；其他非不透明方塊多半是形狀或 cutout，而不是玻璃/水那種混色透明。
     public boolean isTranslucent() {
-        return this == WATER || this == GLASS;
+        return isWaterBlock() || this == GLASS;
+    }
+
+    // 是否為水（水源或任一強度的流動水）。
+    public boolean isWaterBlock() {
+        return this == WATER || isFlowingWater();
+    }
+
+    // 是否為流動水。
+    public boolean isFlowingWater() {
+        return switch (this) {
+            case WATER_FLOW_7, WATER_FLOW_6, WATER_FLOW_5, WATER_FLOW_4,
+                    WATER_FLOW_3, WATER_FLOW_2, WATER_FLOW_1 -> true;
+            default -> false;
+        };
+    }
+
+    // 水的流動強度：水源 8、流動水 7 到 1、非水 0。水流模擬以此決定衰減與覆蓋。
+    public int waterStrength() {
+        return switch (this) {
+            case WATER -> 8;
+            case WATER_FLOW_7 -> 7;
+            case WATER_FLOW_6 -> 6;
+            case WATER_FLOW_5 -> 5;
+            case WATER_FLOW_4 -> 4;
+            case WATER_FLOW_3 -> 3;
+            case WATER_FLOW_2 -> 2;
+            case WATER_FLOW_1 -> 1;
+            default -> 0;
+        };
+    }
+
+    // 依強度取得對應的流動水方塊；8 以上回傳水源。
+    public static BlockType flowingWaterOfStrength(int strength) {
+        return switch (strength) {
+            case 7 -> WATER_FLOW_7;
+            case 6 -> WATER_FLOW_6;
+            case 5 -> WATER_FLOW_5;
+            case 4 -> WATER_FLOW_4;
+            case 3 -> WATER_FLOW_3;
+            case 2 -> WATER_FLOW_2;
+            case 1 -> WATER_FLOW_1;
+            default -> WATER;
+        };
     }
 
     // 回傳顯示給玩家看的名稱。
@@ -374,6 +427,8 @@ public enum BlockType {
                     OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP -> "Oak Door";
             case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> "Oak Trapdoor";
             case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST -> "Ladder";
+            case WATER_FLOW_7, WATER_FLOW_6, WATER_FLOW_5, WATER_FLOW_4,
+                    WATER_FLOW_3, WATER_FLOW_2, WATER_FLOW_1 -> "Water";
 
             // 其他方塊名稱會由列舉名稱自動轉成較好讀的格式。
             default -> titleCaseFromEnum(name());
@@ -444,7 +499,7 @@ public enum BlockType {
 
     // 建立額外光衰減；只在 enum 靜態初始化時呼叫一次。
     private int computeLightOpacity() {
-        if (this == WATER) {
+        if (isWaterBlock()) {
             return 2;
         }
         if (this == LEAVES) {
@@ -635,7 +690,7 @@ public enum BlockType {
     }
 
     private BlockBounds[] computeCollisionBoxes() {
-        if (this == AIR || this == WATER || computeIsLadderBlock() || this == TORCH) {
+        if (this == AIR || isWaterBlock() || computeIsLadderBlock() || this == TORCH) {
             return EMPTY_BOUNDS;
         }
         return computeRenderBoxes();

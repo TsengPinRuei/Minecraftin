@@ -149,9 +149,9 @@ public final class ChunkMesher {
             return true;
         }
 
-        // 水只在旁邊不是水時才繪製面，避免相鄰水格中間產生多餘透明面。
-        if (current == BlockType.WATER) {
-            return neighbor != BlockType.WATER;
+        // 水（含流動水）只在旁邊不是水時才繪製面，避免相鄰水格中間產生多餘透明面。
+        if (current.isWaterBlock()) {
+            return !neighbor.isWaterBlock();
         }
 
         // 鄰居不是完整方塊時，仍要繪製完整方塊的面，避免門、柵欄、樓梯旁出現缺面。

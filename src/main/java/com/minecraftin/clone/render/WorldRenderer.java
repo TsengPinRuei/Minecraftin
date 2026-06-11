@@ -75,6 +75,9 @@ public final class WorldRenderer implements AutoCloseable {
     private static final int MAX_BREAK_PARTICLES = 512;
     private static final float BREAK_PARTICLE_GRAVITY = 5.2f;
 
+    // Face.values() 會回傳新陣列；碎屑產生屬於互動熱路徑，因此預先快取可選面集合。
+    private static final Face[] FACES = Face.values();
+
     // 方塊材質圖集。
     private final TextureAtlas atlas;
 
@@ -216,7 +219,6 @@ public final class WorldRenderer implements AutoCloseable {
             breakParticles.remove(0);
         }
 
-        Face[] faces = Face.values();
         for (int i = 0; i < BREAK_PARTICLES_PER_BLOCK; i++) {
             float px = x + 0.18f + particleRandom.nextFloat() * 0.64f;
             float py = y + 0.18f + particleRandom.nextFloat() * 0.64f;
@@ -232,7 +234,7 @@ public final class WorldRenderer implements AutoCloseable {
             float vy = dy / length * burst + 1.05f + particleRandom.nextFloat() * 0.55f;
             float vz = dz / length * burst + (particleRandom.nextFloat() - 0.5f) * 0.55f;
 
-            Face face = faces[particleRandom.nextInt(faces.length)];
+            Face face = FACES[particleRandom.nextInt(FACES.length)];
             int tile = block.tileForFace(face);
             float tileU0 = atlas.u0(tile);
             float tileV0 = atlas.v0(tile);
@@ -528,7 +530,7 @@ public final class WorldRenderer implements AutoCloseable {
                     continue;
                 }
 
-                ChunkPos key = new ChunkPos(chunkX, chunkZ);
+                ChunkPos key = chunk.pos();
                 visibleChunks.add(key);
 
                 // 視錐外的 Chunk 不建 mesh 也不繪製；保留在 visibleChunks 中避免快取被剪掉。
@@ -625,6 +627,7 @@ public final class WorldRenderer implements AutoCloseable {
                 return;
             }
 
+            // 不論建構成功或失敗都先移出 pending；失敗時重新標 dirty，下一幀才可再次提交。
             pendingMeshBuilds.remove(result.pos());
 
             if (result.data() == null) {

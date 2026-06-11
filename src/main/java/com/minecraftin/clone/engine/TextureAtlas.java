@@ -505,6 +505,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
+    // 多尺度但低頻的格狀混色，讓程式化貼圖有細節又不會出現逐像素雜訊。
     private float blockyBlend(int tile, int x, int y) {
         int broad = hash(tile, x / 4, y / 4) & 0x1F;
         int mid = hash(tile + 17, x / 2, y / 2) & 0x1F;
@@ -793,7 +794,7 @@ public final class TextureAtlas implements AutoCloseable {
         return (r << 16) | (g << 8) | bCh;
     }
 
-    // 根據 tile 編號與像素座標，產生一個穩定的雜訊值。
+    // 根據 tile 編號與像素座標產生穩定雜訊；只用於視覺變化，不是安全用途的雜湊。
     private int hash(int tile, int x, int y) {
         int h = tile * 0x9E3779B9;
         h ^= x * 0x85EBCA77;

@@ -14,15 +14,11 @@ public final class LightEngine {
     private static final int CHANNEL_SKY = 0;
     private static final int CHANNEL_BLOCK = 1;
 
-    // 六個傳播方向；索引 1 是「往下」，天空光直射的特殊規則需要辨識它。
-    private static final int[][] DIRECTIONS = {
-            { 0, 1, 0 },
-            { 0, -1, 0 },
-            { -1, 0, 0 },
-            { 1, 0, 0 },
-            { 0, 0, -1 },
-            { 0, 0, 1 }
-    };
+    // 六個傳播方向；用平行陣列避免 BFS 熱路徑反覆解參照小型 int[]。
+    private static final int[] DIRECTION_X = { 0, 0, -1, 1, 0, 0 };
+    private static final int[] DIRECTION_Y = { 1, -1, 0, 0, 0, 0 };
+    private static final int[] DIRECTION_Z = { 0, 0, 0, 0, -1, 1 };
+    private static final int DIRECTION_COUNT = DIRECTION_X.length;
     private static final int DIRECTION_DOWN = 1;
 
     private final World world;
@@ -115,11 +111,13 @@ public final class LightEngine {
         if (y < 0) {
             return 0;
         }
-        Chunk chunk = chunkAt(x, z);
+        int chunkX = World.chunkCoord(x);
+        int chunkZ = World.chunkCoord(z);
+        Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
             return MAX_LIGHT;
         }
-        return chunk.skyLight(Math.floorMod(x, GameConfig.CHUNK_SIZE), y, Math.floorMod(z, GameConfig.CHUNK_SIZE));
+        return chunk.skyLight(World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ));
     }
 
     // 取得世界座標的方塊光；未載入區塊視為無光。
@@ -127,11 +125,13 @@ public final class LightEngine {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return 0;
         }
-        Chunk chunk = chunkAt(x, z);
+        int chunkX = World.chunkCoord(x);
+        int chunkZ = World.chunkCoord(z);
+        Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
             return 0;
         }
-        return chunk.blockLight(Math.floorMod(x, GameConfig.CHUNK_SIZE), y, Math.floorMod(z, GameConfig.CHUNK_SIZE));
+        return chunk.blockLight(World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ));
     }
 
     // 把鄰居 Chunk 邊界上一圈的光當作種子，讓既有世界的光流入新 Chunk。
@@ -169,20 +169,22 @@ public final class LightEngine {
     }
 
     private void enqueueIfLoaded(LongQueue out, int x, int y, int z) {
-        Chunk chunk = chunkAt(x, z);
+        int chunkX = World.chunkCoord(x);
+        int chunkZ = World.chunkCoord(z);
+        Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
             return;
         }
-        int localX = Math.floorMod(x, GameConfig.CHUNK_SIZE);
-        int localZ = Math.floorMod(z, GameConfig.CHUNK_SIZE);
+        int localX = World.localCoord(x, chunkX);
+        int localZ = World.localCoord(z, chunkZ);
         if (chunk.skyLight(localX, y, localZ) > 1 || chunk.blockLight(localX, y, localZ) > 1) {
             out.add(pack(x, y, z));
         }
     }
 
     private void enqueueNeighbors(int x, int y, int z) {
-        for (int[] dir : DIRECTIONS) {
-            spreadQueue.add(pack(x + dir[0], y + dir[1], z + dir[2]));
+        for (int i = 0; i < DIRECTION_COUNT; i++) {
+            spreadQueue.add(pack(x + DIRECTION_X[i], y + DIRECTION_Y[i], z + DIRECTION_Z[i]));
         }
     }
 
@@ -200,22 +202,24 @@ public final class LightEngine {
                 continue;
             }
 
-            for (int i = 0; i < DIRECTIONS.length; i++) {
-                int nx = x + DIRECTIONS[i][0];
-                int ny = y + DIRECTIONS[i][1];
-                int nz = z + DIRECTIONS[i][2];
+            for (int i = 0; i < DIRECTION_COUNT; i++) {
+                int nx = x + DIRECTION_X[i];
+                int ny = y + DIRECTION_Y[i];
+                int nz = z + DIRECTION_Z[i];
 
                 if (ny < 0 || ny >= GameConfig.CHUNK_HEIGHT) {
                     continue;
                 }
 
-                Chunk chunk = chunkAt(nx, nz);
+                int chunkX = World.chunkCoord(nx);
+                int chunkZ = World.chunkCoord(nz);
+                Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
                 if (chunk == null) {
                     continue;
                 }
 
-                int localX = Math.floorMod(nx, GameConfig.CHUNK_SIZE);
-                int localZ = Math.floorMod(nz, GameConfig.CHUNK_SIZE);
+                int localX = World.localCoord(nx, chunkX);
+                int localZ = World.localCoord(nz, chunkZ);
                 int opacity = chunk.get(localX, ny, localZ).lightOpacity();
 
                 int target;
@@ -261,10 +265,10 @@ public final class LightEngine {
             int cz = unpackZ(packed);
             int level = unpackLevel(packed);
 
-            for (int i = 0; i < DIRECTIONS.length; i++) {
-                int nx = cx + DIRECTIONS[i][0];
-                int ny = cy + DIRECTIONS[i][1];
-                int nz = cz + DIRECTIONS[i][2];
+            for (int i = 0; i < DIRECTION_COUNT; i++) {
+                int nx = cx + DIRECTION_X[i];
+                int ny = cy + DIRECTION_Y[i];
+                int nz = cz + DIRECTION_Z[i];
 
                 int neighborLevel = getLight(channel, nx, ny, nz);
                 if (neighborLevel <= 0) {
@@ -295,34 +299,39 @@ public final class LightEngine {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return 0;
         }
-        Chunk chunk = chunkAt(x, z);
+        int chunkX = World.chunkCoord(x);
+        int chunkZ = World.chunkCoord(z);
+        Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
             return 0;
         }
-        return chunk.skyLight(Math.floorMod(x, GameConfig.CHUNK_SIZE), y, Math.floorMod(z, GameConfig.CHUNK_SIZE));
+        return chunk.skyLight(World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ));
     }
 
     private int blockLightAtInternal(int x, int y, int z) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return 0;
         }
-        Chunk chunk = chunkAt(x, z);
+        int chunkX = World.chunkCoord(x);
+        int chunkZ = World.chunkCoord(z);
+        Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
             return 0;
         }
-        return chunk.blockLight(Math.floorMod(x, GameConfig.CHUNK_SIZE), y, Math.floorMod(z, GameConfig.CHUNK_SIZE));
+        return chunk.blockLight(World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ));
     }
 
     private void setLight(int channel, int x, int y, int z, int value) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return;
         }
-        Chunk chunk = chunkAt(x, z);
+        int chunkX = World.chunkCoord(x);
+        int chunkZ = World.chunkCoord(z);
+        Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
             return;
         }
-        writeLight(channel, chunk, Math.floorMod(x, GameConfig.CHUNK_SIZE), y,
-                Math.floorMod(z, GameConfig.CHUNK_SIZE), x, z, value);
+        writeLight(channel, chunk, World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ), x, z, value);
     }
 
     // 寫入光照並標記受影響 Chunk 的 mesh；邊界格子也會影響鄰居 mesh 的取樣結果。
@@ -351,19 +360,14 @@ public final class LightEngine {
     }
 
     private void markMeshDirtyAt(int worldX, int worldZ) {
-        Chunk chunk = chunkAt(worldX, worldZ);
+        Chunk chunk = world.getChunkIfLoaded(World.chunkCoord(worldX), World.chunkCoord(worldZ));
         if (chunk != null) {
             chunk.markMeshDirty();
         }
     }
 
-    private Chunk chunkAt(int worldX, int worldZ) {
-        return world.getChunkIfLoaded(
-                Math.floorDiv(worldX, GameConfig.CHUNK_SIZE),
-                Math.floorDiv(worldZ, GameConfig.CHUNK_SIZE));
-    }
-
-    // 把座標壓進一個 long：x 與 z 各 24 bits（含符號）、y 8 bits、亮度 4 bits。
+    // 把座標壓進一個 long：x 與 z 各 24 bits（二補數含符號）、y 8 bits、亮度 4 bits。
+    // unpack 依賴位移做符號還原，座標範圍必須維持在 24-bit 世界座標內。
     private static long pack(int x, int y, int z) {
         return packWithLevel(x, y, z, 0);
     }

@@ -71,6 +71,9 @@ public final class ChunkMesher {
         FloatArrayBuilder translucentVertices = new FloatArrayBuilder(4096);
         LightSampler sampler = new LightSampler(chunk, world);
 
+        // FaceScratch 屬於單次 build 呼叫；即使 meshing 在背景執行緒跑，也不會跨 Chunk 共用。
+        FaceScratch scratch = new FaceScratch();
+
         // 取得這個 Chunk 在世界中的起始座標。
         int worldMinX = chunk.worldMinX();
         int worldMinZ = chunk.worldMinZ();
@@ -118,7 +121,7 @@ public final class ChunkMesher {
                         float v1 = atlas.v1(tile);
 
                         // 把這個面加入頂點資料中，含平滑光照與 AO。
-                        addFace(targetVertices, sampler, x, y, z, worldX, worldZ, face, u0, v0, u1, v1);
+                        addFace(targetVertices, sampler, x, y, z, worldX, worldZ, face, u0, v0, u1, v1, scratch);
                     }
                 }
             }
@@ -181,7 +184,8 @@ public final class ChunkMesher {
             float u0,
             float v0,
             float u1,
-            float v1) {
+            float v1,
+            FaceScratch scratch) {
         int faceIndex = face.ordinal();
         int[] positions = FACE_POSITIONS[faceIndex];
         int[] t1 = FACE_TANGENT1[faceIndex];
@@ -195,9 +199,11 @@ public final class ChunkMesher {
         int baseZ = worldZ + face.dz();
         float faceShade = face.light();
 
-        float[] shade = new float[4];
-        float[] sky = new float[4];
-        float[] blockLight = new float[4];
+        float[] shade = scratch.shade;
+        float[] sky = scratch.sky;
+        float[] blockLight = scratch.blockLight;
+        int baseSky = sampler.sky(baseX, baseY, baseZ);
+        int baseBlock = sampler.block(baseX, baseY, baseZ);
 
         for (int i = 0; i < 4; i++) {
             int su = suList[i];
@@ -217,8 +223,6 @@ public final class ChunkMesher {
             shade[i] = faceShade * AO_LEVELS[ao];
 
             // 平滑光照：取角落周圍四格的平均；被不透明方塊佔住的格子改用面前那格的值，避免過度變暗。
-            int baseSky = sampler.sky(baseX, baseY, baseZ);
-            int baseBlock = sampler.block(baseX, baseY, baseZ);
             int sumSky = baseSky;
             int sumBlock = baseBlock;
 
@@ -234,16 +238,24 @@ public final class ChunkMesher {
         }
 
         // 四個頂點的位置與 UV；a=(u0,v1)、b=(u1,v1)、c=(u1,v0)、d=(u0,v0)。
-        float[] px = new float[4];
-        float[] py = new float[4];
-        float[] pz = new float[4];
+        float[] px = scratch.px;
+        float[] py = scratch.py;
+        float[] pz = scratch.pz;
         for (int i = 0; i < 4; i++) {
             px[i] = x + positions[i * 3];
             py[i] = y + positions[i * 3 + 1];
             pz[i] = z + positions[i * 3 + 2];
         }
-        float[] u = { u0, u1, u1, u0 };
-        float[] v = { v1, v1, v0, v0 };
+        float[] u = scratch.u;
+        float[] v = scratch.v;
+        u[0] = u0;
+        u[1] = u1;
+        u[2] = u1;
+        u[3] = u0;
+        v[0] = v1;
+        v[1] = v1;
+        v[2] = v0;
+        v[3] = v0;
 
         // 依角落亮度選擇對角線，避免 AO 在四邊形內插時出現方向性條紋。
         boolean flip = shade[0] + shade[2] < shade[1] + shade[3];
@@ -340,6 +352,18 @@ public final class ChunkMesher {
         out.add(cx, cy, cz, u1, v0, shade, skyLight, blockLight);
         out.add(dx, dy, dz, u0, v0, shade, skyLight, blockLight);
         out.add(ax, ay, az, u0, v1, shade, skyLight, blockLight);
+    }
+
+    // 單次 Chunk meshing 內重複使用的小型暫存，避免每個外露面配置多個 4 格陣列。
+    private static final class FaceScratch {
+        private final float[] shade = new float[4];
+        private final float[] sky = new float[4];
+        private final float[] blockLight = new float[4];
+        private final float[] px = new float[4];
+        private final float[] py = new float[4];
+        private final float[] pz = new float[4];
+        private final float[] u = new float[4];
+        private final float[] v = new float[4];
     }
 
     // 集中處理光照與遮蔽查詢；Chunk 內的格子走快速路徑，跨界才透過 World。

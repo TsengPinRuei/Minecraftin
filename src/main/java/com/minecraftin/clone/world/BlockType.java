@@ -266,6 +266,7 @@ public enum BlockType {
             BY_ID[type.id] = type;
         }
 
+        // 存檔讀寫使用 id；執行期快取使用 ordinal。兩者用途不同，新增方塊時不能混用。
         DISPLAY_NAMES = new String[types.length];
         for (BlockType type : types) {
             DISPLAY_NAMES[type.ordinal()] = type.computeDisplayName();
@@ -702,6 +703,7 @@ public enum BlockType {
     }
 
     private BlockBounds[] computeRenderBoxes() {
+        // 開門變體會把門板旋轉到相鄰薄面；方向約定需與 Game.facingFromCamera() 保持一致。
         return switch (this) {
             case AIR -> EMPTY_BOUNDS;
             case OAK_STAIRS, OAK_STAIRS_NORTH -> STAIRS_NORTH_BOUNDS;

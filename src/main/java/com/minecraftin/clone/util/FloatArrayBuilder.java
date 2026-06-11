@@ -47,6 +47,31 @@ public final class FloatArrayBuilder {
         data[size++] = f;
     }
 
+    // 一次加入七個 float 值；HUD 頂點格式使用這個長度，避免走 varargs 產生暫存陣列。
+    public void add(float a, float b, float c, float d, float e, float f, float g) {
+        ensure(size + 7);
+        data[size++] = a;
+        data[size++] = b;
+        data[size++] = c;
+        data[size++] = d;
+        data[size++] = e;
+        data[size++] = f;
+        data[size++] = g;
+    }
+
+    // 一次加入八個 float 值；世界 mesh 頂點格式使用這個長度。
+    public void add(float a, float b, float c, float d, float e, float f, float g, float h) {
+        ensure(size + 8);
+        data[size++] = a;
+        data[size++] = b;
+        data[size++] = c;
+        data[size++] = d;
+        data[size++] = e;
+        data[size++] = f;
+        data[size++] = g;
+        data[size++] = h;
+    }
+
     // 一次加入多個 float 值。
     public void add(float... values) {
         ensure(size + values.length);

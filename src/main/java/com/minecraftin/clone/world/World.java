@@ -66,6 +66,9 @@ public final class World {
     // 待更新的水格排程（去重、保留插入順序）；方塊變更會把自己與鄰居排進來，由固定 tick 處理。
     private final java.util.LinkedHashSet<Long> scheduledWaterCells = new java.util.LinkedHashSet<>();
 
+    // 水流 tick 每次最多處理固定數量的格子；重複使用批次陣列，避免每個 tick 都配置 long[]。
+    private final long[] waterTickBatch = new long[WATER_MAX_CELLS_PER_TICK];
+
     // 世界存檔路徑。
     private final Path worldFile;
 
@@ -246,11 +249,10 @@ public final class World {
             return BlockType.AIR;
         }
 
-        int chunkX = Math.floorDiv(worldX, GameConfig.CHUNK_SIZE);
-        int chunkZ = Math.floorDiv(worldZ, GameConfig.CHUNK_SIZE);
-
-        int localX = Math.floorMod(worldX, GameConfig.CHUNK_SIZE);
-        int localZ = Math.floorMod(worldZ, GameConfig.CHUNK_SIZE);
+        int chunkX = chunkCoord(worldX);
+        int chunkZ = chunkCoord(worldZ);
+        int localX = localCoord(worldX, chunkX);
+        int localZ = localCoord(worldZ, chunkZ);
 
         Chunk chunk = getOrCreateChunk(chunkX, chunkZ);
         return chunk.get(localX, y, localZ);
@@ -266,11 +268,10 @@ public final class World {
             return BlockType.AIR;
         }
 
-        int chunkX = Math.floorDiv(worldX, GameConfig.CHUNK_SIZE);
-        int chunkZ = Math.floorDiv(worldZ, GameConfig.CHUNK_SIZE);
-
-        int localX = Math.floorMod(worldX, GameConfig.CHUNK_SIZE);
-        int localZ = Math.floorMod(worldZ, GameConfig.CHUNK_SIZE);
+        int chunkX = chunkCoord(worldX);
+        int chunkZ = chunkCoord(worldZ);
+        int localX = localCoord(worldX, chunkX);
+        int localZ = localCoord(worldZ, chunkZ);
 
         Chunk chunk = getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
@@ -293,10 +294,10 @@ public final class World {
             return false;
         }
 
-        int chunkX = Math.floorDiv(worldX, GameConfig.CHUNK_SIZE);
-        int chunkZ = Math.floorDiv(worldZ, GameConfig.CHUNK_SIZE);
-        int localX = Math.floorMod(worldX, GameConfig.CHUNK_SIZE);
-        int localZ = Math.floorMod(worldZ, GameConfig.CHUNK_SIZE);
+        int chunkX = chunkCoord(worldX);
+        int chunkZ = chunkCoord(worldZ);
+        int localX = localCoord(worldX, chunkX);
+        int localZ = localCoord(worldZ, chunkZ);
 
         Chunk chunk = createMissingChunk ? getOrCreateChunk(chunkX, chunkZ) : getChunkIfLoaded(chunkX, chunkZ);
         if (chunk == null) {
@@ -361,14 +362,14 @@ public final class World {
             return;
         }
 
-        long[] batch = new long[count];
         var iterator = scheduledWaterCells.iterator();
         for (int i = 0; i < count; i++) {
-            batch[i] = iterator.next();
+            waterTickBatch[i] = iterator.next();
             iterator.remove();
         }
 
-        for (long packed : batch) {
+        for (int i = 0; i < count; i++) {
+            long packed = waterTickBatch[i];
             updateWaterCell(unpackWaterX(packed), unpackWaterY(packed), unpackWaterZ(packed));
         }
     }
@@ -406,16 +407,19 @@ public final class World {
             return 7;
         }
 
-        int bestHorizontal = 0;
+        BlockType east = peekBlock(x + 1, y, z);
+        BlockType west = peekBlock(x - 1, y, z);
+        BlockType south = peekBlock(x, y, z + 1);
+        BlockType north = peekBlock(x, y, z - 1);
+
+        int bestHorizontal = Math.max(
+                Math.max(east.waterStrength(), west.waterStrength()),
+                Math.max(south.waterStrength(), north.waterStrength()));
         int sourceNeighbors = 0;
-        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x + 1, y, z));
-        sourceNeighbors += peekBlock(x + 1, y, z) == BlockType.WATER ? 1 : 0;
-        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x - 1, y, z));
-        sourceNeighbors += peekBlock(x - 1, y, z) == BlockType.WATER ? 1 : 0;
-        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x, y, z + 1));
-        sourceNeighbors += peekBlock(x, y, z + 1) == BlockType.WATER ? 1 : 0;
-        bestHorizontal = Math.max(bestHorizontal, horizontalWaterStrength(x, y, z - 1));
-        sourceNeighbors += peekBlock(x, y, z - 1) == BlockType.WATER ? 1 : 0;
+        sourceNeighbors += east == BlockType.WATER ? 1 : 0;
+        sourceNeighbors += west == BlockType.WATER ? 1 : 0;
+        sourceNeighbors += south == BlockType.WATER ? 1 : 0;
+        sourceNeighbors += north == BlockType.WATER ? 1 : 0;
 
         // 無限水源規則：兩個以上水源相鄰且下方有支撐，這一格升級為新的水源。
         if (sourceNeighbors >= 2) {
@@ -426,10 +430,6 @@ public final class World {
         }
 
         return Math.min(7, bestHorizontal - 1);
-    }
-
-    private int horizontalWaterStrength(int x, int y, int z) {
-        return peekBlock(x, y, z).waterStrength();
     }
 
     // 把水向外推：能往下流就往下；瀑布中段不水平攤開，只有水源或落在地面/水面上的水才向四周擴散。
@@ -486,7 +486,8 @@ public final class World {
         scheduledWaterCells.add(packWaterCell(x, y, z));
     }
 
-    // 將座標壓進一個 long：x 與 z 各 26 bits（含符號）、y 12 bits。
+    // 將座標壓進一個 long：x 與 z 各 26 bits（二補數含符號）、y 12 bits。
+    // 這只給短期水流排程使用；unpack 依賴位移做符號還原，不能拿來存放任意大座標。
     private static long packWaterCell(int x, int y, int z) {
         return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
@@ -513,10 +514,10 @@ public final class World {
 
     // 從上往下找出某個座標最上方的實心地面高度。
     public int topSolidY(int worldX, int worldZ) {
-        int chunkX = Math.floorDiv(worldX, GameConfig.CHUNK_SIZE);
-        int chunkZ = Math.floorDiv(worldZ, GameConfig.CHUNK_SIZE);
-        int localX = Math.floorMod(worldX, GameConfig.CHUNK_SIZE);
-        int localZ = Math.floorMod(worldZ, GameConfig.CHUNK_SIZE);
+        int chunkX = chunkCoord(worldX);
+        int chunkZ = chunkCoord(worldZ);
+        int localX = localCoord(worldX, chunkX);
+        int localZ = localCoord(worldZ, chunkZ);
         Chunk chunk = getOrCreateChunk(chunkX, chunkZ);
 
         for (int y = GameConfig.CHUNK_HEIGHT - 1; y >= 1; y--) {
@@ -936,6 +937,16 @@ public final class World {
         savedRespawnPosition.zero();
         hasSavedRespawnPosition = false;
         respawnPositionDirty = false;
+    }
+
+    // 世界座標轉 Chunk 座標；集中使用同一套換算，避免熱路徑重複 floorDiv/floorMod。
+    static int chunkCoord(int worldCoord) {
+        return Math.floorDiv(worldCoord, GameConfig.CHUNK_SIZE);
+    }
+
+    // chunkCoord 已用 floorDiv 處理負座標；這裡用減法得到 0..CHUNK_SIZE-1，等價 floorMod 但少一次除法。
+    static int localCoord(int worldCoord, int chunkCoord) {
+        return worldCoord - chunkCoord * GameConfig.CHUNK_SIZE;
     }
 
     // 比 Math.floor 更快地把 float 轉成向下取整的整數。

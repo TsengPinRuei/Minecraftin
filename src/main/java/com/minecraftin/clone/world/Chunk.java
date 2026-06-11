@@ -13,6 +13,9 @@ public final class Chunk {
     // 這個 Chunk 在世界中的 Z 座標位置。
     private final int chunkZ;
 
+    // Chunk 座標的穩定 key，Renderer 可重複使用，避免每幀為同一個 Chunk 建立新 ChunkPos。
+    private final ChunkPos pos;
+
     // 用一維陣列儲存 Chunk 內所有方塊 id，排序為 y -> z -> x，需與存檔讀寫保持一致。
     private final short[] blocks;
 
@@ -30,6 +33,7 @@ public final class Chunk {
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
+        this.pos = new ChunkPos(chunkX, chunkZ);
         this.blocks = new short[GameConfig.CHUNK_SIZE * GameConfig.CHUNK_HEIGHT * GameConfig.CHUNK_SIZE];
         Arrays.fill(this.blocks, (short) BlockType.AIR.id());
         this.skyLight = new byte[this.blocks.length];
@@ -44,6 +48,11 @@ public final class Chunk {
     // 回傳 Chunk 的 Z 座標。
     public int chunkZ() {
         return chunkZ;
+    }
+
+    // 回傳這個 Chunk 的穩定座標 key。
+    public ChunkPos pos() {
+        return pos;
     }
 
     // 回傳這個 Chunk 在世界中的最小 X 座標。

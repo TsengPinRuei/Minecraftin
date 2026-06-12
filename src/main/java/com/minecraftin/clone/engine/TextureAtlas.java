@@ -198,7 +198,8 @@ public final class TextureAtlas implements AutoCloseable {
         fillGlowTile(colors, AtlasTiles.SEA_LANTERN, 0xCDEDE8, 0x5AA8A4);
 
         fillPlanksTile(colors, AtlasTiles.OAK_FENCE, 0xBA8A52, 0x8D6236);
-        fillDoorTile(colors, AtlasTiles.OAK_DOOR, 0xA97943, 0x5F3A1F);
+        fillDoorUpperTile(colors, AtlasTiles.OAK_DOOR_UPPER, 0xA97943, 0x5F3A1F);
+        fillDoorLowerTile(colors, AtlasTiles.OAK_DOOR_LOWER, 0xA97943, 0x5F3A1F);
         fillTrapdoorTile(colors, AtlasTiles.OAK_TRAPDOOR, 0xA97943, 0x5F3A1F);
         fillLadderTile(colors, AtlasTiles.LADDER, 0xA97943, 0x5F3A1F);
         fillTorchTile(colors, AtlasTiles.TORCH, 0xF0B84A, 0x70451F);
@@ -210,6 +211,7 @@ public final class TextureAtlas implements AutoCloseable {
         fillChestSideTile(colors, AtlasTiles.CHEST_SIDE, 0xB47A37, 0x6B441F);
         fillChestTopTile(colors, AtlasTiles.CHEST_TOP, 0xC08A42, 0x775025);
         fillBookshelfTile(colors, AtlasTiles.BOOKSHELF, 0xA56C32, 0x3D5D9A);
+        fillSolidTile(colors, AtlasTiles.WHITE, 0xFFFFFF);
 
         // 把 ARGB 轉成 OpenGL 需要的 RGBA 順序後寫進 buffer。
         for (int y = 0; y < HEIGHT; y++) {
@@ -626,17 +628,53 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    private void fillDoorTile(int[] pixels, int tile, int wood, int dark) {
+    // 門的上半貼圖：外框與中央立柱、兩扇淡色窗格，門把畫在靠近中縫處（與 Minecraft 的橡木門語彙一致）。
+    private void fillDoorUpperTile(int[] pixels, int tile, int wood, int dark) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
 
         for (int y = 0; y < TILE_SIZE; y++) {
             for (int x = 0; x < TILE_SIZE; x++) {
-                boolean rail = x == 1 || x == 14 || y == 1 || y == 14 || y == 7;
-                boolean inset = (x == 5 || x == 10) && y > 2 && y < 13;
-                boolean knob = x >= 11 && x <= 12 && y >= 7 && y <= 8;
-                float blend = rail || inset ? 0.80f : ((hash(tile, x, y) & 0x1F) / 48.0f);
-                int color = knob ? 0xD6B15A : mix(wood, dark, blend);
+                boolean frame = x == 1 || x == 14 || y == 1 || y == 14;
+                boolean stile = (x == 7 || x == 8) && y > 1 && y < 14;
+                boolean window = (x >= 3 && x <= 6 || x >= 9 && x <= 12) && y >= 4 && y <= 8;
+                boolean knob = (x == 11 || x == 12) && (y == 11 || y == 12);
+                int color;
+                if (knob) {
+                    color = 0xD6B15A;
+                } else if (frame || stile) {
+                    color = mix(dark, wood, (hash(tile, x, y) & 0x07) / 28.0f);
+                } else if (window) {
+                    color = mix(0xC9E6F0, 0x8FB8CF, (hash(tile, x, y) & 0x0F) / 30.0f);
+                } else {
+                    color = mix(wood, dark, (hash(tile, x, y) & 0x1F) / 48.0f);
+                }
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
+            }
+        }
+    }
+
+    // 門的下半貼圖：外框與中央立柱、兩塊內凹門板。
+    private void fillDoorLowerTile(int[] pixels, int tile, int wood, int dark) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
+                boolean frame = x == 1 || x == 14 || y == 1 || y == 14;
+                boolean stile = (x == 7 || x == 8) && y > 1 && y < 14;
+                boolean leftPanel = ((x == 3 || x == 6) && y >= 3 && y <= 12)
+                        || ((y == 3 || y == 12) && x >= 3 && x <= 6);
+                boolean rightPanel = ((x == 9 || x == 12) && y >= 3 && y <= 12)
+                        || ((y == 3 || y == 12) && x >= 9 && x <= 12);
+                int color;
+                if (frame || stile) {
+                    color = mix(dark, wood, (hash(tile, x, y) & 0x07) / 28.0f);
+                } else if (leftPanel || rightPanel) {
+                    color = mix(wood, dark, 0.55f);
+                } else {
+                    color = mix(wood, dark, (hash(tile, x, y) & 0x1F) / 48.0f);
+                }
                 pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
             }
         }
@@ -673,16 +711,26 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
+    // 火把貼圖配合 render box 的 UV 裁切設計：世界中的火把盒只取樣中央直條（x 6~9、y 6~16），
+    // 火焰必須畫在直條頂端（y 3~8）才會出現在盒子上方；直條外加寬的火焰只出現在 HUD 平面圖示，讓圖示更醒目。
     private void fillTorchTile(int[] pixels, int tile, int flame, int handle) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
 
         for (int y = 0; y < TILE_SIZE; y++) {
             for (int x = 0; x < TILE_SIZE; x++) {
-                boolean stick = x >= 6 && x <= 9 && y >= 5;
-                boolean fire = x >= 5 && x <= 10 && y <= 5;
+                boolean stick = x >= 6 && x <= 9 && y >= 9;
+                boolean fire = x >= 5 && x <= 10 && y >= 3 && y < 9;
                 int alpha = stick || fire ? 255 : 0;
-                int color = fire ? mix(0xFFE36A, flame, (hash(tile, x, y) & 0x0F) / 30.0f) : handle;
+                int color;
+                if (fire) {
+                    // 火焰中心是亮黃核心，外圈混入偏橘的焰色。
+                    boolean core = x >= 6 && x <= 9 && y >= 4 && y < 8;
+                    color = core ? mix(0xFFE36A, flame, (hash(tile, x, y) & 0x07) / 14.0f)
+                            : mix(flame, 0xD8741F, (hash(tile, x, y) & 0x0F) / 24.0f);
+                } else {
+                    color = mix(handle, 0x4A2C12, (hash(tile, x, y) & 0x0F) / 40.0f);
+                }
                 pixels[(tileY + y) * WIDTH + tileX + x] = (alpha << 24) | color;
             }
         }
@@ -772,6 +820,18 @@ public final class TextureAtlas implements AutoCloseable {
                     int book = books[Math.floorMod((x / 3) + (y / 8) * 2, books.length)];
                     color = mix(book, bookColor, (hash(tile, x, y) & 0x0F) / 48.0f);
                 }
+                pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
+            }
+        }
+    }
+
+    // 填入單一純色 tile；目前只用於 HUD 取樣的純白格。
+    private void fillSolidTile(int[] pixels, int tile, int color) {
+        int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
+        int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
+
+        for (int y = 0; y < TILE_SIZE; y++) {
+            for (int x = 0; x < TILE_SIZE; x++) {
                 pixels[(tileY + y) * WIDTH + tileX + x] = 0xFF000000 | color;
             }
         }

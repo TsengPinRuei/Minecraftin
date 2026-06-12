@@ -280,6 +280,8 @@ public final class ChunkMesher {
     }
 
     // render box 使用 Chunk 本地座標加上局部 AABB，材質仍依原方塊的六面貼圖規則取得。
+    // UV 依局部盒在單位方塊中的位置裁切，讓火把、樓梯等非完整方塊取樣貼圖的對應子區域，
+    // 而不是把整張貼圖擠進縮小的面；裁切座標需與 addBoxFace 的頂點繞行順序一致。
     private static void addBox(FloatArrayBuilder out, BlockType block, float x, float y, float z,
             BlockBounds bounds, TextureAtlas atlas, float skyLight, float blockLight) {
         float minX = x + bounds.minX();
@@ -289,15 +291,76 @@ public final class ChunkMesher {
         float maxY = y + bounds.maxY();
         float maxZ = z + bounds.maxZ();
 
+        // 柵欄柱這類局部盒可能超出單位方塊（maxY 1.5），先 clamp 避免取樣到圖集鄰格。
+        float x0f = clamp01(bounds.minX());
+        float y0f = clamp01(bounds.minY());
+        float z0f = clamp01(bounds.minZ());
+        float x1f = clamp01(bounds.maxX());
+        float y1f = clamp01(bounds.maxY());
+        float z1f = clamp01(bounds.maxZ());
+
         for (Face face : FACES) {
             int tile = block.tileForFace(face);
             float u0 = atlas.u0(tile);
             float v0 = atlas.v0(tile);
-            float u1 = atlas.u1(tile);
-            float v1 = atlas.v1(tile);
-            addBoxFace(out, face, minX, minY, minZ, maxX, maxY, maxZ, u0, v0, u1, v1,
+            float uSpan = atlas.u1(tile) - u0;
+            float vSpan = atlas.v1(tile) - v0;
+
+            // 側面的垂直裁切共用：貼圖上緣（v0）對應盒頂、下緣對應盒底。
+            float sideV0 = v0 + (1.0f - y1f) * vSpan;
+            float sideV1 = v0 + (1.0f - y0f) * vSpan;
+
+            float subU0;
+            float subU1;
+            float subV0;
+            float subV1;
+            switch (face) {
+                case NORTH -> {
+                    subU0 = u0 + (1.0f - x1f) * uSpan;
+                    subU1 = u0 + (1.0f - x0f) * uSpan;
+                    subV0 = sideV0;
+                    subV1 = sideV1;
+                }
+                case SOUTH -> {
+                    subU0 = u0 + x0f * uSpan;
+                    subU1 = u0 + x1f * uSpan;
+                    subV0 = sideV0;
+                    subV1 = sideV1;
+                }
+                case WEST -> {
+                    subU0 = u0 + z0f * uSpan;
+                    subU1 = u0 + z1f * uSpan;
+                    subV0 = sideV0;
+                    subV1 = sideV1;
+                }
+                case EAST -> {
+                    subU0 = u0 + (1.0f - z1f) * uSpan;
+                    subU1 = u0 + (1.0f - z0f) * uSpan;
+                    subV0 = sideV0;
+                    subV1 = sideV1;
+                }
+                case UP -> {
+                    subU0 = u0 + x0f * uSpan;
+                    subU1 = u0 + x1f * uSpan;
+                    subV0 = v0 + (1.0f - z1f) * vSpan;
+                    subV1 = v0 + (1.0f - z0f) * vSpan;
+                }
+                default -> {
+                    subU0 = u0 + z0f * uSpan;
+                    subU1 = u0 + z1f * uSpan;
+                    subV0 = v0 + (1.0f - x1f) * vSpan;
+                    subV1 = v0 + (1.0f - x0f) * vSpan;
+                }
+            }
+
+            addBoxFace(out, face, minX, minY, minZ, maxX, maxY, maxZ, subU0, subV0, subU1, subV1,
                     face.light(), skyLight, blockLight);
         }
+    }
+
+    // 把比例限制在 0 到 1 之間，供 render box 的 UV 裁切使用。
+    private static float clamp01(float value) {
+        return Math.min(1.0f, Math.max(0.0f, value));
     }
 
     // 和完整方塊的 addFace 相同輸出 6 個頂點，但座標來自 render box 的 min/max。

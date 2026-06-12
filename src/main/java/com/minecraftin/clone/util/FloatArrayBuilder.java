@@ -47,7 +47,7 @@ public final class FloatArrayBuilder {
         data[size++] = f;
     }
 
-    // 一次加入七個 float 值；HUD 頂點格式使用這個長度，避免走 varargs 產生暫存陣列。
+    // 一次加入七個 float 值，避免走 varargs 產生暫存陣列。
     public void add(float a, float b, float c, float d, float e, float f, float g) {
         ensure(size + 7);
         data[size++] = a;
@@ -70,6 +70,20 @@ public final class FloatArrayBuilder {
         data[size++] = f;
         data[size++] = g;
         data[size++] = h;
+    }
+
+    // 一次加入九個 float 值；HUD 頂點格式（位置 + 顏色 + UV）使用這個長度。
+    public void add(float a, float b, float c, float d, float e, float f, float g, float h, float i) {
+        ensure(size + 9);
+        data[size++] = a;
+        data[size++] = b;
+        data[size++] = c;
+        data[size++] = d;
+        data[size++] = e;
+        data[size++] = f;
+        data[size++] = g;
+        data[size++] = h;
+        data[size++] = i;
     }
 
     // 一次加入多個 float 值。

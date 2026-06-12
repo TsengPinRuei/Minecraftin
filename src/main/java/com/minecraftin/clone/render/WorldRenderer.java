@@ -174,6 +174,11 @@ public final class WorldRenderer implements AutoCloseable {
         cloudMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
     }
 
+    // 共用的方塊材質圖集；HUD 用它畫出與世界一致的方塊縮圖。
+    public TextureAtlas atlas() {
+        return atlas;
+    }
+
     // 推進方塊破壞碎屑的位置與生命週期；Game loop 每幀呼叫一次。
     public void update(float deltaSeconds) {
         if (deltaSeconds <= 0.0f) {

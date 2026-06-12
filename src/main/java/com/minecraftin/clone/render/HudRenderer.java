@@ -2,8 +2,10 @@ package com.minecraftin.clone.render;
 
 import com.minecraftin.clone.engine.Mesh;
 import com.minecraftin.clone.engine.ShaderProgram;
+import com.minecraftin.clone.engine.TextureAtlas;
 import com.minecraftin.clone.util.FloatArrayBuilder;
 import com.minecraftin.clone.world.BlockType;
+import com.minecraftin.clone.world.Face;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -12,10 +14,11 @@ import static org.lwjgl.opengl.GL33C.*;
 
 // 負責繪製 HUD，例如準星、hotbar，以及目前選取方塊的名稱。
 // HUD 使用 NDC 座標直接繪製 2D mesh，不經由相機矩陣，因此頂點資料與螢幕比例處理都在這裡完成。
+// 方塊縮圖直接取樣世界共用的材質圖集；純色幾何（面板、文字）則取樣圖集中的純白格，讓整個 HUD 一次繪製。
 public final class HudRenderer implements AutoCloseable {
 
-    // 每個頂點包含 7 個 float：位置 xyz + 顏色 rgba。
-    private static final int STRIDE = 7;
+    // 每個頂點包含 9 個 float：位置 xyz + 顏色 rgba + 貼圖 uv。
+    private static final int STRIDE = 9;
 
     // 單一文字像素在 NDC 座標中的寬度。
     private static final float TEXT_PIXEL_WIDTH = 0.005f;
@@ -32,6 +35,9 @@ public final class HudRenderer implements AutoCloseable {
     // 字元與字元之間保留 1 格間距。
     private static final int FONT_GLYPH_SPACING = 1;
 
+    // 一行文字在 NDC 中的高度，用於面板標題與頁碼的垂直置中。
+    private static final float TEXT_BLOCK_HEIGHT = FONT_GLYPH_HEIGHT * TEXT_PIXEL_HEIGHT;
+
     // hotbar 單一格子的高度；寬度依視窗比例換算成正方形，與 Minecraft 的方形格子一致。
     private static final float HOTBAR_SLOT_HEIGHT = 0.15f;
 
@@ -47,9 +53,10 @@ public final class HudRenderer implements AutoCloseable {
     public static final int CREATIVE_SLOTS_PER_PAGE = CREATIVE_COLUMNS * CREATIVE_ROWS;
 
     // 創造背包與箱子面板也使用 NDC 尺寸；格子為正方形（寬度依比例換算），與 Minecraft 的緊密網格一致。
-    private static final float CREATIVE_SLOT_HEIGHT = 0.125f;
+    // 格子加大到 0.16，讓五列九欄的面板佔據約半個畫面高度，圖示與格距更清楚不擁擠。
+    private static final float CREATIVE_SLOT_HEIGHT = 0.16f;
     private static final float CREATIVE_GAP = 0.0f;
-    private static final float CREATIVE_GRID_TOP = 0.56f;
+    private static final float CREATIVE_GRID_TOP = 0.62f;
     private static final float CREATIVE_PANEL_PAD_X = 0.065f;
     private static final float CREATIVE_PANEL_PAD_TOP = 0.13f;
     private static final float CREATIVE_PANEL_PAD_BOTTOM = 0.11f;
@@ -82,9 +89,6 @@ public final class HudRenderer implements AutoCloseable {
     // F3 偵錯文字每行的半透明底色。
     private static final float[] DEBUG_BG_COLOR = new float[] { 0.0f, 0.0f, 0.0f, 0.35f };
 
-    // 圖示細節沿用的暗色邊。
-    private static final float[] INVENTORY_SLOT_BORDER = UI_SLOT_DARK;
-
     // Minecraft 的準星是淺色小十字。
     private static final float[] CROSSHAIR_COLOR = new float[] { 0.92f, 0.92f, 0.92f, 0.9f };
 
@@ -94,85 +98,17 @@ public final class HudRenderer implements AutoCloseable {
 
     private static final int CHEST_COLUMNS = 9;
     private static final int CHEST_ROWS = 3;
-    private static final float CHEST_SLOT_HEIGHT = 0.125f;
+    private static final float CHEST_SLOT_HEIGHT = 0.16f;
     private static final float CHEST_GAP = 0.0f;
-    private static final float CHEST_GRID_TOP = 0.42f;
+    private static final float CHEST_GRID_TOP = 0.50f;
     private static final float CHEST_PANEL_PAD_X = 0.065f;
     private static final float CHEST_PANEL_PAD_TOP = 0.13f;
     private static final float CHEST_PANEL_PAD_BOTTOM = 0.10f;
 
-    // 各種方塊在 hotbar 中的代表顏色。
-    private static final float[] COLOR_RED_BLOCK = new float[] { 0.85f, 0.25f, 0.25f, 0.95f };
-    private static final float[] COLOR_ORANGE_BLOCK = new float[] { 0.90f, 0.54f, 0.18f, 0.95f };
-    private static final float[] COLOR_YELLOW_BLOCK = new float[] { 0.95f, 0.84f, 0.23f, 0.95f };
-    private static final float[] COLOR_GREEN_BLOCK = new float[] { 0.30f, 0.66f, 0.27f, 0.95f };
-    private static final float[] COLOR_BLUE_BLOCK = new float[] { 0.24f, 0.47f, 0.85f, 0.95f };
-    private static final float[] COLOR_PURPLE_BLOCK = new float[] { 0.51f, 0.28f, 0.80f, 0.95f };
-    private static final float[] COLOR_GRASS = new float[] { 0.36f, 0.69f, 0.29f, 0.95f };
-    private static final float[] COLOR_DIRT = new float[] { 0.53f, 0.34f, 0.19f, 0.95f };
-    private static final float[] COLOR_STONE = new float[] { 0.53f, 0.53f, 0.53f, 0.95f };
-    private static final float[] COLOR_SAND = new float[] { 0.85f, 0.78f, 0.56f, 0.95f };
-    private static final float[] COLOR_WATER = new float[] { 0.29f, 0.48f, 0.84f, 0.95f };
-    private static final float[] COLOR_LOG = new float[] { 0.59f, 0.41f, 0.24f, 0.95f };
-    private static final float[] COLOR_LEAVES = new float[] { 0.23f, 0.54f, 0.26f, 0.95f };
-    private static final float[] COLOR_COBBLE = new float[] { 0.45f, 0.45f, 0.45f, 0.95f };
-    private static final float[] COLOR_PLANKS = new float[] { 0.72f, 0.54f, 0.30f, 0.95f };
-    private static final float[] COLOR_GLASS = new float[] { 0.67f, 0.84f, 0.98f, 0.95f };
-    private static final float[] COLOR_BRICKS = new float[] { 0.63f, 0.31f, 0.28f, 0.95f };
-    private static final float[] COLOR_BEDROCK = new float[] { 0.22f, 0.22f, 0.22f, 0.95f };
-    private static final float[] COLOR_SNOW = new float[] { 0.95f, 0.97f, 1.00f, 0.95f };
-    private static final float[] COLOR_WHITE_WOOL = new float[] { 0.92f, 0.92f, 0.88f, 0.95f };
-    private static final float[] COLOR_LIGHT_GRAY_WOOL = new float[] { 0.66f, 0.66f, 0.66f, 0.95f };
-    private static final float[] COLOR_GRAY_WOOL = new float[] { 0.38f, 0.38f, 0.38f, 0.95f };
-    private static final float[] COLOR_BLACK_WOOL = new float[] { 0.11f, 0.11f, 0.11f, 0.95f };
-    private static final float[] COLOR_BROWN_WOOL = new float[] { 0.50f, 0.32f, 0.20f, 0.95f };
-    private static final float[] COLOR_RED_WOOL = new float[] { 0.72f, 0.22f, 0.20f, 0.95f };
-    private static final float[] COLOR_ORANGE_WOOL = new float[] { 0.82f, 0.49f, 0.19f, 0.95f };
-    private static final float[] COLOR_YELLOW_WOOL = new float[] { 0.84f, 0.74f, 0.23f, 0.95f };
-    private static final float[] COLOR_LIME_WOOL = new float[] { 0.42f, 0.75f, 0.23f, 0.95f };
-    private static final float[] COLOR_GREEN_WOOL = new float[] { 0.30f, 0.55f, 0.21f, 0.95f };
-    private static final float[] COLOR_CYAN_WOOL = new float[] { 0.23f, 0.63f, 0.65f, 0.95f };
-    private static final float[] COLOR_BLUE_WOOL = new float[] { 0.23f, 0.37f, 0.67f, 0.95f };
-    private static final float[] COLOR_PURPLE_WOOL = new float[] { 0.47f, 0.30f, 0.66f, 0.95f };
-    private static final float[] COLOR_MAGENTA_WOOL = new float[] { 0.70f, 0.29f, 0.66f, 0.95f };
-    private static final float[] COLOR_PINK_WOOL = new float[] { 0.85f, 0.54f, 0.66f, 0.95f };
-    private static final float[] COLOR_BIRCH_PLANKS = new float[] { 0.83f, 0.74f, 0.45f, 0.95f };
-    private static final float[] COLOR_SPRUCE_PLANKS = new float[] { 0.44f, 0.31f, 0.18f, 0.95f };
-    private static final float[] COLOR_DARK_OAK_PLANKS = new float[] { 0.30f, 0.19f, 0.12f, 0.95f };
-    private static final float[] COLOR_STONE_BRICKS = new float[] { 0.49f, 0.49f, 0.49f, 0.95f };
-    private static final float[] COLOR_CHISELED_STONE_BRICKS = new float[] { 0.52f, 0.52f, 0.52f, 0.95f };
-    private static final float[] COLOR_MOSSY_STONE_BRICKS = new float[] { 0.38f, 0.48f, 0.32f, 0.95f };
-    private static final float[] COLOR_GRANITE = new float[] { 0.66f, 0.46f, 0.39f, 0.95f };
-    private static final float[] COLOR_POLISHED_GRANITE = new float[] { 0.68f, 0.49f, 0.43f, 0.95f };
-    private static final float[] COLOR_DIORITE = new float[] { 0.82f, 0.82f, 0.82f, 0.95f };
-    private static final float[] COLOR_POLISHED_DIORITE = new float[] { 0.86f, 0.86f, 0.86f, 0.95f };
-    private static final float[] COLOR_ANDESITE = new float[] { 0.52f, 0.52f, 0.52f, 0.95f };
-    private static final float[] COLOR_POLISHED_ANDESITE = new float[] { 0.56f, 0.56f, 0.56f, 0.95f };
-    private static final float[] COLOR_DEEPSLATE = new float[] { 0.29f, 0.30f, 0.32f, 0.95f };
-    private static final float[] COLOR_POLISHED_DEEPSLATE = new float[] { 0.33f, 0.34f, 0.36f, 0.95f };
-    private static final float[] COLOR_DEEPSLATE_BRICKS = new float[] { 0.30f, 0.31f, 0.34f, 0.95f };
-    private static final float[] COLOR_QUARTZ_BLOCK = new float[] { 0.91f, 0.89f, 0.84f, 0.95f };
-    private static final float[] COLOR_QUARTZ_PILLAR = new float[] { 0.90f, 0.88f, 0.82f, 0.95f };
-    private static final float[] COLOR_SMOOTH_QUARTZ = new float[] { 0.94f, 0.92f, 0.87f, 0.95f };
-    private static final float[] COLOR_OBSIDIAN = new float[] { 0.13f, 0.10f, 0.18f, 0.95f };
-    private static final float[] COLOR_NETHERRACK = new float[] { 0.49f, 0.18f, 0.18f, 0.95f };
-    private static final float[] COLOR_NETHER_BRICKS = new float[] { 0.30f, 0.12f, 0.17f, 0.95f };
-    private static final float[] COLOR_END_STONE = new float[] { 0.84f, 0.81f, 0.59f, 0.95f };
-    private static final float[] COLOR_GLOWSTONE = new float[] { 0.95f, 0.78f, 0.36f, 0.95f };
-    private static final float[] COLOR_SEA_LANTERN = new float[] { 0.80f, 0.93f, 0.91f, 0.95f };
-    private static final float[] COLOR_OAK_STAIRS = new float[] { 0.70f, 0.50f, 0.27f, 0.95f };
-    private static final float[] COLOR_OAK_SLAB = new float[] { 0.73f, 0.55f, 0.32f, 0.95f };
-    private static final float[] COLOR_STONE_SLAB = new float[] { 0.57f, 0.57f, 0.57f, 0.95f };
-    private static final float[] COLOR_OAK_FENCE = new float[] { 0.62f, 0.42f, 0.22f, 0.95f };
-    private static final float[] COLOR_OAK_DOOR = new float[] { 0.66f, 0.43f, 0.21f, 0.95f };
-    private static final float[] COLOR_OAK_TRAPDOOR = new float[] { 0.64f, 0.41f, 0.20f, 0.95f };
-    private static final float[] COLOR_LADDER = new float[] { 0.68f, 0.46f, 0.23f, 0.95f };
-    private static final float[] COLOR_TORCH = new float[] { 0.95f, 0.70f, 0.24f, 0.95f };
-    private static final float[] COLOR_CRAFTING_TABLE = new float[] { 0.61f, 0.38f, 0.20f, 0.95f };
-    private static final float[] COLOR_FURNACE = new float[] { 0.43f, 0.43f, 0.43f, 0.95f };
-    private static final float[] COLOR_CHEST = new float[] { 0.73f, 0.48f, 0.20f, 0.95f };
-    private static final float[] COLOR_BOOKSHELF = new float[] { 0.62f, 0.33f, 0.23f, 0.95f };
-    private static final float[] COLOR_DEFAULT = new float[] { 0.20f, 0.20f, 0.20f, 0.95f };
+    // 方塊縮圖的面亮度：頂面最亮、正面次之、右側最暗，模擬世界中的方向光，讓縮圖有立體感。
+    private static final float ICON_TOP_SHADE = 1.0f;
+    private static final float ICON_FRONT_SHADE = 0.82f;
+    private static final float ICON_SIDE_SHADE = 0.55f;
 
     // 空白字元的點陣資料。
     private static final String[] GLYPH_EMPTY = new String[] {
@@ -191,6 +127,13 @@ public final class HudRenderer implements AutoCloseable {
     // HUD 專用 shader。
     private final ShaderProgram shader;
 
+    // 與世界渲染共用的材質圖集；方塊縮圖直接取樣世界貼圖，讓玩家一眼認出方塊。
+    private final TextureAtlas atlas;
+
+    // 純白 tile 中心點的 UV；純色幾何固定取樣這個點，UV 無變化也就不會誤取到 mipmap 的混色。
+    private final float whiteU;
+    private final float whiteV;
+
     // 畫面中央的準星 mesh。
     private final Mesh crosshair;
 
@@ -199,10 +142,6 @@ public final class HudRenderer implements AutoCloseable {
 
     // 用來累積 hotbar 與文字頂點資料。
     private final FloatArrayBuilder hotbarVertices = new FloatArrayBuilder(32768);
-
-    // 圖示重建時的臨時色彩，避免 lightenColor/darkenColor 每次建立短生命週期陣列。
-    private final float[] tmpLightColor = new float[4];
-    private final float[] tmpDarkColor = new float[4];
 
     // 暫存 viewport 資訊，避免每次重新建立陣列。
     private final int[] viewport = new int[4];
@@ -232,15 +171,19 @@ public final class HudRenderer implements AutoCloseable {
     // 快取上一次 viewport 高度。
     private int cachedViewportHeight = Integer.MIN_VALUE;
 
-    // 建立 HUD 所需的 shader 與基本 mesh。
-    public HudRenderer() {
+    // 建立 HUD 所需的 shader 與基本 mesh；atlas 由 WorldRenderer 持有並負責釋放。
+    public HudRenderer(TextureAtlas atlas) {
+        this.atlas = atlas;
+        whiteU = (atlas.u0(AtlasTiles.WHITE) + atlas.u1(AtlasTiles.WHITE)) * 0.5f;
+        whiteV = (atlas.v0(AtlasTiles.WHITE) + atlas.v1(AtlasTiles.WHITE)) * 0.5f;
+
         shader = new ShaderProgram("/shaders/hud.vert", "/shaders/hud.frag");
 
         // 準星會依 viewport 比例重建，確保實際畫面上是置中的正十字。
-        crosshair = new Mesh(new float[0], GL_TRIANGLES, 3, 4);
+        crosshair = new Mesh(new float[0], GL_TRIANGLES, 3, 4, 2);
 
         // hotbar mesh 一開始先建立空資料，之後再動態更新。
-        hotbarMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 4);
+        hotbarMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 4, 2);
     }
 
     // 繪製 HUD。debugLines 為 null 時不顯示 F3 偵錯文字。
@@ -249,6 +192,8 @@ public final class HudRenderer implements AutoCloseable {
             String[] debugLines) {
         glDisable(GL_DEPTH_TEST);
         shader.use();
+        shader.setInt("uAtlas", 0);
+        atlas.bind(0);
 
         // 取得目前 viewport 大小，讓圖示在不同畫面比例下維持正常外觀；HUD 不依賴 Window 尺寸參數。
         glGetIntegerv(GL_VIEWPORT, viewport);
@@ -460,7 +405,10 @@ public final class HudRenderer implements AutoCloseable {
         addRect(out, -1.0f, -1.0f, 2.0f, 2.0f, UI_SCREEN_DIM);
 
         addBlockPanel(out, panelX, panelY, panelWidth, panelHeight, aspect);
-        addCenteredText(out, "Chest", CHEST_GRID_TOP + 0.046f, TITLE_COLOR, false);
+
+        // 標題在「網格頂到面板內緣」這段區帶內垂直置中。
+        float titleY = CHEST_GRID_TOP + (CHEST_PANEL_PAD_TOP - PANEL_BORDER_Y - TEXT_BLOCK_HEIGHT) * 0.5f;
+        addCenteredText(out, "Chest", titleY, TITLE_COLOR, false);
 
         for (int row = 0; row < CHEST_ROWS; row++) {
             for (int col = 0; col < CHEST_COLUMNS; col++) {
@@ -489,7 +437,10 @@ public final class HudRenderer implements AutoCloseable {
         addRect(out, -1.0f, -1.0f, 2.0f, 2.0f, UI_SCREEN_DIM);
 
         addBlockPanel(out, panelX, panelY, panelWidth, panelHeight, aspect);
-        addCenteredText(out, "Creative", CREATIVE_GRID_TOP + 0.046f, TITLE_COLOR, false);
+
+        // 標題在「網格頂到面板內緣」這段區帶內垂直置中。
+        float titleY = CREATIVE_GRID_TOP + (CREATIVE_PANEL_PAD_TOP - PANEL_BORDER_Y - TEXT_BLOCK_HEIGHT) * 0.5f;
+        addCenteredText(out, "Creative", titleY, TITLE_COLOR, false);
 
         BlockType selected = selectedIndex >= 0 && selectedIndex < hotbar.length ? hotbar[selectedIndex] : null;
         float cellWidth = slotWidth + CREATIVE_GAP;
@@ -522,7 +473,10 @@ public final class HudRenderer implements AutoCloseable {
         }
 
         String pageLabel = "Page " + Math.min(page + 1, Math.max(1, totalPages)) + "/" + Math.max(1, totalPages);
-        addCenteredText(out, pageLabel, panelY + 0.035f, TITLE_COLOR, false);
+
+        // 頁碼在「面板內緣到網格底」這段區帶內垂直置中。
+        float pageY = panelY + PANEL_BORDER_Y + (CREATIVE_PANEL_PAD_BOTTOM - PANEL_BORDER_Y - TEXT_BLOCK_HEIGHT) * 0.5f;
+        addCenteredText(out, pageLabel, pageY, TITLE_COLOR, false);
     }
 
     private static float creativeGridWidth(float aspect) {
@@ -583,179 +537,135 @@ public final class HudRenderer implements AutoCloseable {
         addQuad(out, x, y, x2, y, x2, y2, x, y2, color[0], color[1], color[2], color[3]);
     }
 
-    // 用三個面模擬一個簡化的立方體圖示。
-    private void addCubeIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
-            float depthY,
-            float[] baseColor) {
-        float x0 = x;
-        float y0 = y;
-        float x1 = x + width;
-        float y1 = y + height;
-
-        float r = baseColor[0];
-        float g = baseColor[1];
-        float b = baseColor[2];
-        float a = baseColor[3];
-
-        // 正面
-        addQuad(out, x0, y0, x1, y0, x1, y1, x0, y1, r, g, b, a);
-
-        // 上面，用較亮的顏色製造立體感。
-        addQuad(out, x0, y1, x1, y1, x1 + depthX, y1 + depthY, x0 + depthX, y1 + depthY,
-                lighten(r), lighten(g), lighten(b), a);
-
-        // 右側面，用較暗的顏色製造陰影感。
-        addQuad(out, x1, y0, x1 + depthX, y0 + depthY, x1 + depthX, y1 + depthY, x1, y1,
-                darken(r), darken(g), darken(b), a);
-    }
-
-    // 針對非完整方塊和基本物品畫出更容易辨識的 2D 輪廓，避免背包裡全部看起來像普通立方體。
+    // 方塊縮圖一律取樣世界材質圖集：完整方塊畫成三面立方體（正面用 NORTH 貼圖，爐口、箱扣等特徵朝向玩家），
+    // 非完整方塊（火把、梯子、門等）直接用貼圖本身當平面圖示，和 Minecraft 的物品圖示語彙一致。
     private void addBlockIcon(FloatArrayBuilder out, BlockType type, float x, float y, float width, float height,
             float depthX, float depthY) {
-        float[] color = blockColor(type);
+        if (type == null || type == BlockType.AIR) {
+            return;
+        }
+
+        // 平面圖示不需要立體深度，改用整個縮圖範圍置中顯示。
+        float flatWidth = width + depthX;
+        float flatHeight = height + depthY;
+
         switch (type) {
             case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST ->
-                addStairsIcon(out, x, y, width, height, color);
-            case OAK_SLAB, STONE_SLAB -> addSlabIcon(out, x, y, width, height, color);
-            case OAK_FENCE -> addFenceIcon(out, x, y, width, height, color);
+                addStairsIcon(out, type, x, y, width, height, depthX, depthY);
+            case OAK_SLAB, STONE_SLAB -> addSlabIcon(out, type, x, y, width, height, depthX, depthY);
+            case OAK_FENCE -> addFenceIcon(out, type, x, y, flatWidth, flatHeight);
             case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
                     OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
                     OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
                     OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
                     OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP ->
-                addDoorIcon(out, x, y, width, height, color);
-            case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> addTrapdoorIcon(out, x, y, width, height, color);
+                addDoorIcon(out, x, y, flatWidth, flatHeight);
+            case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> addFlatIcon(out, AtlasTiles.OAK_TRAPDOOR, x, y, flatWidth,
+                    flatHeight);
             case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST ->
-                addLadderIcon(out, x, y, width, height, color);
-            case TORCH -> addTorchIcon(out, x, y, width, height, color);
-            case CRAFTING_TABLE -> addCraftingTableIcon(out, x, y, width, height, depthX, depthY, color);
-            case FURNACE -> addFurnaceIcon(out, x, y, width, height, depthX, depthY, color);
-            case CHEST -> addChestIcon(out, x, y, width, height, depthX, depthY, color);
-            case BOOKSHELF -> addBookshelfIcon(out, x, y, width, height, depthX, depthY, color);
-            default -> addCubeIcon(out, x, y, width, height, depthX, depthY, color);
+                addFlatIcon(out, AtlasTiles.LADDER, x, y, flatWidth, flatHeight);
+            case TORCH -> addFlatIcon(out, AtlasTiles.TORCH, x, y, flatWidth, flatHeight);
+            default -> addPartialCube(out, type, x, y, width, height, depthX, depthY, 0.0f, 1.0f, 0.0f, 1.0f);
         }
     }
 
-    private void addStairsIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        float stepW = width / 3.0f;
-        float stepH = height / 3.0f;
-        addRect(out, x, y, width, stepH, color);
-        addRect(out, x + stepW, y + stepH, width - stepW, stepH, color);
-        addRect(out, x + stepW * 2.0f, y + stepH * 2.0f, width - stepW * 2.0f, stepH, color);
-        addRect(out, x, y - 0.004f, width, 0.004f, INVENTORY_SLOT_BORDER);
+    // 階梯畫成「整寬半磚 + 疊在右半的上階」兩個量塊，由左向右升高；貼圖各取對應子區域維持紋理連續。
+    private void addStairsIcon(FloatArrayBuilder out, BlockType type, float x, float y, float width, float height,
+            float depthX, float depthY) {
+        float halfWidth = width * 0.5f;
+        float halfHeight = height * 0.5f;
+        addPartialCube(out, type, x, y, width, halfHeight, depthX, depthY, 0.0f, 1.0f, 0.5f, 1.0f);
+        addPartialCube(out, type, x + halfWidth, y + halfHeight, halfWidth, halfHeight, depthX, depthY,
+                0.5f, 1.0f, 0.0f, 0.5f);
     }
 
-    private void addSlabIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        addRect(out, x, y, width, height * 0.42f, color);
-        addRect(out, x, y + height * 0.42f, width, height * 0.08f, lightenColor(color));
+    // 半磚畫成高度減半的立方體，頂面位置明顯低於完整方塊。
+    private void addSlabIcon(FloatArrayBuilder out, BlockType type, float x, float y, float width, float height,
+            float depthX, float depthY) {
+        addPartialCube(out, type, x, y, width, height * 0.5f, depthX, depthY, 0.0f, 1.0f, 0.5f, 1.0f);
     }
 
-    private void addFenceIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        float postW = width * 0.16f;
-        float railH = height * 0.14f;
-        addRect(out, x + width * 0.12f, y, postW, height, color);
-        addRect(out, x + width * 0.72f, y, postW, height, color);
-        addRect(out, x, y + height * 0.30f, width, railH, color);
-        addRect(out, x, y + height * 0.64f, width, railH, color);
+    // 柵欄維持「兩柱兩欄」的剪影，但改取木頭貼圖的對應條狀區域上色。
+    private void addFenceIcon(FloatArrayBuilder out, BlockType type, float x, float y, float width, float height) {
+        int tile = type.tileForFace(Face.NORTH);
+        float postWidth = width * 0.16f;
+        float railHeight = height * 0.14f;
+        addTileSubRect(out, tile, x + width * 0.12f, y, postWidth, height,
+                0.12f, 0.0f, 0.28f, 1.0f, ICON_FRONT_SHADE);
+        addTileSubRect(out, tile, x + width * 0.72f, y, postWidth, height,
+                0.72f, 0.0f, 0.88f, 1.0f, ICON_FRONT_SHADE);
+        addTileSubRect(out, tile, x, y + height * 0.64f, width, railHeight,
+                0.0f, 0.22f, 1.0f, 0.36f, ICON_TOP_SHADE);
+        addTileSubRect(out, tile, x, y + height * 0.30f, width, railHeight,
+                0.0f, 0.56f, 1.0f, 0.70f, ICON_TOP_SHADE);
     }
 
-    private void addDoorIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        float doorX = x + width * 0.20f;
-        float doorW = width * 0.60f;
-        addRect(out, doorX, y, doorW, height, color);
-        addRect(out, doorX + doorW * 0.12f, y + height * 0.10f, doorW * 0.76f, height * 0.32f, darkenColor(color));
-        addRect(out, doorX + doorW * 0.12f, y + height * 0.56f, doorW * 0.76f, height * 0.32f, darkenColor(color));
-        addRect(out, doorX + doorW * 0.72f, y + height * 0.47f, doorW * 0.12f, height * 0.08f,
-                COLOR_GLOWSTONE);
+    // 直接把貼圖整格畫成平面圖示；火把、梯子的透明像素會自然露出格子底色。
+    private void addFlatIcon(FloatArrayBuilder out, int tile, float x, float y, float width, float height) {
+        addTileSubRect(out, tile, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f, ICON_TOP_SHADE);
     }
 
-    private void addTrapdoorIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        float trapY = y + height * 0.15f;
-        float trapH = height * 0.70f;
-        addRect(out, x, trapY, width, trapH, color);
-        addRect(out, x + width * 0.12f, trapY + trapH * 0.12f, width * 0.76f, trapH * 0.14f,
-                darkenColor(color));
-        addRect(out, x + width * 0.12f, trapY + trapH * 0.43f, width * 0.76f, trapH * 0.14f,
-                darkenColor(color));
-        addRect(out, x + width * 0.12f, trapY + trapH * 0.74f, width * 0.76f, trapH * 0.14f,
-                darkenColor(color));
+    // 門在世界中佔上下兩格，縮圖用同一組上下半貼圖拼出完整門板；水平壓縮維持門的瘦長輪廓。
+    private void addDoorIcon(FloatArrayBuilder out, float x, float y, float width, float height) {
+        float doorX = x + width * 0.18f;
+        float doorWidth = width * 0.64f;
+        float halfHeight = height * 0.5f;
+        addFlatIcon(out, AtlasTiles.OAK_DOOR_LOWER, doorX, y, doorWidth, halfHeight);
+        addFlatIcon(out, AtlasTiles.OAK_DOOR_UPPER, doorX, y + halfHeight, doorWidth, halfHeight);
     }
 
-    private void addLadderIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        float railW = width * 0.14f;
-        addRect(out, x + width * 0.22f, y, railW, height, color);
-        addRect(out, x + width * 0.64f, y, railW, height, color);
-        for (int i = 0; i < 4; i++) {
-            float rungY = y + height * (0.14f + i * 0.23f);
-            addRect(out, x + width * 0.20f, rungY, width * 0.60f, height * 0.08f, color);
-        }
+    // 畫出一個貼圖立方體量塊：正面、頂面、右側面各自取對應貼圖。
+    // uFrac/vFrac 指定正面與右側面取樣的貼圖子區域（v = 0 為貼圖上緣），讓半磚、階梯的紋理比例與世界一致。
+    private void addPartialCube(FloatArrayBuilder out, BlockType type, float x, float y, float width, float height,
+            float depthX, float depthY, float uFrac0, float uFrac1, float vFrac0, float vFrac1) {
+        int frontTile = type.tileForFace(Face.NORTH);
+        int topTile = type.tileForFace(Face.UP);
+        int sideTile = type.tileForFace(Face.EAST);
+
+        float x1 = x + width;
+        float y1 = y + height;
+
+        // 正面。
+        addTileSubQuad(out, frontTile, x, y, x1, y, x1, y1, x, y1,
+                uFrac0, vFrac0, uFrac1, vFrac1, ICON_FRONT_SHADE);
+
+        // 頂面：近邊取貼圖下緣，往右上（遠處）延伸到貼圖上緣。
+        addTileSubQuad(out, topTile, x, y1, x1, y1, x1 + depthX, y1 + depthY, x + depthX, y1 + depthY,
+                uFrac0, 0.0f, uFrac1, 1.0f, ICON_TOP_SHADE);
+
+        // 右側面。
+        addTileSubQuad(out, sideTile, x1, y, x1 + depthX, y + depthY, x1 + depthX, y1 + depthY, x1, y1,
+                0.0f, vFrac0, 1.0f, vFrac1, ICON_SIDE_SHADE);
     }
 
-    private void addTorchIcon(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
-        addRect(out, x + width * 0.43f, y, width * 0.14f, height * 0.68f, darkenColor(color));
-        addRect(out, x + width * 0.34f, y + height * 0.58f, width * 0.32f, height * 0.38f, COLOR_GLOWSTONE);
+    // 取樣 tile 子區域畫成矩形；uFrac/vFrac 以貼圖影像座標表示（v = 0 為貼圖上緣）。
+    private void addTileSubRect(FloatArrayBuilder out, int tile, float x, float y, float width, float height,
+            float uFrac0, float vFrac0, float uFrac1, float vFrac1, float shade) {
+        addTileSubQuad(out, tile, x, y, x + width, y, x + width, y + height, x, y + height,
+                uFrac0, vFrac0, uFrac1, vFrac1, shade);
     }
 
-    private void addCraftingTableIcon(FloatArrayBuilder out, float x, float y, float width, float height,
-            float depthX, float depthY, float[] color) {
-        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
-        addRect(out, x + width * 0.30f, y + height * 0.16f, width * 0.08f, height * 0.68f, darkenColor(color));
-        addRect(out, x + width * 0.62f, y + height * 0.16f, width * 0.08f, height * 0.68f, darkenColor(color));
-        addRect(out, x + width * 0.14f, y + height * 0.42f, width * 0.72f, height * 0.08f, darkenColor(color));
-    }
+    // 把 tile 子區域貼到四邊形上；頂點順序為左下、右下、右上、左上，貼圖上緣對齊四邊形上緣。
+    private void addTileSubQuad(FloatArrayBuilder out, int tile,
+            float ax, float ay, float bx, float by, float cx, float cy, float dx, float dy,
+            float uFrac0, float vFrac0, float uFrac1, float vFrac1, float shade) {
+        float u0 = atlas.u0(tile);
+        float v0 = atlas.v0(tile);
+        float uSpan = atlas.u1(tile) - u0;
+        float vSpan = atlas.v1(tile) - v0;
+        float uLeft = u0 + uSpan * uFrac0;
+        float uRight = u0 + uSpan * uFrac1;
+        float vTop = v0 + vSpan * vFrac0;
+        float vBottom = v0 + vSpan * vFrac1;
 
-    private void addFurnaceIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
-            float depthY, float[] color) {
-        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
-        addRect(out, x + width * 0.22f, y + height * 0.30f, width * 0.56f, height * 0.38f, COLOR_OBSIDIAN);
-    }
+        float z = 0.0f;
+        addVertex(out, ax, ay, z, shade, shade, shade, 1.0f, uLeft, vBottom);
+        addVertex(out, bx, by, z, shade, shade, shade, 1.0f, uRight, vBottom);
+        addVertex(out, cx, cy, z, shade, shade, shade, 1.0f, uRight, vTop);
 
-    private void addChestIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
-            float depthY, float[] color) {
-        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
-        addRect(out, x, y + height * 0.50f, width, height * 0.08f, darkenColor(color));
-        addRect(out, x + width * 0.44f, y + height * 0.38f, width * 0.16f, height * 0.20f, COLOR_GLOWSTONE);
-    }
-
-    private void addBookshelfIcon(FloatArrayBuilder out, float x, float y, float width, float height, float depthX,
-            float depthY, float[] color) {
-        addCubeIcon(out, x, y, width, height, depthX, depthY, color);
-        float bookW = width * 0.12f;
-        for (int i = 0; i < 5; i++) {
-            float bx = x + width * 0.14f + i * bookW * 1.25f;
-            float[] bookColor = switch (i % 3) {
-                case 0 -> COLOR_RED_WOOL;
-                case 1 -> COLOR_BLUE_WOOL;
-                default -> COLOR_GREEN_WOOL;
-            };
-            addRect(out, bx, y + height * 0.18f, bookW, height * 0.58f, bookColor);
-        }
-    }
-
-    private float[] lightenColor(float[] color) {
-        tmpLightColor[0] = lighten(color[0]);
-        tmpLightColor[1] = lighten(color[1]);
-        tmpLightColor[2] = lighten(color[2]);
-        tmpLightColor[3] = color[3];
-        return tmpLightColor;
-    }
-
-    private float[] darkenColor(float[] color) {
-        tmpDarkColor[0] = darken(color[0]);
-        tmpDarkColor[1] = darken(color[1]);
-        tmpDarkColor[2] = darken(color[2]);
-        tmpDarkColor[3] = color[3];
-        return tmpDarkColor;
-    }
-
-    // 讓顏色稍微變亮。
-    private float lighten(float channel) {
-        return Math.min(channel * 1.20f + 0.03f, 1.0f);
-    }
-
-    // 讓顏色稍微變暗。
-    private float darken(float channel) {
-        return Math.max(channel * 0.72f, 0.0f);
+        addVertex(out, cx, cy, z, shade, shade, shade, 1.0f, uRight, vTop);
+        addVertex(out, dx, dy, z, shade, shade, shade, 1.0f, uLeft, vTop);
+        addVertex(out, ax, ay, z, shade, shade, shade, 1.0f, uLeft, vBottom);
     }
 
     // 在畫面中央加入一段置中的文字；Minecraft 的文字不畫底框，亮色文字配右下深色陰影。
@@ -928,7 +838,7 @@ public final class HudRenderer implements AutoCloseable {
         font.put(c, rows);
     }
 
-    // 加入一個四邊形，內部會拆成兩個三角形。
+    // 加入一個純色四邊形，內部會拆成兩個三角形；UV 固定取樣純白 tile，輸出即為頂點色。
     private void addQuad(
             FloatArrayBuilder out,
             float ax, float ay,
@@ -938,18 +848,19 @@ public final class HudRenderer implements AutoCloseable {
             float r, float g, float b, float a) {
         float z = 0.0f;
 
-        addVertex(out, ax, ay, z, r, g, b, a);
-        addVertex(out, bx, by, z, r, g, b, a);
-        addVertex(out, cx, cy, z, r, g, b, a);
+        addVertex(out, ax, ay, z, r, g, b, a, whiteU, whiteV);
+        addVertex(out, bx, by, z, r, g, b, a, whiteU, whiteV);
+        addVertex(out, cx, cy, z, r, g, b, a, whiteU, whiteV);
 
-        addVertex(out, cx, cy, z, r, g, b, a);
-        addVertex(out, dx, dy, z, r, g, b, a);
-        addVertex(out, ax, ay, z, r, g, b, a);
+        addVertex(out, cx, cy, z, r, g, b, a, whiteU, whiteV);
+        addVertex(out, dx, dy, z, r, g, b, a, whiteU, whiteV);
+        addVertex(out, ax, ay, z, r, g, b, a, whiteU, whiteV);
     }
 
     // 加入單一頂點資料。
-    private void addVertex(FloatArrayBuilder out, float x, float y, float z, float r, float g, float b, float a) {
-        out.add(x, y, z, r, g, b, a);
+    private void addVertex(FloatArrayBuilder out, float x, float y, float z, float r, float g, float b, float a,
+            float u, float v) {
+        out.add(x, y, z, r, g, b, a, u, v);
     }
 
     // 根據 hotbar 內容產生簡單簽章，用來判斷內容是否改變。
@@ -961,86 +872,4 @@ public final class HudRenderer implements AutoCloseable {
         return hash;
     }
 
-    // 回傳某種方塊在 HUD 中要使用的代表顏色。
-    private float[] blockColor(BlockType type) {
-        return switch (type) {
-            case RED_BLOCK -> COLOR_RED_BLOCK;
-            case ORANGE_BLOCK -> COLOR_ORANGE_BLOCK;
-            case YELLOW_BLOCK -> COLOR_YELLOW_BLOCK;
-            case GREEN_BLOCK -> COLOR_GREEN_BLOCK;
-            case BLUE_BLOCK -> COLOR_BLUE_BLOCK;
-            case PURPLE_BLOCK -> COLOR_PURPLE_BLOCK;
-            case GRASS -> COLOR_GRASS;
-            case DIRT -> COLOR_DIRT;
-            case STONE -> COLOR_STONE;
-            case SAND -> COLOR_SAND;
-            case WATER -> COLOR_WATER;
-            case LOG -> COLOR_LOG;
-            case LEAVES -> COLOR_LEAVES;
-            case COBBLESTONE -> COLOR_COBBLE;
-            case PLANKS -> COLOR_PLANKS;
-            case GLASS -> COLOR_GLASS;
-            case BRICKS -> COLOR_BRICKS;
-            case BEDROCK -> COLOR_BEDROCK;
-            case SNOW -> COLOR_SNOW;
-            case WHITE_WOOL -> COLOR_WHITE_WOOL;
-            case LIGHT_GRAY_WOOL -> COLOR_LIGHT_GRAY_WOOL;
-            case GRAY_WOOL -> COLOR_GRAY_WOOL;
-            case BLACK_WOOL -> COLOR_BLACK_WOOL;
-            case BROWN_WOOL -> COLOR_BROWN_WOOL;
-            case RED_WOOL -> COLOR_RED_WOOL;
-            case ORANGE_WOOL -> COLOR_ORANGE_WOOL;
-            case YELLOW_WOOL -> COLOR_YELLOW_WOOL;
-            case LIME_WOOL -> COLOR_LIME_WOOL;
-            case GREEN_WOOL -> COLOR_GREEN_WOOL;
-            case CYAN_WOOL -> COLOR_CYAN_WOOL;
-            case BLUE_WOOL -> COLOR_BLUE_WOOL;
-            case PURPLE_WOOL -> COLOR_PURPLE_WOOL;
-            case MAGENTA_WOOL -> COLOR_MAGENTA_WOOL;
-            case PINK_WOOL -> COLOR_PINK_WOOL;
-            case BIRCH_PLANKS -> COLOR_BIRCH_PLANKS;
-            case SPRUCE_PLANKS -> COLOR_SPRUCE_PLANKS;
-            case DARK_OAK_PLANKS -> COLOR_DARK_OAK_PLANKS;
-            case STONE_BRICKS -> COLOR_STONE_BRICKS;
-            case CHISELED_STONE_BRICKS -> COLOR_CHISELED_STONE_BRICKS;
-            case MOSSY_STONE_BRICKS -> COLOR_MOSSY_STONE_BRICKS;
-            case GRANITE -> COLOR_GRANITE;
-            case POLISHED_GRANITE -> COLOR_POLISHED_GRANITE;
-            case DIORITE -> COLOR_DIORITE;
-            case POLISHED_DIORITE -> COLOR_POLISHED_DIORITE;
-            case ANDESITE -> COLOR_ANDESITE;
-            case POLISHED_ANDESITE -> COLOR_POLISHED_ANDESITE;
-            case DEEPSLATE -> COLOR_DEEPSLATE;
-            case POLISHED_DEEPSLATE -> COLOR_POLISHED_DEEPSLATE;
-            case DEEPSLATE_BRICKS -> COLOR_DEEPSLATE_BRICKS;
-            case QUARTZ_BLOCK -> COLOR_QUARTZ_BLOCK;
-            case QUARTZ_PILLAR -> COLOR_QUARTZ_PILLAR;
-            case SMOOTH_QUARTZ -> COLOR_SMOOTH_QUARTZ;
-            case OBSIDIAN -> COLOR_OBSIDIAN;
-            case NETHERRACK -> COLOR_NETHERRACK;
-            case NETHER_BRICKS -> COLOR_NETHER_BRICKS;
-            case END_STONE -> COLOR_END_STONE;
-            case GLOWSTONE -> COLOR_GLOWSTONE;
-            case SEA_LANTERN -> COLOR_SEA_LANTERN;
-            case OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST ->
-                COLOR_OAK_STAIRS;
-            case OAK_SLAB -> COLOR_OAK_SLAB;
-            case STONE_SLAB -> COLOR_STONE_SLAB;
-            case OAK_FENCE -> COLOR_OAK_FENCE;
-            case OAK_DOOR, OAK_DOOR_NORTH_BOTTOM, OAK_DOOR_NORTH_TOP, OAK_DOOR_EAST_BOTTOM, OAK_DOOR_EAST_TOP,
-                    OAK_DOOR_SOUTH_BOTTOM, OAK_DOOR_SOUTH_TOP, OAK_DOOR_WEST_BOTTOM, OAK_DOOR_WEST_TOP,
-                    OAK_DOOR_NORTH_OPEN_BOTTOM, OAK_DOOR_NORTH_OPEN_TOP, OAK_DOOR_EAST_OPEN_BOTTOM,
-                    OAK_DOOR_EAST_OPEN_TOP, OAK_DOOR_SOUTH_OPEN_BOTTOM, OAK_DOOR_SOUTH_OPEN_TOP,
-                    OAK_DOOR_WEST_OPEN_BOTTOM, OAK_DOOR_WEST_OPEN_TOP ->
-                COLOR_OAK_DOOR;
-            case OAK_TRAPDOOR, OAK_TRAPDOOR_OPEN -> COLOR_OAK_TRAPDOOR;
-            case LADDER, LADDER_NORTH, LADDER_EAST, LADDER_SOUTH, LADDER_WEST -> COLOR_LADDER;
-            case TORCH -> COLOR_TORCH;
-            case CRAFTING_TABLE -> COLOR_CRAFTING_TABLE;
-            case FURNACE -> COLOR_FURNACE;
-            case CHEST -> COLOR_CHEST;
-            case BOOKSHELF -> COLOR_BOOKSHELF;
-            default -> COLOR_DEFAULT;
-        };
-    }
 }

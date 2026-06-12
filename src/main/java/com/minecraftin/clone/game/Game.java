@@ -121,9 +121,9 @@ public final class Game {
             world.initialize();
             worldInitialized = true;
 
-            // 建立渲染器
+            // 建立渲染器；HUD 共用世界的材質圖集來畫方塊縮圖。
             worldRenderer = new WorldRenderer();
-            hudRenderer = new HudRenderer();
+            hudRenderer = new HudRenderer(worldRenderer.atlas());
 
             // 先嘗試讀取上次離開時的重生點；新世界或舊版存檔沒有重生點時才重新計算預設出生點。
             Vector3f spawn = new Vector3f();

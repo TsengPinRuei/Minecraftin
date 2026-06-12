@@ -115,7 +115,9 @@ public final class AtlasTiles {
 
     // 基本物品與功能方塊貼圖編號。
     public static final int OAK_FENCE = 61;
-    public static final int OAK_DOOR = 62;
+
+    // 門在世界中佔上下兩個方塊，上下半各用一張貼圖，縮圖也用同一組拼出完整門板。
+    public static final int OAK_DOOR_UPPER = 62;
     public static final int OAK_TRAPDOOR = 63;
     public static final int LADDER = 64;
     public static final int TORCH = 65;
@@ -127,6 +129,10 @@ public final class AtlasTiles {
     public static final int CHEST_SIDE = 71;
     public static final int CHEST_TOP = 72;
     public static final int BOOKSHELF = 73;
+    public static final int OAK_DOOR_LOWER = 74;
+
+    // 純白貼圖編號，放在圖集最後一格；HUD 的純色幾何（面板、文字）取樣這格，讓整個 HUD 共用同一個 shader。
+    public static final int WHITE = 255;
 
     // 這個類別只提供常數，不需要建立物件。
     private AtlasTiles() {

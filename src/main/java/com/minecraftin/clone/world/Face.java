@@ -22,13 +22,10 @@ public enum Face {
     // 下面，Y 軸往負方向。
     DOWN(0, -1, 0, 0.55f);
 
-    // 此面在 X 軸上的方向位移。
     private final int dx;
 
-    // 此面在 Y 軸上的方向位移。
     private final int dy;
 
-    // 此面在 Z 軸上的方向位移。
     private final int dz;
 
     // 此面的亮度值，用來做簡單光影效果。
@@ -42,22 +39,18 @@ public enum Face {
         this.light = light;
     }
 
-    // 回傳此面在 X 軸上的位移。
     public int dx() {
         return dx;
     }
 
-    // 回傳此面在 Y 軸上的位移。
     public int dy() {
         return dy;
     }
 
-    // 回傳此面在 Z 軸上的位移。
     public int dz() {
         return dz;
     }
 
-    // 回傳此面的亮度值。
     public float light() {
         return light;
     }

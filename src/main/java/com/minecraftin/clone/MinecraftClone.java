@@ -9,9 +9,7 @@ public final class MinecraftClone {
     private MinecraftClone() {
     }
 
-    // 程式開始執行的位置。
     public static void main(String[] args) {
-        // 建立 Game 物件並啟動遊戲主流程。
         new Game().run();
     }
 }

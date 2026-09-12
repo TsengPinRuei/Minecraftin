@@ -3,13 +3,16 @@ package com.minecraftin.clone.render;
 import com.minecraftin.clone.config.GameConfig;
 import com.minecraftin.clone.engine.Camera;
 import com.minecraftin.clone.engine.Mesh;
+import com.minecraftin.clone.engine.ResourceScope;
 import com.minecraftin.clone.engine.ShaderProgram;
 import com.minecraftin.clone.engine.TextureAtlas;
 import com.minecraftin.clone.util.FloatArrayBuilder;
 import com.minecraftin.clone.world.BlockType;
+import com.minecraftin.clone.world.BlockBounds;
 import com.minecraftin.clone.world.Chunk;
 import com.minecraftin.clone.world.ChunkMesher;
 import com.minecraftin.clone.world.ChunkPos;
+import com.minecraftin.clone.world.ChunkSnapshot;
 import com.minecraftin.clone.world.Face;
 import com.minecraftin.clone.world.RaycastHit;
 import com.minecraftin.clone.world.World;
@@ -78,31 +81,24 @@ public final class WorldRenderer implements AutoCloseable {
     // Face.values() 會回傳新陣列；碎屑產生屬於互動熱路徑，因此預先快取可選面集合。
     private static final Face[] FACES = Face.values();
 
-    // 方塊材質圖集。
     private final TextureAtlas atlas;
 
-    // 繪製世界方塊時使用的 shader。
     private final ShaderProgram worldShader;
 
-    // 繪製線框時使用的 shader。
     private final ShaderProgram lineShader;
 
     // 儲存每個 Chunk 對應的不透明/半透明 mesh，避免每幀都重新建立。
     private final Map<ChunkPos, ChunkMeshes> chunkMeshes = new HashMap<>();
 
-    // 記錄目前畫面中可見的 Chunk。
     private final Set<ChunkPos> visibleChunks = new HashSet<>();
 
     // 記錄目前畫面中可見的 Chunk 順序；透明 pass 會用距離排序。
     private final List<VisibleChunk> visibleChunkOrder = new ArrayList<>();
 
-    // 投影矩陣。
     private final Matrix4f projection = new Matrix4f();
 
-    // 視角矩陣。
     private final Matrix4f view = new Matrix4f();
 
-    // 模型矩陣。
     private final Matrix4f model = new Matrix4f();
 
     // 被選取方塊的外框 mesh。
@@ -131,12 +127,13 @@ public final class WorldRenderer implements AutoCloseable {
     // 每幀上傳數量設上限，避免初次載入時大量 glBufferData 集中在同一幀。
     private static final int MAX_MESH_UPLOADS_PER_FRAME = 16;
     private final ExecutorService meshExecutor;
+    private final int maxPendingMeshBuilds;
     private final Set<ChunkPos> pendingMeshBuilds = new HashSet<>();
     private final ConcurrentLinkedQueue<MeshBuildResult> completedMeshBuilds = new ConcurrentLinkedQueue<>();
     private final List<MeshBuildCandidate> meshBuildCandidates = new ArrayList<>();
 
-    // 工作執行緒算完的結果；data 為 null 代表建構失敗，主執行緒會重新標記 dirty 再試一次。
-    private record MeshBuildResult(ChunkPos pos, ChunkMesher.MeshData data) {
+    // 工作執行緒回傳資料或原始例外；主執行緒負責上傳與錯誤處理。
+    private record MeshBuildResult(ChunkPos pos, ChunkMesher.MeshData data, Throwable failure) {
     }
 
     // 這一幀需要重建 mesh 的候選 Chunk；提交前依距離排序，讓玩家附近的區塊優先完成。
@@ -152,29 +149,28 @@ public final class WorldRenderer implements AutoCloseable {
     private int lastSelectionX = Integer.MIN_VALUE;
     private int lastSelectionY = Integer.MIN_VALUE;
     private int lastSelectionZ = Integer.MIN_VALUE;
+    private BlockType lastSelectionType;
 
-    // 建立渲染器需要的資源。
     public WorldRenderer() {
-        atlas = new TextureAtlas();
-        worldShader = new ShaderProgram("/shaders/world.vert", "/shaders/world.frag");
-        lineShader = new ShaderProgram("/shaders/line.vert", "/shaders/line.frag");
-
-        // mesh 建構執行緒池；用 daemon thread 確保視窗關閉時 JVM 能直接結束。
         int workers = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() - 2));
-        meshExecutor = Executors.newFixedThreadPool(workers, runnable -> {
-            Thread thread = new Thread(runnable, "chunk-mesher");
-            thread.setDaemon(true);
-            return thread;
-        });
-
-        // 一開始先建立空的選取框 mesh，之後有需要再更新內容。
-        selectionMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
-        breakParticleMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 2, 3);
-        skyBodyMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
-        cloudMesh = new Mesh(new float[0], GL_TRIANGLES, 3);
+        maxPendingMeshBuilds = workers * 2;
+        try (ResourceScope resources = new ResourceScope()) {
+            atlas = resources.add(new TextureAtlas());
+            worldShader = resources.add(new ShaderProgram("/shaders/world.vert", "/shaders/world.frag"));
+            lineShader = resources.add(new ShaderProgram("/shaders/line.vert", "/shaders/line.frag"));
+            selectionMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3));
+            breakParticleMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3, 2, 3));
+            skyBodyMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3));
+            cloudMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3));
+            meshExecutor = Executors.newFixedThreadPool(workers, runnable -> {
+                Thread thread = new Thread(runnable, "chunk-mesher");
+                thread.setDaemon(true);
+                return thread;
+            });
+            resources.release();
+        }
     }
 
-    // 共用的方塊材質圖集；HUD 用它畫出與世界一致的方塊縮圖。
     public TextureAtlas atlas() {
         return atlas;
     }
@@ -220,8 +216,9 @@ public final class WorldRenderer implements AutoCloseable {
         float skyLight = neighborMaxSkyLight(world, x, y, z) / (float) 15;
         float blockLight = neighborMaxBlockLight(world, x, y, z) / (float) 15;
 
-        while (breakParticles.size() + BREAK_PARTICLES_PER_BLOCK > MAX_BREAK_PARTICLES) {
-            breakParticles.remove(0);
+        int excess = breakParticles.size() + BREAK_PARTICLES_PER_BLOCK - MAX_BREAK_PARTICLES;
+        if (excess > 0) {
+            breakParticles.subList(0, excess).clear();
         }
 
         for (int i = 0; i < BREAK_PARTICLES_PER_BLOCK; i++) {
@@ -241,10 +238,10 @@ public final class WorldRenderer implements AutoCloseable {
 
             Face face = FACES[particleRandom.nextInt(FACES.length)];
             int tile = block.tileForFace(face);
-            float tileU0 = atlas.u0(tile);
-            float tileV0 = atlas.v0(tile);
-            float tileU1 = atlas.u1(tile);
-            float tileV1 = atlas.v1(tile);
+            float tileU0 = TextureAtlas.u0(tile);
+            float tileV0 = TextureAtlas.v0(tile);
+            float tileU1 = TextureAtlas.u1(tile);
+            float tileV1 = TextureAtlas.v1(tile);
             float patchU = (tileU1 - tileU0) * 0.25f;
             float patchV = (tileV1 - tileV0) * 0.25f;
             int patchX = particleRandom.nextInt(4);
@@ -264,7 +261,6 @@ public final class WorldRenderer implements AutoCloseable {
         breakParticleMeshDirty = true;
     }
 
-    // 取被破壞方塊六個鄰格中最亮的天空光，當作碎屑的亮度來源。
     private int neighborMaxSkyLight(World world, int x, int y, int z) {
         int max = world.skyLightAt(x, y, z);
         max = Math.max(max, world.skyLightAt(x + 1, y, z));
@@ -287,19 +283,14 @@ public final class WorldRenderer implements AutoCloseable {
         return max;
     }
 
-    // 繪製整個場景。
     public void render(World world, Camera camera, int width, int height, RaycastHit selection) {
-        // 依世界時間更新天空顏色與天空光倍率。
         updateDayCycle(world.timeOfDay());
 
-        // 設定 OpenGL 視窗範圍。
         glViewport(0, 0, width, height);
 
-        // 清除畫面與深度緩衝，並設定天空底色。
         glClearColor(skyColor.x, skyColor.y, skyColor.z, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 建立透視投影矩陣。
         projection.identity()
                 .perspective(
                         (float) Math.toRadians(GameConfig.FOV_DEGREES),
@@ -307,7 +298,6 @@ public final class WorldRenderer implements AutoCloseable {
                         GameConfig.NEAR_PLANE,
                         GameConfig.FAR_PLANE);
 
-        // 由相機更新視角矩陣，並更新視錐剔除平面。
         camera.viewMatrix(view);
         projViewMatrix.set(projection).mul(view);
         frustum.set(projViewMatrix);
@@ -359,7 +349,7 @@ public final class WorldRenderer implements AutoCloseable {
             return;
         }
 
-        // 太陽與月亮各 6 個頂點；用同一個 mesh 分兩次上傳會互相覆蓋，因此一次上傳、分段上色。
+        // 共用 mesh 的天體必須在每次上傳後立即繪製，才不會被下一個天體的資料覆蓋。
         lineShader.use();
         lineShader.setMat4("uProjection", projection);
         lineShader.setMat4("uView", view);
@@ -376,16 +366,16 @@ public final class WorldRenderer implements AutoCloseable {
             System.arraycopy(vertices, 0, sunVertices, 0, 18);
             System.arraycopy(vertices, 18, moonVertices, 0, 18);
 
-            skyBodyMesh.update(sunVertices, 3);
+            skyBodyMesh.update(sunVertices);
             lineShader.setVec3("uColor", SUN_COLOR);
             lineShader.setFloat("uAlpha", 1.0f);
             skyBodyMesh.draw();
 
-            skyBodyMesh.update(moonVertices, 3);
+            skyBodyMesh.update(moonVertices);
             lineShader.setVec3("uColor", MOON_COLOR);
             skyBodyMesh.draw();
         } else {
-            skyBodyMesh.update(out.toArray(), 3);
+            skyBodyMesh.update(out.toArray());
             lineShader.setVec3("uColor", sunVisible ? SUN_COLOR : MOON_COLOR);
             lineShader.setFloat("uAlpha", 1.0f);
             skyBodyMesh.draw();
@@ -479,7 +469,7 @@ public final class WorldRenderer implements AutoCloseable {
             }
         }
 
-        cloudMesh.update(out.toArray(), 3);
+        cloudMesh.update(out.toArray());
     }
 
     private static float clamp(float value, float min, float max) {
@@ -493,7 +483,7 @@ public final class WorldRenderer implements AutoCloseable {
         Vector3f cameraPosition = camera.position();
 
         // 先把背景執行緒完成的頂點資料上傳到 GPU。
-        drainCompletedMeshBuilds(world);
+        drainCompletedMeshBuilds(world, cameraPosition);
 
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
@@ -605,16 +595,19 @@ public final class WorldRenderer implements AutoCloseable {
             Chunk chunk = candidate.chunk();
             ChunkPos key = candidate.pos();
 
+            if (pendingMeshBuilds.size() >= maxPendingMeshBuilds) {
+                break;
+            }
+            ChunkSnapshot snapshot = ChunkSnapshot.capture(chunk, world);
             chunk.clearMeshDirty();
             pendingMeshBuilds.add(key);
-
-            meshExecutor.submit(() -> {
+            meshExecutor.execute(() -> {
                 try {
-                    ChunkMesher.MeshData data = ChunkMesher.build(chunk, world, atlas);
-                    completedMeshBuilds.add(new MeshBuildResult(key, data));
-                } catch (Throwable t) {
-                    // 建構失敗（例如讀到正在更新中的資料）就回報 null，主執行緒會重排一次。
-                    completedMeshBuilds.add(new MeshBuildResult(key, null));
+                    completedMeshBuilds.add(new MeshBuildResult(key, ChunkMesher.build(snapshot), null));
+                } catch (Throwable failure) {
+                    if (!meshExecutor.isShutdown()) {
+                        completedMeshBuilds.add(new MeshBuildResult(key, null, failure));
+                    }
                 }
             });
         }
@@ -623,40 +616,38 @@ public final class WorldRenderer implements AutoCloseable {
     }
 
     // 把背景執行緒完成的頂點資料上傳到 GPU；上傳必須在持有 GL context 的主執行緒進行。
-    private void drainCompletedMeshBuilds(World world) {
-        int uploads = 0;
-
-        while (uploads < MAX_MESH_UPLOADS_PER_FRAME) {
+    private void drainCompletedMeshBuilds(World world, Vector3f cameraPosition) {
+        int centerX = Math.floorDiv((int) Math.floor(cameraPosition.x), GameConfig.CHUNK_SIZE);
+        int centerZ = Math.floorDiv((int) Math.floor(cameraPosition.z), GameConfig.CHUNK_SIZE);
+        for (int processed = 0; processed < MAX_MESH_UPLOADS_PER_FRAME; processed++) {
             MeshBuildResult result = completedMeshBuilds.poll();
             if (result == null) {
                 return;
             }
-
-            // 不論建構成功或失敗都先移出 pending；失敗時重新標 dirty，下一幀才可再次提交。
             pendingMeshBuilds.remove(result.pos());
-
-            if (result.data() == null) {
-                // 建構失敗：重新標記 dirty，下一幀重新提交。
-                Chunk chunk = world.getChunkIfLoaded(result.pos().x(), result.pos().z());
-                if (chunk != null) {
-                    chunk.markMeshDirty();
-                }
+            if (result.failure() != null) {
+                throw new IllegalStateException("Failed to build chunk mesh " + result.pos(), result.failure());
+            }
+            Chunk chunk = world.getChunkIfLoaded(result.pos().x(), result.pos().z());
+            long dx = (long) result.pos().x() - centerX;
+            long dz = (long) result.pos().z() - centerZ;
+            // 舊快照或已離開渲染距離的結果不必上傳 GPU；dirty 留給下一輪重建。
+            if (chunk == null || chunk.isMeshDirty()
+                    || dx * dx + dz * dz > GameConfig.RENDER_DISTANCE_CHUNKS * GameConfig.RENDER_DISTANCE_CHUNKS) {
                 continue;
             }
-
             ChunkMeshes meshes = chunkMeshes.get(result.pos());
             if (meshes == null) {
-                // 頂點格式為位置 3、UV 2、光照 3（面陰影*AO、天空光、方塊光）。
-                meshes = new ChunkMeshes(
-                        new Mesh(result.data().opaqueVertices(), GL_TRIANGLES, 3, 2, 3),
-                        new Mesh(result.data().translucentVertices(), GL_TRIANGLES, 3, 2, 3));
-                chunkMeshes.put(result.pos(), meshes);
+                try (ResourceScope resources = new ResourceScope()) {
+                    Mesh opaque = resources.add(new Mesh(result.data().opaqueVertices(), GL_TRIANGLES, 3, 2, 3));
+                    Mesh translucent = resources.add(new Mesh(result.data().translucentVertices(), GL_TRIANGLES, 3, 2, 3));
+                    chunkMeshes.put(result.pos(), new ChunkMeshes(opaque, translucent));
+                    resources.release();
+                }
             } else {
-                meshes.opaque.update(result.data().opaqueVertices(), ChunkMesher.STRIDE_FLOATS);
-                meshes.translucent.update(result.data().translucentVertices(), ChunkMesher.STRIDE_FLOATS);
+                meshes.opaque.update(result.data().opaqueVertices());
+                meshes.translucent.update(result.data().translucentVertices());
             }
-
-            uploads++;
         }
     }
 
@@ -685,7 +676,6 @@ public final class WorldRenderer implements AutoCloseable {
         }
     }
 
-    // 繪製被瞄準方塊的外框。
     private void renderSelectionOutline(RaycastHit hit) {
         // 如果目前沒有瞄準任何方塊，就清掉快取後直接結束。
         if (hit == null) {
@@ -696,13 +686,14 @@ public final class WorldRenderer implements AutoCloseable {
         }
 
         // 只有在瞄準的方塊改變時，才重新建立外框資料。
-        if (hit.x() != lastSelectionX || hit.y() != lastSelectionY || hit.z() != lastSelectionZ) {
-            float[] vertices = buildWireCube(hit.x(), hit.y(), hit.z());
-            selectionMesh.update(vertices, 3);
+        if (hit.x() != lastSelectionX || hit.y() != lastSelectionY || hit.z() != lastSelectionZ || hit.block() != lastSelectionType) {
+            float[] vertices = buildSelectionOutline(hit);
+            selectionMesh.update(vertices);
 
             lastSelectionX = hit.x();
             lastSelectionY = hit.y();
             lastSelectionZ = hit.z();
+            lastSelectionType = hit.block();
         }
 
         lineShader.use();
@@ -745,16 +736,16 @@ public final class WorldRenderer implements AutoCloseable {
 
     private void updateBreakParticleMesh() {
         if (breakParticles.isEmpty()) {
-            breakParticleMesh.update(new float[0], ChunkMesher.STRIDE_FLOATS);
+            breakParticleMesh.update(new float[0]);
             breakParticleMeshDirty = false;
             return;
         }
 
-        FloatArrayBuilder out = new FloatArrayBuilder(breakParticles.size() * 216);
+        FloatArrayBuilder out = new FloatArrayBuilder(breakParticles.size() * 6 * 6 * ChunkMesher.STRIDE_FLOATS);
         for (BreakParticle particle : breakParticles) {
             addParticleCube(out, particle);
         }
-        breakParticleMesh.update(out.toArray(), ChunkMesher.STRIDE_FLOATS);
+        breakParticleMesh.update(out.toArray());
         breakParticleMeshDirty = false;
     }
 
@@ -803,37 +794,36 @@ public final class WorldRenderer implements AutoCloseable {
         out.add(x, y, z, u, v, shade, particle.skyLight, particle.blockLight);
     }
 
-    // 建立包住一個方塊的粗邊框頂點資料。
-    private float[] buildWireCube(int x, int y, int z) {
-        // 稍微向外擴一點，避免和方塊表面重疊時閃爍。
-        float minX = x - SELECTION_OUTLINE_PADDING;
-        float minY = y - SELECTION_OUTLINE_PADDING;
-        float minZ = z - SELECTION_OUTLINE_PADDING;
-        float maxX = x + 1.0f + SELECTION_OUTLINE_PADDING;
-        float maxY = y + 1.0f + SELECTION_OUTLINE_PADDING;
-        float maxZ = z + 1.0f + SELECTION_OUTLINE_PADDING;
-        float half = SELECTION_OUTLINE_THICKNESS * 0.5f;
+    private float[] buildSelectionOutline(RaycastHit hit) {
+        FloatArrayBuilder out = new FloatArrayBuilder(1600 * hit.block().renderBoxes().length);
+        for (BlockBounds bounds : hit.block().renderBoxes()) {
+            float minX = hit.x() + bounds.minX() - SELECTION_OUTLINE_PADDING;
+            float minY = hit.y() + bounds.minY() - SELECTION_OUTLINE_PADDING;
+            float minZ = hit.z() + bounds.minZ() - SELECTION_OUTLINE_PADDING;
+            float maxX = hit.x() + bounds.maxX() + SELECTION_OUTLINE_PADDING;
+            float maxY = hit.y() + bounds.maxY() + SELECTION_OUTLINE_PADDING;
+            float maxZ = hit.z() + bounds.maxZ() + SELECTION_OUTLINE_PADDING;
+            float half = SELECTION_OUTLINE_THICKNESS * 0.5f;
 
-        FloatArrayBuilder out = new FloatArrayBuilder(1600);
+            // X 軸方向邊。
+            addEdgeBox(out, minX - half, minY - half, minZ - half, maxX + half, minY + half, minZ + half);
+            addEdgeBox(out, minX - half, minY - half, maxZ - half, maxX + half, minY + half, maxZ + half);
+            addEdgeBox(out, minX - half, maxY - half, minZ - half, maxX + half, maxY + half, minZ + half);
+            addEdgeBox(out, minX - half, maxY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
 
-        // X 軸方向邊。
-        addEdgeBox(out, minX - half, minY - half, minZ - half, maxX + half, minY + half, minZ + half);
-        addEdgeBox(out, minX - half, minY - half, maxZ - half, maxX + half, minY + half, maxZ + half);
-        addEdgeBox(out, minX - half, maxY - half, minZ - half, maxX + half, maxY + half, minZ + half);
-        addEdgeBox(out, minX - half, maxY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
+            // Y 軸方向邊。
+            addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, maxY + half, minZ + half);
+            addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, maxY + half, minZ + half);
+            addEdgeBox(out, minX - half, minY - half, maxZ - half, minX + half, maxY + half, maxZ + half);
+            addEdgeBox(out, maxX - half, minY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
 
-        // Y 軸方向邊。
-        addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, maxY + half, minZ + half);
-        addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, maxY + half, minZ + half);
-        addEdgeBox(out, minX - half, minY - half, maxZ - half, minX + half, maxY + half, maxZ + half);
-        addEdgeBox(out, maxX - half, minY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
+            // Z 軸方向邊。
+            addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, minY + half, maxZ + half);
+            addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, minY + half, maxZ + half);
+            addEdgeBox(out, minX - half, maxY - half, minZ - half, minX + half, maxY + half, maxZ + half);
+            addEdgeBox(out, maxX - half, maxY - half, minZ - half, maxX + half, maxY + half, maxZ + half);
 
-        // Z 軸方向邊。
-        addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, minY + half, maxZ + half);
-        addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, minY + half, maxZ + half);
-        addEdgeBox(out, minX - half, maxY - half, minZ - half, minX + half, maxY + half, maxZ + half);
-        addEdgeBox(out, maxX - half, maxY - half, minZ - half, maxX + half, maxY + half, maxZ + half);
-
+        }
         return out.toArray();
     }
 
@@ -868,21 +858,22 @@ public final class WorldRenderer implements AutoCloseable {
     // 釋放所有渲染資源。
     @Override
     public void close() {
-        // 先停掉背景建構，避免關閉過程中還有結果寫入佇列。
         meshExecutor.shutdownNow();
-
-        for (ChunkMeshes meshes : chunkMeshes.values()) {
-            meshes.close();
+        pendingMeshBuilds.clear();
+        completedMeshBuilds.clear();
+        try (ResourceScope resources = new ResourceScope()) {
+            resources.add(atlas);
+            resources.add(worldShader);
+            resources.add(lineShader);
+            resources.add(selectionMesh);
+            resources.add(breakParticleMesh);
+            resources.add(skyBodyMesh);
+            resources.add(cloudMesh);
+            for (ChunkMeshes meshes : chunkMeshes.values()) {
+                resources.add(meshes);
+            }
+            chunkMeshes.clear();
         }
-        chunkMeshes.clear();
-
-        selectionMesh.close();
-        breakParticleMesh.close();
-        skyBodyMesh.close();
-        cloudMesh.close();
-        worldShader.close();
-        lineShader.close();
-        atlas.close();
     }
 
     // 可見 Chunk 與它到相機的距離快取，避免透明排序時重複計算同一個距離。
@@ -938,8 +929,9 @@ public final class WorldRenderer implements AutoCloseable {
 
         @Override
         public void close() {
-            opaque.close();
-            translucent.close();
+            try (opaque; translucent) {
+                // try-with-resources 會在其中一個 close 失敗時繼續釋放另一個。
+            }
         }
     }
 }

@@ -147,7 +147,11 @@ Windows：
 saves/world.dat
 ```
 
-遊戲每 20 秒會自動儲存有變更的 Chunk。正常關閉遊戲時，也會儲存尚未寫入的世界變更、玩家重生位置與世界時間。
+遊戲每 20 秒檢查是否有待儲存的變更，有需要時會寫入所有已載入 Chunk 的快照。正常關閉遊戲時，也會儲存玩家重生位置與世界時間。待處理的水流更新與 tick 計時同樣會存檔，讓水流在讀檔後繼續運作。
+
+存檔會先寫入暫存檔，完成後才以原子操作取代舊檔。寫入失敗時會保留舊檔與待儲存狀態。既有存檔若損壞、無法讀取或版本不支援，遊戲會停止啟動並保留原檔；原因會顯示在終端機。
+
+目前存檔格式為第 4 版，仍可讀取第 1–3 版，並在下次存檔時升級。若需要回到舊版遊戲，請在升級前保留副本；舊版遊戲無法讀取第 4 版存檔。
 
 重設世界：
 
@@ -172,6 +176,7 @@ macOS / Linux：
 ```bash
 ./gradlew run
 ./gradlew test
+./gradlew graphicsSmokeTest
 ./gradlew build
 ./gradlew clean
 ./gradlew installDist
@@ -182,6 +187,7 @@ Windows PowerShell：
 ```powershell
 .\gradlew.bat run
 .\gradlew.bat test
+.\gradlew.bat graphicsSmokeTest
 .\gradlew.bat build
 .\gradlew.bat clean
 .\gradlew.bat installDist
@@ -190,7 +196,8 @@ Windows PowerShell：
 指令說明：
 
 - `run`：啟動遊戲。
-- `test`：執行 JUnit 測試。現有自動化測試主要集中在 `src/test/java` 的光照引擎測試。
+- `test`：執行不需視窗的 JUnit 測試，涵蓋光照、水流、存檔相容性與失敗處理、射線、網格快照、地形穩定性、玩家移動、輸入及資源釋放。
+- `graphicsSmokeTest`：在支援 OpenGL 3.3 以上的本機桌面開啟暫時測試世界，檢查 shader 編譯、背景區塊網格建構、渲染、HUD、視窗縮放與 OpenGL 錯誤。截圖位於 `build/reports/graphics-smoke/`；不會存取 `saves/world.dat`，也不包含在 `build` 中。
 - `build`：編譯專案、執行測試，並產生 Gradle 建置成果。
 - `clean`：刪除建置輸出。
 - `installDist`：在 `build/install/minecraftin-clone` 產生可執行的本機應用程式資料夾。
@@ -241,8 +248,8 @@ Minecraftin/
 │     # Chunk、方塊種類、地形生成、光照、射線檢測、水流、存讀檔。
 ├─ src/main/resources/shaders/
 │  # 世界、HUD 與線框渲染使用的 GLSL shader。
-├─ src/test/java/com/minecraftin/clone/world/
-│  # 世界系統的 JUnit 測試，例如光照引擎。
+├─ src/test/java/com/minecraftin/clone/
+│  # 不需視窗的 JUnit 測試，以及獨立的桌面圖形測試。
 ├─ saves/
 │  # 本機世界存檔，已由 Git 忽略。
 ├─ build/
@@ -325,6 +332,8 @@ World save failed: Failed to save world to saves/world.dat
 ```
 
 請確認專案資料夾可以寫入，且 `saves/` 目錄可以建立。避免從唯讀資料夾或被系統鎖定的外接硬碟執行專案。
+
+錯誤原因也會指出檔案系統不支援原子搬移等問題。請使用支援原子替換的檔案系統；替換失敗時，遊戲會保留上一次存檔。
 
 ### 修改預設種子後世界沒有變
 

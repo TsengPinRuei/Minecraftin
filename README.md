@@ -147,7 +147,11 @@ World data is saved to:
 saves/world.dat
 ```
 
-The game autosaves changed chunks every 20 seconds. It also saves pending world changes, the player respawn position, and world time during clean shutdown.
+Every 20 seconds, the game checks for pending changes and saves a snapshot of all loaded chunks when needed. Clean shutdown also saves the player respawn position and world time. Pending water updates and their tick timing are saved so flow continues after loading.
+
+Saves are written to a temporary file and atomically replace the previous save only after writing succeeds. A failed save preserves the previous file and keeps changes pending. If an existing save is corrupt, unreadable, or uses an unsupported version, startup stops without replacing it; see the terminal error for the cause.
+
+The current save format is version 4. Versions 1–3 can still be loaded and are upgraded on the next save. Keep a copy before upgrading if you need to return to an older game version, which cannot read version 4.
 
 To reset the world:
 
@@ -172,6 +176,7 @@ macOS / Linux:
 ```bash
 ./gradlew run
 ./gradlew test
+./gradlew graphicsSmokeTest
 ./gradlew build
 ./gradlew clean
 ./gradlew installDist
@@ -182,6 +187,7 @@ Windows PowerShell:
 ```powershell
 .\gradlew.bat run
 .\gradlew.bat test
+.\gradlew.bat graphicsSmokeTest
 .\gradlew.bat build
 .\gradlew.bat clean
 .\gradlew.bat installDist
@@ -190,7 +196,8 @@ Windows PowerShell:
 Command notes:
 
 - `run` starts the game.
-- `test` runs the JUnit test suite. Current automated tests focus on the lighting engine in `src/test/java`.
+- `test` runs headless JUnit tests covering lighting, water, save compatibility and failure handling, raycasts, mesh snapshots, terrain stability, player movement, input, and resource cleanup.
+- `graphicsSmokeTest` opens a temporary test world on a local desktop with OpenGL 3.3 or newer. It checks shader compilation, background chunk meshing, rendering, HUD, resizing, and OpenGL errors. Screenshots are saved under `build/reports/graphics-smoke/`; it does not access `saves/world.dat` and is separate from `build`.
 - `build` compiles the project, runs tests, and creates Gradle build artifacts.
 - `clean` removes build outputs.
 - `installDist` creates a runnable local application layout under `build/install/minecraftin-clone`.
@@ -241,8 +248,8 @@ Minecraftin/
 │     # Chunks, block types, terrain generation, lighting, raycast, water flow, save/load.
 ├─ src/main/resources/shaders/
 │  # GLSL shaders for world, HUD, and line rendering.
-├─ src/test/java/com/minecraftin/clone/world/
-│  # JUnit tests for world systems such as the lighting engine.
+├─ src/test/java/com/minecraftin/clone/
+│  # Headless JUnit tests and the separate desktop graphics smoke test.
 ├─ saves/
 │  # Local world save data. Ignored by Git.
 ├─ build/
@@ -325,6 +332,8 @@ World save failed: Failed to save world to saves/world.dat
 ```
 
 Check that the project folder is writable and that the `saves/` directory can be created. Avoid running the project from read-only folders or locked external drives.
+
+The error's cause also identifies unsupported atomic moves or other filesystem failures. Save on a filesystem that supports atomic replacement; the game retains the previous save when replacement fails.
 
 ### Changed the Default Seed but the World Did Not Change
 

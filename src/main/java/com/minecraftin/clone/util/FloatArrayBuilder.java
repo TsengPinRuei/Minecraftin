@@ -6,26 +6,13 @@ import java.util.Arrays;
 // 主要服務 mesh 產生流程，避免在熱路徑中頻繁建立 Float 包裝物件或 List。
 public final class FloatArrayBuilder {
 
-    // 真正儲存資料的陣列。
     private float[] data;
 
-    // 目前已經放入多少筆資料。
     private int size;
-
-    // 建立物件時，使用預設初始容量。
-    public FloatArrayBuilder() {
-        this(1024);
-    }
 
     // 建立物件時，可自行指定初始容量。
     public FloatArrayBuilder(int initialCapacity) {
         data = new float[Math.max(16, initialCapacity)];
-    }
-
-    // 加入一個 float 值。
-    public void add(float value) {
-        ensure(size + 1);
-        data[size++] = value;
     }
 
     // 一次加入三個 float 值。
@@ -34,29 +21,6 @@ public final class FloatArrayBuilder {
         data[size++] = a;
         data[size++] = b;
         data[size++] = c;
-    }
-
-    // 一次加入六個 float 值。
-    public void add(float a, float b, float c, float d, float e, float f) {
-        ensure(size + 6);
-        data[size++] = a;
-        data[size++] = b;
-        data[size++] = c;
-        data[size++] = d;
-        data[size++] = e;
-        data[size++] = f;
-    }
-
-    // 一次加入七個 float 值，避免走 varargs 產生暫存陣列。
-    public void add(float a, float b, float c, float d, float e, float f, float g) {
-        ensure(size + 7);
-        data[size++] = a;
-        data[size++] = b;
-        data[size++] = c;
-        data[size++] = d;
-        data[size++] = e;
-        data[size++] = f;
-        data[size++] = g;
     }
 
     // 一次加入八個 float 值；世界 mesh 頂點格式使用這個長度。
@@ -86,24 +50,10 @@ public final class FloatArrayBuilder {
         data[size++] = i;
     }
 
-    // 一次加入多個 float 值。
-    public void add(float... values) {
-        ensure(size + values.length);
-        System.arraycopy(values, 0, data, size, values.length);
-        size += values.length;
-    }
-
-    // 回傳目前儲存了多少個 float。
-    public int size() {
-        return size;
-    }
-
-    // 檢查目前是否沒有任何資料。
     public boolean isEmpty() {
         return size == 0;
     }
 
-    // 回傳一個剛好符合資料長度的新陣列。
     public float[] toArray() {
         return Arrays.copyOf(data, size);
     }

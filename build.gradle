@@ -1,122 +1,81 @@
 plugins {
-    // 啟用 Java 專案支援，讓 Gradle 知道這是 Java 專案。
-    id 'java'
-
-    // 啟用 application 外掛，方便執行主程式。
     id 'application'
 }
 
-// 設定專案所屬群組。
 group = 'com.minecraftin'
-
-// 設定目前專案的版本號。
 version = '0.1.0'
 
 repositories {
-    // 使用 Maven Central 作為下載函式庫的來源。
     mavenCentral()
 }
 
-// 取得目前執行環境的作業系統資訊。
-def os = org.gradle.internal.os.OperatingSystem.current()
+def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+def arch = System.getProperty('os.arch').toLowerCase(Locale.ROOT)
+def nativePlatform = osName.startsWith('windows') ? 'windows' :
+        osName.startsWith('mac') ? 'macos' : osName.startsWith('linux') ? 'linux' : null
+def architecture = [
+        amd64: 'x64', x86_64: 'x64',
+        aarch64: 'arm64', arm64: 'arm64',
+        x86: 'x86', i386: 'x86', i486: 'x86', i586: 'x86', i686: 'x86',
+        arm: 'arm32', armv7: 'arm32', armv7l: 'arm32'
+][arch]
 
-// 取得目前電腦 CPU 架構，例如 x86_64、aarch64。
-def arch = System.getProperty('os.arch')
-
-// 宣告一個變數，稍後用來儲存對應平台的 LWJGL 原生函式庫 classifier。
-// LWJGL 的 Java jar 與原生函式庫分開發布，classifier 選錯會導致視窗或 OpenGL 啟動失敗。
-def lwjglNatives
-
-// 如果目前系統是 Windows。
-if (os.isWindows()) {
-    // 根據 CPU 是否為 64 位元，選擇對應的 Windows 原生函式庫。
-    lwjglNatives = arch.contains('64') ? 'natives-windows' : 'natives-windows-x86'
-
-// 如果目前系統是 macOS。
-} else if (os.isMacOsX()) {
-    // 根據是否為 Apple Silicon 或 ARM 架構，選擇對應的 macOS 原生函式庫。
-    lwjglNatives = arch.contains('aarch64') || arch.contains('arm') ? 'natives-macos-arm64' : 'natives-macos'
-
-// 如果目前系統是 Linux。
-} else if (os.isLinux()) {
-    // 根據 CPU 是否為 64 位元，選擇對應的 Linux 原生函式庫。
-    lwjglNatives = arch.contains('64') ? 'natives-linux' : 'natives-linux-arm32'
-
-// 如果不是以上支援的作業系統。
-} else {
-    // 拋出錯誤，表示這個作業系統目前不支援。
-    throw new GradleException("Unsupported OS: ${os}")
+// LWJGL 的 native jar 必須同時符合 OS 與 CPU；ARM64 不能只因名稱含 64 就使用 x86_64。
+def lwjglNatives = [
+        windows: [x64: 'natives-windows', x86: 'natives-windows-x86', arm64: 'natives-windows-arm64'],
+        macos: [x64: 'natives-macos', arm64: 'natives-macos-arm64'],
+        linux: [x64: 'natives-linux', arm64: 'natives-linux-arm64', arm32: 'natives-linux-arm32']
+][nativePlatform]?.get(architecture)
+if (lwjglNatives == null) {
+    throw new GradleException("Unsupported platform: ${osName} / ${arch}")
 }
 
 ext {
-    // 設定 LWJGL 的版本，後面相依套件會共用這個版本。
     lwjglVersion = '3.3.3'
-
-    // 設定 JOML 的版本。
     jomlVersion = '1.10.5'
 }
 
-// 建立 JVM 預設啟動參數，設定最小與最大記憶體大小。
 def defaultJvmArgs = ['-Xms1g', '-Xmx2g']
-
-// 如果目前系統是 macOS。
-if (os.isMacOsX()) {
-    // macOS 上 GLFW 必須在第一個執行緒建立視窗，否則可能無法正常顯示或接收事件。
+if (nativePlatform == 'macos') {
+    // macOS 的 GLFW 必須在第一個執行緒建立視窗。
     defaultJvmArgs += '-XstartOnFirstThread'
 }
 
 dependencies {
-    // 匯入 LWJGL 的 BOM，統一管理 LWJGL 相關套件版本。
     implementation platform("org.lwjgl:lwjgl-bom:${lwjglVersion}")
-
-    // 加入 LWJGL 核心函式庫。
     implementation 'org.lwjgl:lwjgl'
-
-    // 加入 GLFW 函式庫，用來建立視窗與處理輸入。
     implementation 'org.lwjgl:lwjgl-glfw'
-
-    // 加入 OpenGL 函式庫，用來進行圖形渲染。
     implementation 'org.lwjgl:lwjgl-opengl'
-
-    // 加入 STB 函式庫，常用於圖片載入等功能。
-    implementation 'org.lwjgl:lwjgl-stb'
-
-    // 加入 LWJGL 核心的原生函式庫，依作業系統自動選擇版本。
     runtimeOnly "org.lwjgl:lwjgl::${lwjglNatives}"
-
-    // 加入 GLFW 的原生函式庫。
     runtimeOnly "org.lwjgl:lwjgl-glfw::${lwjglNatives}"
-
-    // 加入 OpenGL 的原生函式庫。
     runtimeOnly "org.lwjgl:lwjgl-opengl::${lwjglNatives}"
-
-    // 加入 STB 的原生函式庫。
-    runtimeOnly "org.lwjgl:lwjgl-stb::${lwjglNatives}"
-
-    // 加入 JOML 函式庫，用來處理向量與矩陣等數學運算。
     implementation "org.joml:joml:${jomlVersion}"
 
-    // 加入 JUnit 5，提供單元測試功能。
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 application {
-    // 指定程式的主類別，也就是執行時的入口點。
     mainClass = 'com.minecraftin.clone.MinecraftClone'
-
-    // 設定執行應用程式時要帶入的 JVM 預設參數。
     applicationDefaultJvmArgs = defaultJvmArgs
 }
 
 tasks.withType(JavaCompile).configureEach {
-    // 指定 Java 原始碼編譯時使用 UTF-8 編碼，避免中文亂碼。
     options.encoding = 'UTF-8'
-
-    // 指定編譯出的 Java 版本為 17。
     options.release.set(17)
+    options.compilerArgs += '-Xlint:all'
 }
 
 test {
-    // 指定使用 JUnit Platform 來執行測試。
     useJUnitPlatform()
+}
+
+// 需要可用的桌面與 OpenGL 3.3；另行執行，避免無視窗環境的 build 失敗。
+tasks.register('graphicsSmokeTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.minecraftin.clone.render.GraphicsSmokeTest'
+    if (nativePlatform == 'macos') {
+        jvmArgs '-XstartOnFirstThread'
+    }
 }

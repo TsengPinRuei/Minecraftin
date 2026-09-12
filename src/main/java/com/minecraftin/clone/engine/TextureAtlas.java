@@ -43,38 +43,29 @@ public final class TextureAtlas implements AutoCloseable {
 
     // 建立整張材質圖集，並把像素資料上傳到顯示卡。
     public TextureAtlas() {
-        textureId = glGenTextures();
-        glBindTexture(GL_TEXTURE_2D, textureId);
-
-        // 縮小時使用最近鄰 mipmap，放大時使用最近鄰取樣，保留方塊像素風格。
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        // 超出貼圖座標時，使用重複方式取樣。
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-        // 配置一塊記憶體來存放整張圖集的 RGBA 像素資料。
-        ByteBuffer pixels = MemoryUtil.memAlloc(WIDTH * HEIGHT * 4);
-
-        try {
-            // 先把圖集像素內容填進 buffer。
-            fillAtlas(pixels);
-
-            // 切換成讀取模式，準備交給 OpenGL 使用。
-            pixels.flip();
-
-            // 把像素資料上傳成 2D 材質。
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, WIDTH, HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-
-            // 產生 mipmap，讓遠處貼圖顯示更穩定。
-            glGenerateMipmap(GL_TEXTURE_2D);
-        } finally {
-            // 無論成功或失敗，都要釋放手動配置的記憶體。
-            MemoryUtil.memFree(pixels);
+        try (ResourceScope resources = new ResourceScope()) {
+            textureId = glGenTextures();
+            resources.add(() -> glDeleteTextures(textureId));
+            glBindTexture(GL_TEXTURE_2D, textureId);
+            ByteBuffer pixels = null;
+            try {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                // 每格縮至一個 texel 即停止，避免更低層 mipmap 把相鄰方塊貼圖混色。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, Integer.numberOfTrailingZeros(TILE_SIZE));
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                pixels = MemoryUtil.memAlloc(WIDTH * HEIGHT * 4);
+                fillAtlas(pixels);
+                pixels.flip();
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, WIDTH, HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                glGenerateMipmap(GL_TEXTURE_2D);
+            } finally {
+                MemoryUtil.memFree(pixels);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+            resources.release();
         }
-
-        glBindTexture(GL_TEXTURE_2D, 0);
     }
 
     // 把這張材質綁定到指定的 texture unit。
@@ -85,22 +76,19 @@ public final class TextureAtlas implements AutoCloseable {
 
     // 回傳指定 tile 左上角的 U 座標。
     // 0.01f 是留一點邊界，減少 mipmap 或浮點誤差取樣到隔壁 tile。
-    public float u0(int tile) {
+    public static float u0(int tile) {
         return tile >= 0 && tile < TILE_COUNT ? U0[tile] : computeU0(tile);
     }
 
-    // 回傳指定 tile 左上角的 V 座標。
-    public float v0(int tile) {
+    public static float v0(int tile) {
         return tile >= 0 && tile < TILE_COUNT ? V0[tile] : computeV0(tile);
     }
 
-    // 回傳指定 tile 右下角的 U 座標。
-    public float u1(int tile) {
+    public static float u1(int tile) {
         return tile >= 0 && tile < TILE_COUNT ? U1[tile] : computeU1(tile);
     }
 
-    // 回傳指定 tile 右下角的 V 座標。
-    public float v1(int tile) {
+    public static float v1(int tile) {
         return tile >= 0 && tile < TILE_COUNT ? V1[tile] : computeV1(tile);
     }
 
@@ -493,8 +481,7 @@ public final class TextureAtlas implements AutoCloseable {
                     color = mix(color, 0x000000, 0.08f);
                 }
 
-                // 水和玻璃可設定不同透明度，其餘材質維持不透明。
-                int alpha = tile == AtlasTiles.WATER ? 150 : (tile == AtlasTiles.GLASS ? 120 : 255);
+                int alpha = 255;
 
                 // 組成 ARGB 顏色值。
                 int pixel = (alpha << 24) | color;

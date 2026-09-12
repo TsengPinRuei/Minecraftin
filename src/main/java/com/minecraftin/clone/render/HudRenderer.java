@@ -1,12 +1,14 @@
 package com.minecraftin.clone.render;
 
 import com.minecraftin.clone.engine.Mesh;
+import com.minecraftin.clone.engine.ResourceScope;
 import com.minecraftin.clone.engine.ShaderProgram;
 import com.minecraftin.clone.engine.TextureAtlas;
 import com.minecraftin.clone.util.FloatArrayBuilder;
 import com.minecraftin.clone.world.BlockType;
 import com.minecraftin.clone.world.Face;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,13 +19,8 @@ import static org.lwjgl.opengl.GL33C.*;
 // 方塊縮圖直接取樣世界共用的材質圖集；純色幾何（面板、文字）則取樣圖集中的純白格，讓整個 HUD 一次繪製。
 public final class HudRenderer implements AutoCloseable {
 
-    // 每個頂點包含 9 個 float：位置 xyz + 顏色 rgba + 貼圖 uv。
-    private static final int STRIDE = 9;
-
-    // 單一文字像素在 NDC 座標中的寬度。
     private static final float TEXT_PIXEL_WIDTH = 0.005f;
 
-    // 單一文字像素在 NDC 座標中的高度。
     private static final float TEXT_PIXEL_HEIGHT = 0.01f;
 
     // 每個字元的寬度為 5 格像素。
@@ -44,7 +41,6 @@ public final class HudRenderer implements AutoCloseable {
     // hotbar 底部在畫面中的 Y 座標；Minecraft 的 hotbar 貼齊畫面底部。
     private static final float HOTBAR_Y = -0.97f;
 
-    // 目前選取方塊名稱與 hotbar 頂部之間的距離。
     private static final float HOTBAR_LABEL_MARGIN = 0.045f;
 
     // 創造模式背包的格子配置，接近 Minecraft 的 9 欄方塊頁。
@@ -143,17 +139,14 @@ public final class HudRenderer implements AutoCloseable {
     // 用來累積 hotbar 與文字頂點資料。
     private final FloatArrayBuilder hotbarVertices = new FloatArrayBuilder(32768);
 
-    // 暫存 viewport 資訊，避免每次重新建立陣列。
-    private final int[] viewport = new int[4];
-
     // 快取上一次選取的格子索引，若沒變就可避免重建 mesh。
     private int cachedSelectedIndex = Integer.MIN_VALUE;
 
-    // 快取上一次 hotbar 內容的簽章，避免每幀重建完全相同的 HUD 頂點資料。
-    private int cachedHotbarSignature = Integer.MIN_VALUE;
+    // 比較內容快照以避免漏掉雜湊碰撞；只在需要重建 HUD 時複製陣列。
+    private BlockType[] cachedHotbar;
 
     // 快取上一次創造背包內容與狀態。
-    private int cachedCreativeSignature = Integer.MIN_VALUE;
+    private BlockType[] cachedCreativeBlocks;
     private int cachedCreativePage = Integer.MIN_VALUE;
     private int cachedCreativeTotalPages = Integer.MIN_VALUE;
     private boolean cachedCreativeOpen;
@@ -162,8 +155,8 @@ public final class HudRenderer implements AutoCloseable {
     // 快取上一次方塊名稱提示是否顯示。
     private boolean cachedLabelVisible;
 
-    // 快取上一次 F3 偵錯文字的內容簽章。
-    private int cachedDebugSignature;
+    // F3 文字與 hotbar 共用相同的內容變更判斷。
+    private String[] cachedDebugLines;
 
     // 快取上一次 viewport 寬度。
     private int cachedViewportWidth = Integer.MIN_VALUE;
@@ -174,37 +167,28 @@ public final class HudRenderer implements AutoCloseable {
     // 建立 HUD 所需的 shader 與基本 mesh；atlas 由 WorldRenderer 持有並負責釋放。
     public HudRenderer(TextureAtlas atlas) {
         this.atlas = atlas;
-        whiteU = (atlas.u0(AtlasTiles.WHITE) + atlas.u1(AtlasTiles.WHITE)) * 0.5f;
-        whiteV = (atlas.v0(AtlasTiles.WHITE) + atlas.v1(AtlasTiles.WHITE)) * 0.5f;
+        whiteU = (TextureAtlas.u0(AtlasTiles.WHITE) + TextureAtlas.u1(AtlasTiles.WHITE)) * 0.5f;
+        whiteV = (TextureAtlas.v0(AtlasTiles.WHITE) + TextureAtlas.v1(AtlasTiles.WHITE)) * 0.5f;
 
-        shader = new ShaderProgram("/shaders/hud.vert", "/shaders/hud.frag");
-
-        // 準星會依 viewport 比例重建，確保實際畫面上是置中的正十字。
-        crosshair = new Mesh(new float[0], GL_TRIANGLES, 3, 4, 2);
-
-        // hotbar mesh 一開始先建立空資料，之後再動態更新。
-        hotbarMesh = new Mesh(new float[0], GL_TRIANGLES, 3, 4, 2);
+        try (ResourceScope resources = new ResourceScope()) {
+            shader = resources.add(new ShaderProgram("/shaders/hud.vert", "/shaders/hud.frag"));
+            crosshair = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3, 4, 2));
+            hotbarMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3, 4, 2));
+            resources.release();
+        }
     }
 
-    // 繪製 HUD。debugLines 為 null 時不顯示 F3 偵錯文字。
     public void render(BlockType[] hotbar, int selectedIndex, boolean showHotbarLabel, boolean creativeInventoryOpen,
             BlockType[] creativeBlocks, int creativePage, int creativeTotalPages, boolean chestOpen,
-            String[] debugLines) {
+            String[] debugLines, int viewportWidth, int viewportHeight) {
         glDisable(GL_DEPTH_TEST);
         shader.use();
         shader.setInt("uAtlas", 0);
         atlas.bind(0);
 
-        // 取得目前 viewport 大小，讓圖示在不同畫面比例下維持正常外觀；HUD 不依賴 Window 尺寸參數。
-        glGetIntegerv(GL_VIEWPORT, viewport);
-        int viewportWidth = Math.max(1, viewport[2]);
-        int viewportHeight = Math.max(1, viewport[3]);
-        float viewportAspect = (float) viewportWidth / (float) viewportHeight;
-
+        float viewportAspect = (float) viewportWidth / Math.max(1, viewportHeight);
         boolean viewportChanged = viewportWidth != cachedViewportWidth || viewportHeight != cachedViewportHeight;
-        int hotbarSignature = hotbarSignature(hotbar);
-        int creativeSignature = creativeInventoryOpen && creativeBlocks != null ? hotbarSignature(creativeBlocks) : 0;
-        int debugSignature = debugLines != null ? java.util.Arrays.hashCode(debugLines) : 0;
+        BlockType[] visibleCreativeBlocks = creativeInventoryOpen ? creativeBlocks : null;
 
         if (viewportChanged) {
             updateCrosshairMesh(viewportAspect);
@@ -212,32 +196,34 @@ public final class HudRenderer implements AutoCloseable {
 
         // 只有在 hotbar 內容、選取狀態或視窗大小變動時才重建 mesh。
         if (viewportChanged
-                || hotbarSignature != cachedHotbarSignature
+                || !Arrays.equals(hotbar, cachedHotbar)
                 || selectedIndex != cachedSelectedIndex
                 || showHotbarLabel != cachedLabelVisible
-                || creativeSignature != cachedCreativeSignature
+                || !Arrays.equals(visibleCreativeBlocks, cachedCreativeBlocks)
                 || creativePage != cachedCreativePage
                 || creativeTotalPages != cachedCreativeTotalPages
                 || creativeInventoryOpen != cachedCreativeOpen
                 || chestOpen != cachedChestOpen
-                || debugSignature != cachedDebugSignature) {
+                || !Arrays.equals(debugLines, cachedDebugLines)) {
             updateHotbarMesh(hotbar, selectedIndex, showHotbarLabel, viewportAspect,
                     creativeInventoryOpen, creativeBlocks, creativePage, creativeTotalPages, chestOpen, debugLines);
-            cachedHotbarSignature = hotbarSignature;
+            cachedHotbar = hotbar.clone();
             cachedSelectedIndex = selectedIndex;
             cachedLabelVisible = showHotbarLabel;
-            cachedCreativeSignature = creativeSignature;
+            cachedCreativeBlocks = visibleCreativeBlocks == null ? null : visibleCreativeBlocks.clone();
             cachedCreativePage = creativePage;
             cachedCreativeTotalPages = creativeTotalPages;
             cachedCreativeOpen = creativeInventoryOpen;
             cachedChestOpen = chestOpen;
-            cachedDebugSignature = debugSignature;
+            cachedDebugLines = debugLines == null ? null : debugLines.clone();
             cachedViewportWidth = viewportWidth;
             cachedViewportHeight = viewportHeight;
         }
 
         hotbarMesh.draw();
-        crosshair.draw();
+        if (!creativeInventoryOpen && !chestOpen) {
+            crosshair.draw();
+        }
 
         glEnable(GL_DEPTH_TEST);
     }
@@ -245,20 +231,22 @@ public final class HudRenderer implements AutoCloseable {
     // 釋放 HUD 相關的 OpenGL 資源。
     @Override
     public void close() {
-        hotbarMesh.close();
-        crosshair.close();
-        shader.close();
+        try (shader; crosshair; hotbarMesh) {
+            // HUD 共用的 atlas 由 WorldRenderer 釋放。
+        }
     }
 
     // 依方塊總數計算頁數；至少回傳 1，讓沒有資料時 UI 仍有穩定頁碼與快取 key。
     public static int creativeTotalPages(int blockCount) {
-        return Math.max(1, (blockCount + CREATIVE_SLOTS_PER_PAGE - 1) / CREATIVE_SLOTS_PER_PAGE);
+        return blockCount <= 0 ? 1 : 1 + (blockCount - 1) / CREATIVE_SLOTS_PER_PAGE;
     }
 
     // 將 GLFW 視窗座標轉成 HUD 使用的 NDC 座標，再回推目前滑到的創造背包格子。
     public static int creativeSlotAt(double mouseX, double mouseY, int windowWidth, int windowHeight, int page,
             int blockCount) {
-        if (windowWidth <= 0 || windowHeight <= 0 || blockCount <= 0) {
+        if (windowWidth <= 0 || windowHeight <= 0 || blockCount <= 0
+                || page < 0 || page >= creativeTotalPages(blockCount)
+                || !Double.isFinite(mouseX) || !Double.isFinite(mouseY)) {
             return -1;
         }
 
@@ -307,7 +295,7 @@ public final class HudRenderer implements AutoCloseable {
         FloatArrayBuilder out = new FloatArrayBuilder(128);
         addRect(out, -halfLengthX, -halfThicknessY, halfLengthX * 2.0f, halfThicknessY * 2.0f, CROSSHAIR_COLOR);
         addRect(out, -halfThicknessX, -halfLengthY, halfThicknessX * 2.0f, halfLengthY * 2.0f, CROSSHAIR_COLOR);
-        crosshair.update(out.toArray(), STRIDE);
+        crosshair.update(out.toArray());
     }
 
     // 依照 hotbar 內容與目前選取狀態，重新建立 hotbar mesh。
@@ -363,7 +351,7 @@ public final class HudRenderer implements AutoCloseable {
                     TEXT_COLOR, true);
         }
 
-        hotbarMesh.update(hotbarVertices.toArray(), STRIDE);
+        hotbarMesh.update(hotbarVertices.toArray());
     }
 
     // 在 hotbar 格子內畫出方塊小圖示。
@@ -530,7 +518,6 @@ public final class HudRenderer implements AutoCloseable {
         }
     }
 
-    // 加入一個矩形。
     private void addRect(FloatArrayBuilder out, float x, float y, float width, float height, float[] color) {
         float x2 = x + width;
         float y2 = y + height;
@@ -649,10 +636,10 @@ public final class HudRenderer implements AutoCloseable {
     private void addTileSubQuad(FloatArrayBuilder out, int tile,
             float ax, float ay, float bx, float by, float cx, float cy, float dx, float dy,
             float uFrac0, float vFrac0, float uFrac1, float vFrac1, float shade) {
-        float u0 = atlas.u0(tile);
-        float v0 = atlas.v0(tile);
-        float uSpan = atlas.u1(tile) - u0;
-        float vSpan = atlas.v1(tile) - v0;
+        float u0 = TextureAtlas.u0(tile);
+        float v0 = TextureAtlas.v0(tile);
+        float uSpan = TextureAtlas.u1(tile) - u0;
+        float vSpan = TextureAtlas.v1(tile) - v0;
         float uLeft = u0 + uSpan * uFrac0;
         float uRight = u0 + uSpan * uFrac1;
         float vTop = v0 + vSpan * vFrac0;
@@ -698,7 +685,6 @@ public final class HudRenderer implements AutoCloseable {
         }
     }
 
-    // 計算一段文字的 NDC 寬度。
     private static float textWidth(String text) {
         int charCount = text.length();
         int pixelColumns = charCount * FONT_GLYPH_WIDTH + Math.max(0, charCount - 1) * FONT_GLYPH_SPACING;
@@ -755,7 +741,7 @@ public final class HudRenderer implements AutoCloseable {
         return glyph != null ? glyph : GLYPH_EMPTY;
     }
 
-    // 建立內建點陣字型表；目前只涵蓋 hotbar 顯示名稱需要的字元。
+    // 內建 5x7 字型涵蓋方塊名稱、面板與 F3 文字；其他字元由 glyphFor 處理。
     private static Map<Character, String[]> createFont() {
         Map<Character, String[]> font = new HashMap<>();
         putGlyph(font, ' ', GLYPH_EMPTY);
@@ -857,19 +843,9 @@ public final class HudRenderer implements AutoCloseable {
         addVertex(out, ax, ay, z, r, g, b, a, whiteU, whiteV);
     }
 
-    // 加入單一頂點資料。
     private void addVertex(FloatArrayBuilder out, float x, float y, float z, float r, float g, float b, float a,
             float u, float v) {
         out.add(x, y, z, r, g, b, a, u, v);
-    }
-
-    // 根據 hotbar 內容產生簡單簽章，用來判斷內容是否改變。
-    private int hotbarSignature(BlockType[] hotbar) {
-        int hash = 1;
-        for (BlockType blockType : hotbar) {
-            hash = 31 * hash + (blockType != null ? blockType.id() : -1);
-        }
-        return hash;
     }
 
 }

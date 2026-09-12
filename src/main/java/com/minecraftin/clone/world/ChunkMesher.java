@@ -66,20 +66,19 @@ public final class ChunkMesher {
     }
 
     // 根據 Chunk 內容建立對應的頂點資料；只輸出外露面，內部相鄰面會被省略以降低頂點數。
-    public static MeshData build(Chunk chunk, World world, TextureAtlas atlas) {
+    public static MeshData build(ChunkSnapshot chunk) {
         FloatArrayBuilder opaqueVertices = new FloatArrayBuilder(16384);
         FloatArrayBuilder translucentVertices = new FloatArrayBuilder(4096);
-        LightSampler sampler = new LightSampler(chunk, world);
+        ChunkSnapshot sampler = chunk;
 
         // FaceScratch 屬於單次 build 呼叫；即使 meshing 在背景執行緒跑，也不會跨 Chunk 共用。
         FaceScratch scratch = new FaceScratch();
 
-        // 取得這個 Chunk 在世界中的起始座標。
-        int worldMinX = chunk.worldMinX();
-        int worldMinZ = chunk.worldMinZ();
-
         // 逐一檢查 Chunk 內每一個方塊。
         for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new java.util.concurrent.CancellationException("Chunk meshing interrupted");
+            }
             for (int z = 0; z < GameConfig.CHUNK_SIZE; z++) {
                 for (int x = 0; x < GameConfig.CHUNK_SIZE; x++) {
                     BlockType block = chunk.get(x, y, z);
@@ -89,13 +88,11 @@ public final class ChunkMesher {
                         continue;
                     }
 
-                    int worldX = worldMinX + x;
-                    int worldZ = worldMinZ + z;
                     FloatArrayBuilder targetVertices = block.isTranslucent() ? translucentVertices : opaqueVertices;
 
                     if (!block.isFullCube()) {
                         // 非完整方塊直接依 renderBoxes 畫出簡化幾何，不做鄰面裁切，避免薄片或樓梯缺面。
-                        addBlockBoxes(targetVertices, sampler, block, x, y, z, worldX, worldZ, atlas);
+                        addBlockBoxes(targetVertices, sampler, block, x, y, z);
                         continue;
                     }
 
@@ -104,45 +101,28 @@ public final class ChunkMesher {
                         int neighborX = x + face.dx();
                         int neighborY = y + face.dy();
                         int neighborZ = z + face.dz();
-                        BlockType neighbor = neighborBlock(chunk, world,
-                                worldX + face.dx(), neighborY, worldZ + face.dz(),
-                                neighborX, neighborZ);
+                        BlockType neighbor = chunk.get(neighborX, neighborY, neighborZ);
 
-                        // 如果這個面不需要顯示，就跳過；跨 Chunk 時仍用 peekBlock 避免意外生成新 Chunk。
+                        // 邊界資料已包含在快照中，meshing 不會生成鄰近 Chunk。
                         if (!shouldRenderFace(block, neighbor)) {
                             continue;
                         }
 
                         // 取得這個面的貼圖範圍。
                         int tile = block.tileForFace(face);
-                        float u0 = atlas.u0(tile);
-                        float v0 = atlas.v0(tile);
-                        float u1 = atlas.u1(tile);
-                        float v1 = atlas.v1(tile);
+                        float u0 = TextureAtlas.u0(tile);
+                        float v0 = TextureAtlas.v0(tile);
+                        float u1 = TextureAtlas.u1(tile);
+                        float v1 = TextureAtlas.v1(tile);
 
                         // 把這個面加入頂點資料中，含平滑光照與 AO。
-                        addFace(targetVertices, sampler, x, y, z, worldX, worldZ, face, u0, v0, u1, v1, scratch);
+                        addFace(targetVertices, sampler, x, y, z, face, u0, v0, u1, v1, scratch);
                     }
                 }
             }
         }
 
         return new MeshData(opaqueVertices.toArray(), translucentVertices.toArray());
-    }
-
-    // 同一個 Chunk 內的鄰格直接讀取，只有跨 Chunk 邊界時才透過 World.peekBlock 查詢。
-    private static BlockType neighborBlock(Chunk chunk, World world, int worldX, int y, int worldZ, int localX,
-            int localZ) {
-        if (y < 0) {
-            return BlockType.BEDROCK;
-        }
-        if (y >= GameConfig.CHUNK_HEIGHT) {
-            return BlockType.AIR;
-        }
-        if (localX >= 0 && localX < GameConfig.CHUNK_SIZE && localZ >= 0 && localZ < GameConfig.CHUNK_SIZE) {
-            return chunk.get(localX, y, localZ);
-        }
-        return world.peekBlock(worldX, y, worldZ);
     }
 
     // 判斷目前方塊的某個面是否需要被繪製。
@@ -154,7 +134,7 @@ public final class ChunkMesher {
 
         // 水（含流動水）只在旁邊不是水時才繪製面，避免相鄰水格中間產生多餘透明面。
         if (current.isWaterBlock()) {
-            return !neighbor.isWaterBlock();
+            return !neighbor.isWaterBlock() && (!neighbor.isFullCube() || neighbor.isTransparent());
         }
 
         // 鄰居不是完整方塊時，仍要繪製完整方塊的面，避免門、柵欄、樓梯旁出現缺面。
@@ -174,12 +154,10 @@ public final class ChunkMesher {
     // 完整方塊的面：對四個頂點做 Minecraft 式平滑光照取樣（鄰面四格平均）與 AO 計算。
     private static void addFace(
             FloatArrayBuilder out,
-            LightSampler sampler,
+            ChunkSnapshot sampler,
             int x,
             int y,
             int z,
-            int worldX,
-            int worldZ,
             Face face,
             float u0,
             float v0,
@@ -194,9 +172,9 @@ public final class ChunkMesher {
         int[] svList = FACE_SV[faceIndex];
 
         // 面前方那一格是光照取樣的基準。
-        int baseX = worldX + face.dx();
+        int baseX = x + face.dx();
         int baseY = y + face.dy();
-        int baseZ = worldZ + face.dz();
+        int baseZ = z + face.dz();
         float faceShade = face.light();
 
         float[] shade = scratch.shade;
@@ -268,14 +246,14 @@ public final class ChunkMesher {
     }
 
     // 將同一個非完整方塊的多個局部盒轉成 mesh，例如樓梯兩盒、柵欄三盒。
-    private static void addBlockBoxes(FloatArrayBuilder out, LightSampler sampler, BlockType block, float x, float y,
-            float z, int worldX, int worldZ, TextureAtlas atlas) {
+    private static void addBlockBoxes(FloatArrayBuilder out, ChunkSnapshot sampler, BlockType block, int x, int y,
+            int z) {
         // 非完整方塊用自身格子的光照，不做 AO；火把因為自身格子有光，會自然顯得明亮。
-        float skyLight = sampler.sky(worldX, (int) y, worldZ) / (float) LightEngine.MAX_LIGHT;
-        float blockLight = sampler.block(worldX, (int) y, worldZ) / (float) LightEngine.MAX_LIGHT;
+        float skyLight = sampler.sky(x, y, z) / (float) LightEngine.MAX_LIGHT;
+        float blockLight = sampler.block(x, y, z) / (float) LightEngine.MAX_LIGHT;
 
         for (BlockBounds bounds : block.renderBoxes()) {
-            addBox(out, block, x, y, z, bounds, atlas, skyLight, blockLight);
+            addBox(out, block, x, y, z, bounds, skyLight, blockLight);
         }
     }
 
@@ -283,7 +261,7 @@ public final class ChunkMesher {
     // UV 依局部盒在單位方塊中的位置裁切，讓火把、樓梯等非完整方塊取樣貼圖的對應子區域，
     // 而不是把整張貼圖擠進縮小的面；裁切座標需與 addBoxFace 的頂點繞行順序一致。
     private static void addBox(FloatArrayBuilder out, BlockType block, float x, float y, float z,
-            BlockBounds bounds, TextureAtlas atlas, float skyLight, float blockLight) {
+            BlockBounds bounds, float skyLight, float blockLight) {
         float minX = x + bounds.minX();
         float minY = y + bounds.minY();
         float minZ = z + bounds.minZ();
@@ -301,10 +279,10 @@ public final class ChunkMesher {
 
         for (Face face : FACES) {
             int tile = block.tileForFace(face);
-            float u0 = atlas.u0(tile);
-            float v0 = atlas.v0(tile);
-            float uSpan = atlas.u1(tile) - u0;
-            float vSpan = atlas.v1(tile) - v0;
+            float u0 = TextureAtlas.u0(tile);
+            float v0 = TextureAtlas.v0(tile);
+            float uSpan = TextureAtlas.u1(tile) - u0;
+            float vSpan = TextureAtlas.v1(tile) - v0;
 
             // 側面的垂直裁切共用：貼圖上緣（v0）對應盒頂、下緣對應盒底。
             float sideV0 = v0 + (1.0f - y1f) * vSpan;
@@ -406,12 +384,10 @@ public final class ChunkMesher {
             float dx, float dy, float dz,
             float u0, float v0, float u1, float v1,
             float shade, float skyLight, float blockLight) {
-        // 第一個三角形
         out.add(ax, ay, az, u0, v1, shade, skyLight, blockLight);
         out.add(bx, by, bz, u1, v1, shade, skyLight, blockLight);
         out.add(cx, cy, cz, u1, v0, shade, skyLight, blockLight);
 
-        // 第二個三角形
         out.add(cx, cy, cz, u1, v0, shade, skyLight, blockLight);
         out.add(dx, dy, dz, u0, v0, shade, skyLight, blockLight);
         out.add(ax, ay, az, u0, v1, shade, skyLight, blockLight);
@@ -429,58 +405,4 @@ public final class ChunkMesher {
         private final float[] v = new float[4];
     }
 
-    // 集中處理光照與遮蔽查詢；Chunk 內的格子走快速路徑，跨界才透過 World。
-    private static final class LightSampler {
-        private final Chunk chunk;
-        private final World world;
-        private final int minX;
-        private final int minZ;
-
-        private LightSampler(Chunk chunk, World world) {
-            this.chunk = chunk;
-            this.world = world;
-            this.minX = chunk.worldMinX();
-            this.minZ = chunk.worldMinZ();
-        }
-
-        // AO 只把「完整且不透明」的方塊視為遮蔽，樹葉與玻璃不會造成假陰影。
-        private boolean occludes(int worldX, int y, int worldZ) {
-            BlockType block;
-            int localX = worldX - minX;
-            int localZ = worldZ - minZ;
-            if (localX >= 0 && localX < GameConfig.CHUNK_SIZE && localZ >= 0 && localZ < GameConfig.CHUNK_SIZE) {
-                block = chunk.get(localX, y, localZ);
-            } else {
-                block = world.peekBlock(worldX, y, worldZ);
-            }
-            return block.isFullCube() && block.isOpaque();
-        }
-
-        private int sky(int worldX, int y, int worldZ) {
-            if (y >= GameConfig.CHUNK_HEIGHT) {
-                return LightEngine.MAX_LIGHT;
-            }
-            if (y < 0) {
-                return 0;
-            }
-            int localX = worldX - minX;
-            int localZ = worldZ - minZ;
-            if (localX >= 0 && localX < GameConfig.CHUNK_SIZE && localZ >= 0 && localZ < GameConfig.CHUNK_SIZE) {
-                return chunk.skyLight(localX, y, localZ);
-            }
-            return world.skyLightAt(worldX, y, worldZ);
-        }
-
-        private int block(int worldX, int y, int worldZ) {
-            if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
-                return 0;
-            }
-            int localX = worldX - minX;
-            int localZ = worldZ - minZ;
-            if (localX >= 0 && localX < GameConfig.CHUNK_SIZE && localZ >= 0 && localZ < GameConfig.CHUNK_SIZE) {
-                return chunk.blockLight(localX, y, localZ);
-            }
-            return world.blockLightAt(worldX, y, worldZ);
-        }
-    }
 }

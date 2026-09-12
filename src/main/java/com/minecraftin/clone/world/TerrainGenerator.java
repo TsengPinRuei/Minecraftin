@@ -26,7 +26,6 @@ public final class TerrainGenerator {
     // 海平面高度。
     private final int seaLevel;
 
-    // 建立地形產生器。
     public TerrainGenerator(long seed, int seaLevel) {
         this.seed = seed;
         this.seaLevel = seaLevel;
@@ -40,10 +39,8 @@ public final class TerrainGenerator {
 
         int columnCount = GameConfig.CHUNK_SIZE * GameConfig.CHUNK_SIZE;
 
-        // 記錄每個位置的地表高度。
         int[] heights = new int[columnCount];
 
-        // 記錄每個位置的生態區。
         Biome[] biomes = new Biome[columnCount];
 
         // 先記下要生成的樹，等地形都完成後再放置；這樣樹木不會干擾同一 Chunk 的地表高度判斷。
@@ -55,7 +52,6 @@ public final class TerrainGenerator {
                 int worldX = worldMinX + lx;
                 int worldZ = worldMinZ + lz;
 
-                // 取得這個座標的地表資訊。
                 SurfaceSample surface = sampleSurface(worldX, worldZ);
                 int height = surface.height();
                 Biome biome = surface.biome();
@@ -80,15 +76,14 @@ public final class TerrainGenerator {
 
                     } else {
                         // 在地底加入洞穴噪音。
-                        float cave = Noise.fbm3(worldX * 0.055f, y * 0.090f, worldZ * 0.055f, 3, 2.0f, 0.5f, seed + 73);
                         float caveThreshold = biome == Biome.MOUNTAIN ? 0.58f : 0.64f;
-
-                        // 符合條件時把該位置挖空成洞穴。
-                        if (y > 5 && y < height - 3 && cave > caveThreshold) {
+                        if (y > 5 && y < height - 3
+                                && Noise.fbm3(worldX * 0.055f, y * 0.090f, worldZ * 0.055f,
+                                        3, 2.0f, 0.5f, seed + 73) > caveThreshold) {
                             block = y <= seaLevel ? BlockType.WATER : BlockType.AIR;
                         } else {
                             // 根據生態區與深度決定地層方塊。
-                            block = selectStrataBlock(biome, y, height, topDepth, seaLevel);
+                            block = selectStrataBlock(biome, y, height, topDepth);
                         }
                     }
 
@@ -131,7 +126,6 @@ public final class TerrainGenerator {
         chunk.clearModified();
     }
 
-    // 回傳海平面高度。
     public int seaLevel() {
         return seaLevel;
     }
@@ -141,12 +135,6 @@ public final class TerrainGenerator {
         return localX * GameConfig.CHUNK_SIZE + localZ;
     }
 
-    // 回傳指定世界座標的地表高度。
-    public int surfaceHeightAt(int worldX, int worldZ) {
-        return sampleSurface(worldX, worldZ).height();
-    }
-
-    // 計算某個位置是否適合當作大片森林出生區中心。
     public int forestSpawnRegionScore(int centerX, int centerZ) {
         SurfaceSample center = sampleSurface(centerX, centerZ);
 
@@ -257,7 +245,7 @@ public final class TerrainGenerator {
     }
 
     // 根據生態區與深度決定某一層應該用哪種方塊。
-    private BlockType selectStrataBlock(Biome biome, int y, int height, int topDepth, int seaLevel) {
+    private BlockType selectStrataBlock(Biome biome, int y, int height, int topDepth) {
         // 最上層通常是地表。
         if (y == height) {
             return switch (biome) {
@@ -387,14 +375,6 @@ public final class TerrainGenerator {
             placeLeafLayer(chunk, tree.lx(), y, tree.lz(), radius, trimCorners);
         }
 
-        // 在樹幹周圍再補一圈樹葉，讓外觀看起來更厚實。
-        int wrapStart = Math.max(tree.baseY() + 1, topY - 3);
-        for (int y = wrapStart; y <= topY - 1; y++) {
-            trySetLeaf(chunk, tree.lx() + 1, y, tree.lz());
-            trySetLeaf(chunk, tree.lx() - 1, y, tree.lz());
-            trySetLeaf(chunk, tree.lx(), y, tree.lz() + 1);
-            trySetLeaf(chunk, tree.lx(), y, tree.lz() - 1);
-        }
     }
 
     // 放置某一層的樹葉。
@@ -430,16 +410,13 @@ public final class TerrainGenerator {
         }
     }
 
-    // 記錄一棵樹的基本生成資訊。
     private record TreeSpec(int lx, int lz, int baseY, int trunkHeight) {
 
-        // 回傳樹幹頂端高度。
         int topY() {
             return baseY + trunkHeight;
         }
     }
 
-    // 記錄某個地表位置的取樣結果。
     private record SurfaceSample(int height, Biome biome, float continental) {
     }
 }

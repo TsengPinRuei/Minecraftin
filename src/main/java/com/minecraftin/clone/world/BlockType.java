@@ -258,7 +258,6 @@ public enum BlockType {
             maxId = Math.max(maxId, type.id);
         }
 
-        // 建立可用 id 直接索引的查表陣列。
         BY_ID = new BlockType[maxId + 1];
 
         // 將每個方塊放到對應 id 的位置。
@@ -305,7 +304,6 @@ public enum BlockType {
         }
     }
 
-    // 方塊的數字編號。
     private final int id;
 
     // 是否為實心方塊，會影響碰撞判定。
@@ -314,13 +312,10 @@ public enum BlockType {
     // 是否為不透明方塊，會影響遮擋與渲染判定。
     private final boolean opaque;
 
-    // 側面的貼圖編號。
     private final int sideTile;
 
-    // 上面的貼圖編號。
     private final int topTile;
 
-    // 下面的貼圖編號。
     private final int bottomTile;
 
     // 建立一種方塊時，設定它的基本屬性與貼圖。
@@ -333,22 +328,18 @@ public enum BlockType {
         this.bottomTile = bottomTile;
     }
 
-    // 回傳方塊的 id。
     public int id() {
         return id;
     }
 
-    // 回傳方塊是否為實心。
     public boolean isSolid() {
         return solid;
     }
 
-    // 回傳方塊是否為不透明。
     public boolean isOpaque() {
         return opaque;
     }
 
-    // 回傳方塊是否為透明。
     public boolean isTransparent() {
         return !opaque;
     }
@@ -358,12 +349,10 @@ public enum BlockType {
         return isWaterBlock() || this == GLASS;
     }
 
-    // 是否為水（水源或任一強度的流動水）。
     public boolean isWaterBlock() {
         return this == WATER || isFlowingWater();
     }
 
-    // 是否為流動水。
     public boolean isFlowingWater() {
         return switch (this) {
             case WATER_FLOW_7, WATER_FLOW_6, WATER_FLOW_5, WATER_FLOW_4,
@@ -389,6 +378,9 @@ public enum BlockType {
 
     // 依強度取得對應的流動水方塊；8 以上回傳水源。
     public static BlockType flowingWaterOfStrength(int strength) {
+        if (strength <= 0) {
+            return AIR;
+        }
         return switch (strength) {
             case 7 -> WATER_FLOW_7;
             case 6 -> WATER_FLOW_6;
@@ -401,7 +393,6 @@ public enum BlockType {
         };
     }
 
-    // 回傳顯示給玩家看的名稱。
     public String displayName() {
         return DISPLAY_NAMES[ordinal()];
     }
@@ -441,16 +432,6 @@ public enum BlockType {
         if (this == FURNACE && face == Face.NORTH) {
             return AtlasTiles.FURNACE_FRONT;
         }
-        if (this == CHEST && face == Face.NORTH) {
-            return AtlasTiles.CHEST_SIDE;
-        }
-        if (this == CRAFTING_TABLE && face == Face.UP) {
-            return AtlasTiles.CRAFTING_TABLE_TOP;
-        }
-        if (this == BOOKSHELF && (face == Face.UP || face == Face.DOWN)) {
-            return AtlasTiles.PLANKS;
-        }
-
         return switch (face) {
             case UP -> topTile;
             case DOWN -> bottomTile;
@@ -474,7 +455,6 @@ public enum BlockType {
         return CREATIVE_PALETTE.clone();
     }
 
-    // 是否可視為完整 1x1x1 方塊。這會影響 meshing 的鄰面裁切與玩家碰撞盒。
     public boolean isFullCube() {
         return FULL_CUBE_FLAGS[ordinal()];
     }
@@ -484,7 +464,7 @@ public enum BlockType {
         return LIGHT_EMISSION[ordinal()];
     }
 
-    // 光線穿過這個方塊時的額外衰減；15 代表完全阻擋（每跨一格本來就會衰減 1）。
+    // 穿過方塊的光衰減；15 完全阻擋。非直射光每跨一格至少衰減 1。
     public int lightOpacity() {
         return LIGHT_OPACITY[ordinal()];
     }
@@ -592,7 +572,6 @@ public enum BlockType {
         return this == OAK_TRAPDOOR ? OAK_TRAPDOOR_OPEN : OAK_TRAPDOOR;
     }
 
-    // 回傳同朝向、同上下半部的開關相反門變體。
     public BlockType toggledDoorVariant() {
         return isDoorOpen() ? closedDoorVariant() : openedDoorVariant();
     }

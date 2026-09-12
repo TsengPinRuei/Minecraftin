@@ -49,31 +49,23 @@ public final class Player {
     // 兩次按空白鍵的最大間隔，超過就不算雙擊
     private static final float DOUBLE_TAP_SECONDS = 0.28f;
 
-    // 角色目前位置
     private final Vector3f position = new Vector3f();
 
-    // 角色目前速度
     private final Vector3f velocity = new Vector3f();
 
     // 暫存玩家想移動的方向，避免一直建立新物件
     private final Vector3f tmpWish = new Vector3f();
 
-    // 暫存相機前方方向
     private final Vector3f tmpForward = new Vector3f();
 
-    // 暫存相機右方方向
     private final Vector3f tmpRight = new Vector3f();
 
-    // 是否啟用創造模式
     private final boolean creativeMode = GameConfig.CREATIVE_MODE_ONLY;
 
-    // 是否站在地面上
     private boolean onGround;
 
-    // 是否正在飛行
     private boolean flying;
 
-    // 是否正在蹲下
     private boolean crouching;
 
     // 目前的眼睛高度；蹲下/站起時朝目標高度平滑移動，避免視角瞬間跳變。
@@ -85,23 +77,16 @@ public final class Player {
     // 距離上次按下空白鍵已經過了多久
     private float timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
-    // 回傳角色目前位置
     public Vector3f position() {
         return position;
     }
 
-    // 回傳角色是否正在飛行
     public boolean isFlying() {
         return flying;
     }
 
-    // 回傳角色是否站在地面
     public boolean isOnGround() {
         return onGround;
-    }
-
-    public boolean isCrouching() {
-        return crouching;
     }
 
     public float eyeHeight() {
@@ -128,12 +113,6 @@ public final class Player {
         currentEyeHeight = GameConfig.PLAYER_EYE_HEIGHT;
         stepSmoothingOffset = 0.0f;
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
-    }
-
-    // 取得角色眼睛位置，通常用於相機或視角起點
-    public Vector3f eyePosition(Vector3f out) {
-        out.set(position.x, position.y + eyeHeight(), position.z);
-        return out;
     }
 
     // 每一幀更新角色狀態；呼叫前 Game 已經確保附近 Chunk 載入，碰撞查詢才不會邊移動邊生成遠處地形。
@@ -264,9 +243,8 @@ public final class Player {
         // 取得相機前方方向，但只保留水平分量
         Vector3f forward = camera.forward(tmpForward);
         forward.y = 0.0f;
-        if (forward.lengthSquared() > 0.0001f) {
-            forward.normalize();
-        }
+        // pitch 已限制在正負 89.9 度內，水平分量不為零；低頭時也必須維持完整前進分量。
+        forward.normalize();
 
         // 取得相機右方方向，但只保留水平分量
         Vector3f right = camera.right(tmpRight);
@@ -372,11 +350,6 @@ public final class Player {
             velocity.y = Math.max(0.0f, velocity.y);
             onGround = true;
         }
-    }
-
-    // 判斷角色碰撞箱是否和指定方塊相交
-    public boolean intersectsBlock(int x, int y, int z) {
-        return intersectsBlock(x, y, z, BlockType.STONE);
     }
 
     // 判斷角色碰撞箱是否和指定方塊種類的碰撞盒相交。
@@ -542,15 +515,20 @@ public final class Player {
                 velocity.z = 0.0f;
             }
 
-            // 這個軸一旦撞到就停止移動
             return;
         }
     }
 
     // 水平移動被半磚或樓梯擋住時，嘗試小幅抬高玩家，形成自然踏階。
     private boolean tryStepUp(World world, float targetX, float targetZ) {
+        if (velocity.y > 0.0f || !collides(world, position.x, position.y - COLLISION_STEP, position.z)) {
+            return false;
+        }
         for (int i = 1; i <= STEP_ATTEMPTS; i++) {
             float candidateY = position.y + (STEP_HEIGHT * i / STEP_ATTEMPTS);
+            if (collides(world, position.x, candidateY, position.z)) {
+                return false;
+            }
             if (!collides(world, targetX, candidateY, targetZ)) {
                 // 身體瞬間抬高，但把高度差記成負的視覺偏移，鏡頭再逐漸追上來。
                 stepSmoothingOffset = Math.max(-1.0f, stepSmoothingOffset - (candidateY - position.y));
@@ -580,7 +558,7 @@ public final class Player {
         // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
         int minX = fastFloor(minWorldX + EPSILON);
         int maxX = fastFloor(maxWorldX - EPSILON);
-        // 往下多檢查一格，讓半磚、樓梯這種低於玩家腳底的盒子仍可被偵測到。
+        // 柵欄可高達 1.5 格，需檢查腳底所在格的下一格。
         int minY = fastFloor(minWorldY + EPSILON) - 1;
         int maxY = fastFloor(maxWorldY - EPSILON);
         int minZ = fastFloor(minWorldZ + EPSILON);

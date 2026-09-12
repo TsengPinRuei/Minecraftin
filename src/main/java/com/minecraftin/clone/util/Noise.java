@@ -4,7 +4,6 @@ package com.minecraftin.clone.util;
 // 不使用全域 Random，確保結果只由座標與 seed 決定。
 public final class Noise {
 
-    // 這個工具類別不需要被建立成物件。
     private Noise() {
     }
 

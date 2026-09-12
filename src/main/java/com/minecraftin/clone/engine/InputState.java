@@ -4,6 +4,7 @@ import org.lwjgl.glfw.GLFWCursorPosCallbackI;
 import org.lwjgl.glfw.GLFWKeyCallbackI;
 import org.lwjgl.glfw.GLFWMouseButtonCallbackI;
 import org.lwjgl.glfw.GLFWScrollCallbackI;
+import org.lwjgl.glfw.GLFWWindowFocusCallbackI;
 
 import java.util.Arrays;
 
@@ -11,57 +12,43 @@ import static org.lwjgl.glfw.GLFW.*;
 
 // 將 GLFW callback 收到的事件整理成「持續按住」與「本幀剛發生」兩種輸入狀態。
 public final class InputState {
-    // 記錄每個鍵盤按鍵目前是否正在被按住。
     private final boolean[] keys = new boolean[GLFW_KEY_LAST + 1];
 
-    // 記錄每個按鍵在「這一幀是否剛被按下」。
     private final boolean[] keysPressed = new boolean[GLFW_KEY_LAST + 1];
 
-    // 記錄滑鼠按鍵在「這一幀是否剛被按下」。
     private final boolean[] mousePressed = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
 
-    // 記錄每個滑鼠按鍵目前是否正在被按住；連續破壞與放置方塊需要這個狀態。
     private final boolean[] mouseDown = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
 
     // 用來判斷滑鼠是否第一次移動，避免第一次就產生很大的位移量。
     private boolean firstMouse = true;
 
-    // 記錄上一個滑鼠座標。
     private double lastMouseX;
     private double lastMouseY;
 
-    // 記錄這一幀滑鼠總共移動了多少距離。
     private double mouseDeltaX;
     private double mouseDeltaY;
 
-    // 記錄滑鼠滾輪在這段時間內的垂直滾動量。
     private double scrollDeltaY;
 
-    // 鍵盤事件發生時會呼叫這段邏輯。
     private final GLFWKeyCallbackI keyCallback = (window, key, scancode, action, mods) -> {
-        // 如果按鍵代碼超出陣列範圍，就直接忽略。
         if (key < 0 || key >= keys.length) {
             return;
         }
 
-        // 按鍵被按下時，記錄為持續按住，並標記為本幀剛按下。
         if (action == GLFW_PRESS) {
             keys[key] = true;
             keysPressed[key] = true;
-            // 按鍵放開時，只更新為沒有按住。
         } else if (action == GLFW_RELEASE) {
             keys[key] = false;
         }
     };
 
-    // 滑鼠按鍵事件發生時會呼叫這段邏輯。
     private final GLFWMouseButtonCallbackI mouseCallback = (window, button, action, mods) -> {
-        // 如果按鍵編號超出範圍，就直接忽略。
         if (button < 0 || button >= mousePressed.length) {
             return;
         }
 
-        // 按下時記錄瞬時與持續狀態，放開時清除持續狀態。
         if (action == GLFW_PRESS) {
             mousePressed[button] = true;
             mouseDown[button] = true;
@@ -70,7 +57,6 @@ public final class InputState {
         }
     };
 
-    // 滑鼠移動時會呼叫這段邏輯。
     private final GLFWCursorPosCallbackI cursorCallback = (window, xpos, ypos) -> {
         // 第一次接收到滑鼠位置時，只初始化座標，不計算位移。
         if (firstMouse) {
@@ -79,52 +65,53 @@ public final class InputState {
             firstMouse = false;
         }
 
-        // 累加滑鼠本幀的移動距離。
         mouseDeltaX += xpos - lastMouseX;
         mouseDeltaY += ypos - lastMouseY;
 
-        // 更新最新座標，供下一次移動時計算差值。
         lastMouseX = xpos;
         lastMouseY = ypos;
     };
 
-    // 滾輪滾動時，把垂直方向的變化量累加起來。
     private final GLFWScrollCallbackI scrollCallback = (window, xOffset, yOffset) -> scrollDeltaY += yOffset;
 
-    // 把這個輸入狀態物件綁定到指定視窗上。
+    private final GLFWWindowFocusCallbackI focusCallback = (window, focused) -> {
+        if (!focused) {
+            Arrays.fill(keys, false);
+            Arrays.fill(mouseDown, false);
+            endFrame();
+        }
+        // 重新取得焦點時的游標座標可能不同，不能把它當成一次視角轉動。
+        resetMouseTracking();
+    };
+
     public void attach(long windowHandle) {
         glfwSetKeyCallback(windowHandle, keyCallback);
         glfwSetCursorPosCallback(windowHandle, cursorCallback);
         glfwSetMouseButtonCallback(windowHandle, mouseCallback);
         glfwSetScrollCallback(windowHandle, scrollCallback);
+        glfwSetWindowFocusCallback(windowHandle, focusCallback);
     }
 
-    // 檢查某個按鍵目前是否正在被按住。
     public boolean isKeyDown(int keyCode) {
         return keyCode >= 0 && keyCode < keys.length && keys[keyCode];
     }
 
-    // 檢查某個按鍵是否在這一幀剛被按下。
     public boolean wasKeyPressed(int keyCode) {
         return keyCode >= 0 && keyCode < keysPressed.length && keysPressed[keyCode];
     }
 
-    // 檢查某個滑鼠按鍵是否在這一幀剛被按下。
     public boolean wasMousePressed(int button) {
         return button >= 0 && button < mousePressed.length && mousePressed[button];
     }
 
-    // 檢查某個滑鼠按鍵目前是否正在被按住。
     public boolean isMouseDown(int button) {
         return button >= 0 && button < mouseDown.length && mouseDown[button];
     }
 
-    // 取得這一幀滑鼠在 X 軸上的移動量。
     public double mouseDeltaX() {
         return mouseDeltaX;
     }
 
-    // 取得這一幀滑鼠在 Y 軸上的移動量。
     public double mouseDeltaY() {
         return mouseDeltaY;
     }
@@ -150,6 +137,7 @@ public final class InputState {
     public void endFrame() {
         Arrays.fill(keysPressed, false);
         Arrays.fill(mousePressed, false);
+        scrollDeltaY = 0.0;
         mouseDeltaX = 0.0;
         mouseDeltaY = 0.0;
     }

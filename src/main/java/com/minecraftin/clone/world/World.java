@@ -8,12 +8,15 @@ import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 // 負責管理整個世界的區塊、方塊資料、出生點、射線檢測，以及存檔與讀檔。
 // 這個類別是「世界狀態」的邊界：會生成 Chunk、標記 mesh dirty、追蹤需要持久化的變更。
@@ -22,9 +25,8 @@ public final class World {
     // 存檔檔頭，用來確認這是不是本遊戲建立的存檔；值為 "MCLN" 的整數形式。
     private static final int SAVE_MAGIC = 0x4D434C4E;
 
-    // 目前存檔格式版本；load() 仍接受版本 1 與 2，舊存檔缺少的欄位會用預設值。
-    // 版本 3 新增世界時間。
-    private static final int SAVE_VERSION = 3;
+    // 寫出版本 4，仍可讀取版本 1 到 3；欄位演進見 save()。
+    private static final int SAVE_VERSION = 4;
 
     // 新世界的初始時間：清晨剛過日出。
     private static final float DEFAULT_TIME_OF_DAY = 0.03f;
@@ -37,9 +39,6 @@ public final class World {
 
     // 每個 tick 最多處理多少格水，避免大規模改動造成單幀卡頓；剩餘格子留到下一個 tick。
     private static final int WATER_MAX_CELLS_PER_TICK = 4096;
-
-    // 排程佇列的上限，防止極端情況下無限堆積。
-    private static final int WATER_MAX_SCHEDULED_CELLS = 65536;
 
     // 搜尋大片森林出生區域時，最遠搜尋半徑。
     private static final int FOREST_SPAWN_SEARCH_MAX_RADIUS = 1536;
@@ -54,8 +53,8 @@ public final class World {
     private static final int FOREST_LOCAL_SPAWN_STEP = 8;
 
     // 已載入的所有 Chunk，key 是 Chunk 座標。
-    // 非同步 meshing 的工作執行緒會同時讀取這張表，因此必須使用 ConcurrentHashMap。
-    private final Map<ChunkPos, Chunk> chunks = new ConcurrentHashMap<>();
+    // World 由遊戲執行緒存取；背景 mesher 只讀取 ChunkSnapshot。
+    private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
 
     // 維護天空光與方塊光的引擎；區塊載入與方塊變更時負責增量更新。
     private final LightEngine lightEngine = new LightEngine(this);
@@ -64,41 +63,32 @@ public final class World {
     private float timeOfDay = DEFAULT_TIME_OF_DAY;
 
     // 待更新的水格排程（去重、保留插入順序）；方塊變更會把自己與鄰居排進來，由固定 tick 處理。
-    private final java.util.LinkedHashSet<Long> scheduledWaterCells = new java.util.LinkedHashSet<>();
+    private final LinkedHashSet<Long> scheduledWaterCells = new LinkedHashSet<>();
 
     // 水流 tick 每次最多處理固定數量的格子；重複使用批次陣列，避免每個 tick 都配置 long[]。
     private final long[] waterTickBatch = new long[WATER_MAX_CELLS_PER_TICK];
 
-    // 世界存檔路徑。
     private final Path worldFile;
 
-    // 世界種子。
     private long seed;
 
-    // 地形產生器。
     private TerrainGenerator terrainGenerator;
 
-    // 儲存的重生點座標。
     private final Vector3f savedRespawnPosition = new Vector3f();
 
-    // 是否已有儲存的重生點。
     private boolean hasSavedRespawnPosition;
 
-    // 重生點資料是否有變更，之後需要存檔。
     private boolean respawnPositionDirty;
 
-    // 水流 tick 累積時間。
     private float waterTickTimer;
 
-    // 建立世界物件，並先設定預設種子與地形產生器。
     public World(Path worldFile, long defaultSeed) {
         this.worldFile = worldFile;
         this.seed = defaultSeed;
         this.terrainGenerator = new TerrainGenerator(seed, 62);
     }
 
-    // 初始化世界。
-    // 若有舊存檔就嘗試讀取，否則建立新世界狀態；讀檔失敗會回到乾淨的新世界而不是中止遊戲。
+    // 只有缺少存檔時建立新世界；讀檔錯誤交給呼叫端，避免覆蓋既有資料。
     public void initialize() {
         try {
             Path parent = worldFile.getParent();
@@ -117,17 +107,14 @@ public final class World {
         }
     }
 
-    // 回傳世界種子。
     public long seed() {
         return seed;
     }
 
-    // 回傳海平面高度。
     public int seaLevel() {
         return terrainGenerator.seaLevel();
     }
 
-    // 更新世界中的非玩家即時狀態：世界時間與水流模擬。
     public void update(float deltaSeconds) {
         if (deltaSeconds > 0.0f) {
             timeOfDay = (timeOfDay + deltaSeconds / GameConfig.DAY_LENGTH_SECONDS) % 1.0f;
@@ -135,27 +122,22 @@ public final class World {
         updateWaterSimulation(deltaSeconds);
     }
 
-    // 回傳目前世界時間（0 到 1）。
     public float timeOfDay() {
         return timeOfDay;
     }
 
-    // 取得世界座標的天空光強度（0 到 15）。
     public int skyLightAt(int x, int y, int z) {
         return lightEngine.skyLightAt(x, y, z);
     }
 
-    // 取得世界座標的方塊光強度（0 到 15）。
     public int blockLightAt(int x, int y, int z) {
         return lightEngine.blockLightAt(x, y, z);
     }
 
-    // 回傳目前已載入的 Chunk 數量。
     public int chunkCount() {
         return chunks.size();
     }
 
-    // 檢查是否有任何 Chunk 被修改過。
     public boolean hasModifiedChunks() {
         for (Chunk chunk : chunks.values()) {
             if (chunk.isModified()) {
@@ -165,13 +147,10 @@ public final class World {
         return false;
     }
 
-    // 檢查目前是否有資料需要存檔。
     public boolean hasPendingSave() {
         return respawnPositionDirty || hasModifiedChunks();
     }
 
-    // 設定玩家重生點。
-    // 若座標沒有改變，就不更新。
     public void setRespawnPosition(float x, float y, float z) {
         if (hasSavedRespawnPosition
                 && Float.compare(savedRespawnPosition.x, x) == 0
@@ -185,8 +164,6 @@ public final class World {
         respawnPositionDirty = true;
     }
 
-    // 嘗試取得已儲存的重生點。
-    // 有資料時會寫入 out，並回傳 true。
     public boolean tryGetSavedRespawnPosition(Vector3f out) {
         if (!hasSavedRespawnPosition) {
             return false;
@@ -195,7 +172,6 @@ public final class World {
         return true;
     }
 
-    // 確保指定 Chunk 周圍一定半徑內的 Chunk 都已建立。
     public void ensureChunksAround(int centerChunkX, int centerChunkZ, int radius) {
         int radiusSq = radius * radius;
         for (int dz = -radius; dz <= radius; dz++) {
@@ -208,8 +184,6 @@ public final class World {
         }
     }
 
-    // 取得已載入的 Chunk。
-    // 若尚未載入，回傳 null。
     public Chunk getChunkIfLoaded(int chunkX, int chunkZ) {
         return chunks.get(new ChunkPos(chunkX, chunkZ));
     }
@@ -231,10 +205,12 @@ public final class World {
         lightEngine.onChunkLoaded(chunk);
 
         // 新增 Chunk 後，周圍 Chunk 的邊界顯示可能受影響，因此一併標記為需要重建 mesh。
-        markChunkMeshDirty(chunkX - 1, chunkZ);
-        markChunkMeshDirty(chunkX + 1, chunkZ);
-        markChunkMeshDirty(chunkX, chunkZ - 1);
-        markChunkMeshDirty(chunkX, chunkZ + 1);
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                markChunkMeshDirty(chunkX + dx, chunkZ + dz);
+            }
+        }
+        scheduleWaterBorders(chunk);
 
         return chunk;
     }
@@ -259,7 +235,7 @@ public final class World {
     }
 
     // 讀取世界座標上的方塊，但不主動建立新的 Chunk。
-    // 常用於渲染鄰面、水流擴散等「只看已載入狀態」的流程，避免查詢本身造成地形生成。
+    // 光照與水流只看已載入狀態，避免查詢本身造成地形生成。
     public BlockType peekBlock(int worldX, int y, int worldZ) {
         if (y < 0) {
             return BlockType.BEDROCK;
@@ -280,14 +256,12 @@ public final class World {
         return chunk.get(localX, y, localZ);
     }
 
-    // 設定世界座標上的方塊。
     // 水流行為不需要特例：setBlockInternal 會把鄰近水格排進水流模擬，
     // 破壞方塊時水自然流入、擋住水源時失去支撐的流動水會自動退去。
     public boolean setBlock(int worldX, int y, int worldZ, BlockType type) {
         return setBlockInternal(worldX, y, worldZ, type, true);
     }
 
-    // 實際執行方塊更新的內部方法。
     // createMissingChunk 為 true 時，缺少 Chunk 會自動建立。
     private boolean setBlockInternal(int worldX, int y, int worldZ, BlockType type, boolean createMissingChunk) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
@@ -312,29 +286,19 @@ public final class World {
         chunk.set(localX, y, localZ, type);
 
         // 增量更新光照；引擎會把光照變化波及的 Chunk 標記為需要重建 mesh。
-        lightEngine.onBlockChanged(worldX, y, worldZ, type);
+        lightEngine.onBlockChanged(worldX, y, worldZ, existing, type);
 
         // 任何方塊變更都喚醒自己與六個鄰格的水流更新；水流模擬本身的寫入也靠這裡形成連鎖。
         scheduleWaterNeighborhood(worldX, y, worldZ);
 
         // 如果修改位置在 Chunk 邊界，鄰近 Chunk 的 mesh 也要重建。
-        if (localX == 0) {
-            markChunkMeshDirty(chunkX - 1, chunkZ);
-        } else if (localX == GameConfig.CHUNK_SIZE - 1) {
-            markChunkMeshDirty(chunkX + 1, chunkZ);
-        }
-
-        if (localZ == 0) {
-            markChunkMeshDirty(chunkX, chunkZ - 1);
-        } else if (localZ == GameConfig.CHUNK_SIZE - 1) {
-            markChunkMeshDirty(chunkX, chunkZ + 1);
-        }
+        markNeighborMeshesDirty(chunk, localX, localZ);
 
         return true;
     }
 
     // ====== 水流模擬 ======
-    // 模型與 Minecraft 相同：WATER 是水源（強度 8），WATER_FLOW_7..1 是流動水。
+    // 簡化的水流模型：WATER 是水源（強度 8），WATER_FLOW_7..1 是流動水。
     // 每個 tick 重算排程格子的強度（失去支撐就退去），再向外擴散（向下優先、水平遞減）。
 
     // 依累積時間推進水流 tick；一次最多補跑 4 個 tick，避免卡頓後爆量。
@@ -480,14 +444,14 @@ public final class World {
     }
 
     private void scheduleWaterCell(int x, int y, int z) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || scheduledWaterCells.size() >= WATER_MAX_SCHEDULED_CELLS) {
+        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || !peekBlock(x, y, z).isWaterBlock()) {
             return;
         }
         scheduledWaterCells.add(packWaterCell(x, y, z));
     }
 
     // 將座標壓進一個 long：x 與 z 各 26 bits（二補數含符號）、y 12 bits。
-    // 這只給短期水流排程使用；unpack 依賴位移做符號還原，不能拿來存放任意大座標。
+    // v4 存檔也使用此格式；unpack 依賴位移做符號還原，不能拿來存放任意大座標。
     private static long packWaterCell(int x, int y, int z) {
         return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
@@ -504,7 +468,50 @@ public final class World {
         return (int) (packed & 0xFFF);
     }
 
-    // 將指定 Chunk 標記為需要重建 mesh。
+    // AO 與平滑光照會取樣對角格，角落變動需同時更新對角 Chunk。
+    void markNeighborMeshesDirty(Chunk chunk, int localX, int localZ) {
+        int minDx = localX == 0 ? -1 : 0;
+        int maxDx = localX == GameConfig.CHUNK_SIZE - 1 ? 1 : 0;
+        int minDz = localZ == 0 ? -1 : 0;
+        int maxDz = localZ == GameConfig.CHUNK_SIZE - 1 ? 1 : 0;
+        for (int dz = minDz; dz <= maxDz; dz++) {
+            for (int dx = minDx; dx <= maxDx; dx++) {
+                if (dx != 0 || dz != 0) {
+                    markChunkMeshDirty(chunk.chunkX() + dx, chunk.chunkZ() + dz);
+                }
+            }
+        }
+    }
+
+    // 原本流向未載入區域的水，在邊界兩側到齊後才能繼續。
+    private void scheduleWaterBorders(Chunk chunk) {
+        scheduleWaterBorder(chunk, getChunkIfLoaded(chunk.chunkX() - 1, chunk.chunkZ()), -1, 0);
+        scheduleWaterBorder(chunk, getChunkIfLoaded(chunk.chunkX() + 1, chunk.chunkZ()), 1, 0);
+        scheduleWaterBorder(chunk, getChunkIfLoaded(chunk.chunkX(), chunk.chunkZ() - 1), 0, -1);
+        scheduleWaterBorder(chunk, getChunkIfLoaded(chunk.chunkX(), chunk.chunkZ() + 1), 0, 1);
+    }
+
+    private void scheduleWaterBorder(Chunk chunk, Chunk neighbor, int dx, int dz) {
+        if (neighbor == null) {
+            return;
+        }
+        int last = GameConfig.CHUNK_SIZE - 1;
+        for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
+            for (int i = 0; i < GameConfig.CHUNK_SIZE; i++) {
+                int x = dx == 0 ? i : dx < 0 ? 0 : last;
+                int z = dz == 0 ? i : dz < 0 ? 0 : last;
+                int nx = dx == 0 ? i : last - x;
+                int nz = dz == 0 ? i : last - z;
+                if (chunk.get(x, y, z).isWaterBlock()) {
+                    scheduledWaterCells.add(packWaterCell(chunk.worldMinX() + x, y, chunk.worldMinZ() + z));
+                }
+                if (neighbor.get(nx, y, nz).isWaterBlock()) {
+                    scheduledWaterCells.add(packWaterCell(neighbor.worldMinX() + nx, y, neighbor.worldMinZ() + nz));
+                }
+            }
+        }
+    }
+
     private void markChunkMeshDirty(int chunkX, int chunkZ) {
         Chunk chunk = getChunkIfLoaded(chunkX, chunkZ);
         if (chunk != null) {
@@ -512,7 +519,6 @@ public final class World {
         }
     }
 
-    // 從上往下找出某個座標最上方的實心地面高度。
     public int topSolidY(int worldX, int worldZ) {
         int chunkX = chunkCoord(worldX);
         int chunkZ = chunkCoord(worldZ);
@@ -618,7 +624,6 @@ public final class World {
         }
     }
 
-    // 以指定中心為起點，往外找最近的安全出生點。
     private boolean tryFindNearestSafeSpawn(Vector3f out, int centerX, int centerZ, int maxRadius, int step) {
         for (int radius = step; radius <= maxRadius; radius += step) {
             for (int x = centerX - radius; x <= centerX + radius; x += step) {
@@ -689,7 +694,6 @@ public final class World {
         return hasNearbyForestCover(x, y, z);
     }
 
-    // 檢查出生點周圍是否有足夠多的樹木。
     private boolean hasNearbyForestCover(int x, int y, int z) {
         int treeColumns = 0;
 
@@ -708,7 +712,6 @@ public final class World {
         return treeColumns >= 6;
     }
 
-    // 檢查某個座標是否適合作為玩家出生點。
     private boolean trySpawnAt(Vector3f out, int x, int z) {
         int y = topSolidY(x, z);
         if (!isSafeSpawnAt(x, y, z)) {
@@ -735,12 +738,19 @@ public final class World {
         return feet == BlockType.AIR && head == BlockType.AIR;
     }
 
-    // 從 origin 沿著 direction 發射射線，找出第一個碰到的方塊。
-    // 使用 3D DDA 逐格前進，可直接得到命中面 normal，供放置方塊判斷相鄰位置。
+    // DDA 篩選候選格，再與實際幾何盒求交；半磚空隙不應擋住射線。
     public RaycastHit raycast(Vector3f origin, Vector3f direction, float maxDistance) {
-        float dx = direction.x;
-        float dy = direction.y;
-        float dz = direction.z;
+        if (!origin.isFinite() || !direction.isFinite() || !Float.isFinite(maxDistance) || maxDistance < 0) {
+            return null;
+        }
+        double length = Math.sqrt((double) direction.x * direction.x
+                + (double) direction.y * direction.y + (double) direction.z * direction.z);
+        if (length == 0) {
+            return null;
+        }
+        float dx = (float) (direction.x / length);
+        float dy = (float) (direction.y / length);
+        float dz = (float) (direction.z / length);
 
         int x = fastFloor(origin.x);
         int y = fastFloor(origin.y);
@@ -754,7 +764,6 @@ public final class World {
         float invDy = dy == 0.0f ? Float.POSITIVE_INFINITY : Math.abs(1.0f / dy);
         float invDz = dz == 0.0f ? Float.POSITIVE_INFINITY : Math.abs(1.0f / dz);
 
-        // 計算射線距離下一個格線交點還有多遠。
         float tx = dx == 0.0f ? Float.POSITIVE_INFINITY
                 : (dx > 0 ? (x + 1 - origin.x) * invDx : (origin.x - x) * invDx);
         float ty = dy == 0.0f ? Float.POSITIVE_INFINITY
@@ -763,15 +772,22 @@ public final class World {
                 : (dz > 0 ? (z + 1 - origin.z) * invDz : (origin.z - z) * invDz);
 
         float traveled = 0.0f;
-        int normalX = 0;
-        int normalY = 0;
-        int normalZ = 0;
 
         // 使用類似 3D DDA 的方式，沿著方塊格子一步一步前進；水（含流動水）不會被準星選中。
         while (traveled <= maxDistance) {
             BlockType block = getBlock(x, y, z);
-            if (block != BlockType.AIR && !block.isWaterBlock()) {
-                return new RaycastHit(x, y, z, normalX, normalY, normalZ, traveled, block);
+            float segmentEnd = Math.min(maxDistance, Math.min(tx, Math.min(ty, tz)));
+            RaycastHit hit = intersectBlock(x, y, z, block, origin, dx, dy, dz, segmentEnd);
+            // 柵欄的盒子高於一格，因此也檢查射線目前格正下方的方塊。
+            if (y > 0 && y <= GameConfig.CHUNK_HEIGHT) {
+                RaycastHit below = intersectBlock(x, y - 1, z, getBlock(x, y - 1, z),
+                        origin, dx, dy, dz, segmentEnd);
+                if (below != null && (hit == null || below.distance() < hit.distance())) {
+                    hit = below;
+                }
+            }
+            if (hit != null) {
+                return hit;
             }
 
             if (tx < ty) {
@@ -779,32 +795,20 @@ public final class World {
                     x += stepX;
                     traveled = tx;
                     tx += invDx;
-                    normalX = -stepX;
-                    normalY = 0;
-                    normalZ = 0;
                 } else {
                     z += stepZ;
                     traveled = tz;
                     tz += invDz;
-                    normalX = 0;
-                    normalY = 0;
-                    normalZ = -stepZ;
                 }
             } else {
                 if (ty < tz) {
                     y += stepY;
                     traveled = ty;
                     ty += invDy;
-                    normalX = 0;
-                    normalY = -stepY;
-                    normalZ = 0;
                 } else {
                     z += stepZ;
                     traveled = tz;
                     tz += invDz;
-                    normalX = 0;
-                    normalY = 0;
-                    normalZ = -stepZ;
                 }
             }
         }
@@ -812,127 +816,238 @@ public final class World {
         return null;
     }
 
-    // 將目前世界資料寫入存檔。
-    // 格式順序為 magic/version/seed/respawn/chunkCount/chunk資料；BlockType.id 必須保持穩定。
-    public void save() {
-        try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(worldFile)))) {
-            out.writeInt(SAVE_MAGIC);
-            out.writeInt(SAVE_VERSION);
-            out.writeLong(seed);
-
-            out.writeBoolean(hasSavedRespawnPosition);
-            if (hasSavedRespawnPosition) {
-                out.writeFloat(savedRespawnPosition.x);
-                out.writeFloat(savedRespawnPosition.y);
-                out.writeFloat(savedRespawnPosition.z);
-            }
-
-            // 版本 3 起保存世界時間。
-            out.writeFloat(timeOfDay);
-
-            out.writeInt(chunks.size());
-
-            for (Chunk chunk : chunks.values()) {
-                out.writeInt(chunk.chunkX());
-                out.writeInt(chunk.chunkZ());
-
-                short[] data = chunk.rawBlocks();
-                out.writeInt(data.length);
-                for (short value : data) {
-                    out.writeShort(value);
+    private static RaycastHit intersectBlock(int x, int y, int z, BlockType block, Vector3f origin,
+            float dx, float dy, float dz, float maxDistance) {
+        if (block == BlockType.AIR || block.isWaterBlock()) {
+            return null;
+        }
+        RaycastHit closest = null;
+        for (BlockBounds bounds : block.renderBoxes()) {
+            float near = 0.0f;
+            float far = maxDistance;
+            int normalAxis = -1;
+            int normalSign = 0;
+            boolean missed = false;
+            for (int axis = 0; axis < 3; axis++) {
+                float start = axis == 0 ? origin.x : axis == 1 ? origin.y : origin.z;
+                float direction = axis == 0 ? dx : axis == 1 ? dy : dz;
+                float min = axis == 0 ? x + bounds.minX() : axis == 1 ? y + bounds.minY() : z + bounds.minZ();
+                float max = axis == 0 ? x + bounds.maxX() : axis == 1 ? y + bounds.maxY() : z + bounds.maxZ();
+                if (direction == 0.0f) {
+                    if (start < min || start > max) {
+                        missed = true;
+                        break;
+                    }
+                    continue;
                 }
+                float entry = (min - start) / direction;
+                float exit = (max - start) / direction;
+                float axisNear = Math.min(entry, exit);
+                if (axisNear > near) {
+                    near = axisNear;
+                    normalAxis = axis;
+                    normalSign = direction > 0 ? -1 : 1;
+                }
+                far = Math.min(far, Math.max(entry, exit));
+                if (near > far) {
+                    missed = true;
+                    break;
+                }
+            }
+            if (!missed && (closest == null || near < closest.distance())) {
+                closest = new RaycastHit(x, y, z,
+                        normalAxis == 0 ? normalSign : 0,
+                        normalAxis == 1 ? normalSign : 0,
+                        normalAxis == 2 ? normalSign : 0, near, block);
+            }
+        }
+        return closest;
+    }
 
-                // 存完後，這個 Chunk 就不再視為未儲存修改。
+    // v1: seed/chunks；v2: respawn；v3: time；v4: 待處理水流與 tick 計時。
+    // 先完成暫存檔、flush/force/close，再原子替換；替換失敗時保留原檔和 dirty 狀態。
+    public void save() {
+        Path target = worldFile.toAbsolutePath();
+        Path temporary = null;
+        try {
+            Files.createDirectories(target.getParent());
+            temporary = Files.createTempFile(target.getParent(), "world-", ".tmp");
+            try (DataOutputStream out = new DataOutputStream(
+                    new BufferedOutputStream(Files.newOutputStream(temporary)))) {
+                out.writeInt(SAVE_MAGIC);
+                out.writeInt(SAVE_VERSION);
+                out.writeLong(seed);
+                out.writeBoolean(hasSavedRespawnPosition);
+                if (hasSavedRespawnPosition) {
+                    out.writeFloat(savedRespawnPosition.x);
+                    out.writeFloat(savedRespawnPosition.y);
+                    out.writeFloat(savedRespawnPosition.z);
+                }
+                out.writeFloat(timeOfDay);
+                out.writeInt(chunks.size());
+                for (Chunk chunk : chunks.values()) {
+                    out.writeInt(chunk.chunkX());
+                    out.writeInt(chunk.chunkZ());
+                    short[] data = chunk.rawBlocks();
+                    out.writeInt(data.length);
+                    for (short value : data) {
+                        out.writeShort(value);
+                    }
+                }
+                out.writeFloat(waterTickTimer);
+                out.writeInt(scheduledWaterCells.size());
+                for (long cell : scheduledWaterCells) {
+                    out.writeLong(cell);
+                }
+            }
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+                channel.force(true);
+            }
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            temporary = null;
+            for (Chunk chunk : chunks.values()) {
                 chunk.clearModified();
             }
-
             respawnPositionDirty = false;
         } catch (IOException e) {
             throw new IllegalStateException("Failed to save world to " + worldFile, e);
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException e) {
+                    System.err.println("Failed to remove temporary save " + temporary + ": " + e.getMessage());
+                }
+            }
         }
     }
 
-    // 從存檔讀取世界資料。
-    // 讀取成功回傳 true，失敗回傳 false；呼叫端會用 false 建立新世界，避免半讀取狀態留下來。
+    // 只有檔案不存在才建立新世界。損壞、不支援或不可讀的存檔必須停止載入，避免離開時覆蓋原始資料。
     private boolean load() {
-        if (!Files.exists(worldFile)) {
-            return false;
-        }
-
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(worldFile)))) {
+            long fileSize = Files.size(worldFile);
             int magic = in.readInt();
             int version = in.readInt();
-
             if (magic != SAVE_MAGIC || version < 1 || version > SAVE_VERSION) {
-                return false;
+                throw new IOException("Invalid save header or unsupported version: " + version);
             }
 
-            seed = in.readLong();
-            terrainGenerator = new TerrainGenerator(seed, 62);
-
-            // 版本 2 之後才有重生點資料。
-            if (version >= 2) {
-                hasSavedRespawnPosition = in.readBoolean();
-                if (hasSavedRespawnPosition) {
-                    savedRespawnPosition.set(in.readFloat(), in.readFloat(), in.readFloat());
-                } else {
-                    savedRespawnPosition.zero();
+            long loadedSeed = in.readLong();
+            boolean loadedRespawn = version >= 2 && in.readBoolean();
+            Vector3f loadedPosition = new Vector3f();
+            if (loadedRespawn) {
+                loadedPosition.set(in.readFloat(), in.readFloat(), in.readFloat());
+                if (!loadedPosition.isFinite()) {
+                    throw new IOException("Invalid respawn position");
                 }
-            } else {
-                clearSavedRespawnPosition();
+            }
+            float loadedTime = version >= 3 ? in.readFloat() : DEFAULT_TIME_OF_DAY;
+            if (!(loadedTime >= 0.0f && loadedTime < 1.0f)) {
+                throw new IOException("Invalid world time");
             }
 
-            // 版本 3 之後才有世界時間資料。
-            if (version >= 3) {
-                float loadedTime = in.readFloat();
-                timeOfDay = (loadedTime >= 0.0f && loadedTime < 1.0f) ? loadedTime : DEFAULT_TIME_OF_DAY;
-            } else {
-                timeOfDay = DEFAULT_TIME_OF_DAY;
-            }
-
-            respawnPositionDirty = false;
-
+            int blockCount = GameConfig.CHUNK_SIZE * GameConfig.CHUNK_HEIGHT * GameConfig.CHUNK_SIZE;
             int count = in.readInt();
+            if (count < 0 || count > fileSize / (12L + blockCount * Short.BYTES)) {
+                throw new IOException("Invalid chunk count: " + count);
+            }
             Map<ChunkPos, Chunk> loadedChunks = new HashMap<>();
-
             for (int i = 0; i < count; i++) {
                 int chunkX = in.readInt();
                 int chunkZ = in.readInt();
                 int length = in.readInt();
-
+                if (length != blockCount) {
+                    throw new IOException("Invalid chunk size: " + length);
+                }
                 Chunk chunk = new Chunk(chunkX, chunkZ);
                 short[] data = chunk.rawBlocks();
-
-                if (length != data.length) {
-                    return false;
-                }
-
                 for (int j = 0; j < length; j++) {
-                    data[j] = in.readShort();
+                    short id = in.readShort();
+                    if (BlockType.byId(id).id() != id) {
+                        throw new IOException("Unknown block ID: " + id);
+                    }
+                    data[j] = id;
                 }
-
-                // 讀入後需要重建 mesh，但不算新的修改，否則每次啟動後都會立刻要求重存所有 Chunk。
-                chunk.markMeshDirty();
-                chunk.clearModified();
-                loadedChunks.put(new ChunkPos(chunkX, chunkZ), chunk);
+                if (loadedChunks.putIfAbsent(chunk.pos(), chunk) != null) {
+                    throw new IOException("Duplicate chunk: " + chunk.pos());
+                }
             }
 
+            LinkedHashSet<Long> loadedWater = new LinkedHashSet<>();
+            float loadedWaterTimer = 0.0f;
+            if (version >= 4) {
+                loadedWaterTimer = in.readFloat();
+                if (!Float.isFinite(loadedWaterTimer) || loadedWaterTimer < 0.0f) {
+                    throw new IOException("Invalid water tick timer");
+                }
+                int waterCount = in.readInt();
+                if (waterCount < 0 || waterCount > fileSize / Long.BYTES) {
+                    throw new IOException("Invalid water queue size: " + waterCount);
+                }
+                for (int i = 0; i < waterCount; i++) {
+                    long cell = in.readLong();
+                    if (unpackWaterY(cell) >= GameConfig.CHUNK_HEIGHT) {
+                        throw new IOException("Invalid water cell height");
+                    }
+                    loadedWater.add(cell);
+                }
+            }
+            if (in.read() != -1) {
+                throw new IOException("Unexpected data after world save");
+            }
+
+            // 全檔驗證完成後才更新世界；光照重建需要所有 Chunk 先到齊。
+            seed = loadedSeed;
+            terrainGenerator = new TerrainGenerator(seed, 62);
+            savedRespawnPosition.set(loadedPosition);
+            hasSavedRespawnPosition = loadedRespawn;
+            respawnPositionDirty = false;
+            timeOfDay = loadedTime;
             chunks.clear();
             chunks.putAll(loadedChunks);
-
-            // 全部 Chunk 就位後再計算光照，鄰居邊界的光才能正確互相流入。
+            scheduledWaterCells.clear();
+            scheduledWaterCells.addAll(loadedWater);
+            waterTickTimer = loadedWaterTimer;
             for (Chunk chunk : chunks.values()) {
                 lightEngine.onChunkLoaded(chunk);
             }
-
-            respawnPositionDirty = false;
+            if (version < 4) {
+                restoreLegacyWaterSimulation();
+            }
             return true;
-        } catch (IOException e) {
+        } catch (NoSuchFileException e) {
             return false;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load world from " + worldFile, e);
         }
     }
 
-    // 清除已儲存的重生點資料。
+    // 舊版未記錄排程，只恢復流動水與仍可流出的水源，避免把整片靜止海水排入佇列。
+    private void restoreLegacyWaterSimulation() {
+        for (Chunk chunk : chunks.values()) {
+            for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
+                for (int z = 0; z < GameConfig.CHUNK_SIZE; z++) {
+                    for (int x = 0; x < GameConfig.CHUNK_SIZE; x++) {
+                        BlockType block = chunk.get(x, y, z);
+                        if (!block.isWaterBlock()) {
+                            continue;
+                        }
+                        int wx = chunk.worldMinX() + x;
+                        int wz = chunk.worldMinZ() + z;
+                        if (block.isFlowingWater()
+                                || canWaterFlowInto(peekBlock(wx, y - 1, wz), 7)
+                                || canWaterFlowInto(peekBlock(wx + 1, y, wz), 7)
+                                || canWaterFlowInto(peekBlock(wx - 1, y, wz), 7)
+                                || canWaterFlowInto(peekBlock(wx, y, wz + 1), 7)
+                                || canWaterFlowInto(peekBlock(wx, y, wz - 1), 7)) {
+                            scheduleWaterCell(wx, y, wz);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private void clearSavedRespawnPosition() {
         savedRespawnPosition.zero();
         hasSavedRespawnPosition = false;
@@ -949,7 +1064,6 @@ public final class World {
         return worldCoord - chunkCoord * GameConfig.CHUNK_SIZE;
     }
 
-    // 比 Math.floor 更快地把 float 轉成向下取整的整數。
     private int fastFloor(float value) {
         int i = (int) value;
         return value < i ? i - 1 : i;

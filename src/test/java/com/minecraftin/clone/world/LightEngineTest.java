@@ -115,6 +115,47 @@ final class LightEngineTest {
     }
 
     @Test
+    void removingStrongerLightPreservesNearbyTorch() {
+        world.setBlock(x, airY, z, BlockType.GLOWSTONE);
+        world.setBlock(x + 1, airY, z, BlockType.TORCH);
+        world.setBlock(x, airY, z, BlockType.AIR);
+        assertEquals(14, world.blockLightAt(x + 1, airY, z));
+        assertEquals(13, world.blockLightAt(x, airY, z));
+    }
+
+    @Test
+    void removingTopLayerBlockRestoresDirectSunlight() {
+        int top = GameConfig.CHUNK_HEIGHT - 1;
+        world.setBlock(x, top, z, BlockType.STONE);
+        world.setBlock(x, top, z, BlockType.AIR);
+        assertEquals(15, world.skyLightAt(x, top, z));
+        assertEquals(15, world.skyLightAt(x, top - 1, z));
+    }
+
+    @Test
+    void rebuildingWaterLightingMatchesIncrementalUpdates() {
+        int top = GameConfig.CHUNK_HEIGHT - 1;
+        world.setBlock(x, top, z, BlockType.WATER);
+        world.setBlock(x, top - 1, z, BlockType.WATER);
+        int[] before = new int[4];
+        for (int i = 0; i < before.length; i++) {
+            before[i] = world.skyLightAt(x, top - i, z);
+        }
+        new LightEngine(world).onChunkLoaded(world.getChunkIfLoaded(0, 0));
+        for (int i = 0; i < before.length; i++) {
+            assertEquals(before[i], world.skyLightAt(x, top - i, z));
+        }
+    }
+
+    @Test
+    void opaqueCornerChangeInvalidatesDiagonalMesh() {
+        Chunk diagonal = world.getOrCreateChunk(1, 1);
+        diagonal.clearMeshDirty();
+        world.setBlock(15, airY, 15, BlockType.STONE);
+        assertTrue(diagonal.isMeshDirty(), "角落 AO 取樣也會影響對角 Chunk");
+    }
+
+    @Test
     void waterAttenuatesSkyLightWithDepth() {
         // 找一片夠深的水域，驗證水中天空光按深度額外衰減。
         for (int sx = 0; sx < 256; sx += 4) {

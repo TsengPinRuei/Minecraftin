@@ -73,7 +73,6 @@ public final class GameConfig {
     // 世界存檔檔案位置；World 會自動建立父目錄，但不會遷移舊格式以外的檔案。
     public static final String WORLD_FILE = "saves/world.dat";
 
-    // 預設世界種子。
     public static final long DEFAULT_WORLD_SEED = 20260219L;
 
     // 一天的長度（秒）；Minecraft 為 20 分鐘。

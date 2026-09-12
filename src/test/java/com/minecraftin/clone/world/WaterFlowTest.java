@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
 // 水源/流動水模擬的行為測試；在高空石頭平台上驗證，不依賴特定種子的地形。
@@ -63,6 +64,49 @@ final class WaterFlowTest {
         for (int i = 0; i < ticks; i++) {
             world.update(0.25f);
         }
+    }
+
+    @Test
+    void waterResumesWhenNeighborChunkLoads() {
+        World borderWorld = new World(tempDir.resolve("border.dat"), 20260219L);
+        borderWorld.initialize();
+        int borderX = GameConfig.CHUNK_SIZE - 1;
+        int waterY = GameConfig.CHUNK_HEIGHT - 2;
+        borderWorld.setBlock(borderX, waterY - 1, 8, BlockType.STONE);
+        borderWorld.setBlock(borderX - 1, waterY, 8, BlockType.STONE);
+        borderWorld.setBlock(borderX, waterY, 7, BlockType.STONE);
+        borderWorld.setBlock(borderX, waterY, 9, BlockType.STONE);
+        borderWorld.setBlock(borderX, waterY, 8, BlockType.WATER);
+        for (int i = 0; i < 8; i++) {
+            borderWorld.update(0.25f);
+        }
+        assertNull(borderWorld.getChunkIfLoaded(1, 0));
+
+        borderWorld.getOrCreateChunk(1, 0);
+        borderWorld.update(0.25f);
+        assertEquals(7, borderWorld.getBlock(borderX + 1, waterY, 8).waterStrength());
+    }
+
+    @Test
+    void sourceSavedBeforeFirstTickStillSpreadsAfterReload() {
+        world.setBlock(x, floorY + 1, z, BlockType.WATER);
+        world.save();
+        world = new World(tempDir.resolve("world.dat"), 20260219L);
+        world.initialize();
+        tick(3);
+        assertEquals(7, world.getBlock(x + 1, floorY + 1, z).waterStrength());
+    }
+
+    @Test
+    void recedingWaterContinuesAfterReload() {
+        world.setBlock(x, floorY + 1, z, BlockType.WATER);
+        tick(10);
+        world.setBlock(x, floorY + 1, z, BlockType.STONE);
+        world.save();
+        world = new World(tempDir.resolve("world.dat"), 20260219L);
+        world.initialize();
+        tick(20);
+        assertFalse(world.getBlock(x + 3, floorY + 1, z).isWaterBlock());
     }
 
     @Test

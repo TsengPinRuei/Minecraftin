@@ -30,19 +30,8 @@ public final class Camera {
     // 方向快取是否需要更新。
     private boolean directionDirty = true;
 
-    // 取得攝影機目前的位置。
     public Vector3f position() {
         return position;
-    }
-
-    // 取得目前的左右轉動角度。
-    public float yaw() {
-        return yaw;
-    }
-
-    // 取得目前的上下轉動角度。
-    public float pitch() {
-        return pitch;
     }
 
     // 直接設定攝影機的位置。
@@ -88,7 +77,6 @@ public final class Camera {
         // 目標點 = 目前位置 + 前方方向。
         tmpCenter.set(position).add(tmpForward);
 
-        // 產生 LookAt 視角矩陣。
         return out.identity().lookAt(position, tmpCenter, WORLD_UP);
     }
 

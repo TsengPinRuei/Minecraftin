@@ -7,10 +7,8 @@ import java.util.Arrays;
 // 它只知道本地座標與 dirty 狀態；跨 Chunk 的生成、存檔與 mesh 管理由 World/WorldRenderer 協調。
 public final class Chunk {
 
-    // 這個 Chunk 在世界中的 X 座標位置。
     private final int chunkX;
 
-    // 這個 Chunk 在世界中的 Z 座標位置。
     private final int chunkZ;
 
     // Chunk 座標的穩定 key，Renderer 可重複使用，避免每幀為同一個 Chunk 建立新 ChunkPos。
@@ -40,27 +38,22 @@ public final class Chunk {
         this.blockLight = new byte[this.blocks.length];
     }
 
-    // 回傳 Chunk 的 X 座標。
     public int chunkX() {
         return chunkX;
     }
 
-    // 回傳 Chunk 的 Z 座標。
     public int chunkZ() {
         return chunkZ;
     }
 
-    // 回傳這個 Chunk 的穩定座標 key。
     public ChunkPos pos() {
         return pos;
     }
 
-    // 回傳這個 Chunk 在世界中的最小 X 座標。
     public int worldMinX() {
         return chunkX * GameConfig.CHUNK_SIZE;
     }
 
-    // 回傳這個 Chunk 在世界中的最小 Z 座標。
     public int worldMinZ() {
         return chunkZ * GameConfig.CHUNK_SIZE;
     }
@@ -110,7 +103,6 @@ public final class Chunk {
         blocks[index(localX, y, localZ)] = blockId;
     }
 
-    // 取得指定座標的天空光（0 到 15）。
     public int skyLight(int localX, int y, int localZ) {
         if (!inBounds(localX, y, localZ)) {
             return 0;
@@ -131,7 +123,6 @@ public final class Chunk {
         return true;
     }
 
-    // 取得指定座標的方塊光（0 到 15）。
     public int blockLight(int localX, int y, int localZ) {
         if (!inBounds(localX, y, localZ)) {
             return 0;
@@ -152,7 +143,6 @@ public final class Chunk {
         return true;
     }
 
-    // 回傳目前是否需要重新生成模型。
     public boolean isMeshDirty() {
         return meshDirty;
     }
@@ -162,17 +152,14 @@ public final class Chunk {
         meshDirty = true;
     }
 
-    // 清除模型需重建的標記。
     public void clearMeshDirty() {
         meshDirty = false;
     }
 
-    // 回傳這個 Chunk 是否被修改過。
     public boolean isModified() {
         return modified;
     }
 
-    // 清除已修改標記。
     public void clearModified() {
         modified = false;
     }

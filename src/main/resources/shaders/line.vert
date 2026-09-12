@@ -1,5 +1,5 @@
 #version 330 core
-// 線框頂點著色器，用於被瞄準方塊的 selection outline。
+// 純色幾何共用的頂點著色器：選取框、日月與雲層。
 
 layout (location = 0) in vec3 aPosition;
 

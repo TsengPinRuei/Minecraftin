@@ -1,340 +1,454 @@
 # Minecraftin
 
-Minecraftin is a small Java + LWJGL voxel sandbox inspired by classic Minecraft. It is currently a creative-mode project: you can explore procedural terrain, move in first person, fly, place and break blocks, use a creative block palette, and save the local world.
+[English](README.md) | [繁體中文](READMEzhTW.md)
 
-## Key Features
+Minecraftin is a standalone, single-player voxel sandbox built with Java, LWJGL, and OpenGL. A voxel is a small block used to build a 3D world. Inspired by classic Minecraft, the project lets you explore generated terrain, fly, build with unlimited blocks, and save your world locally.
 
-- Procedural chunk-based terrain with plains, forests, deserts, snow areas, mountains, and badlands.
-- Generated caves, sea-level water, and trees, with Minecraft-style source/flowing water simulation: water flows into broken blocks, recedes when its source is blocked, and two sources create a new source.
-- First-person movement with walking, sprinting, crouching (with smooth camera transition), jumping, swimming, ladder climbing, and creative flight.
-- Block breaking with debris particles, plus block placement with collision checks.
-- Multi-page creative inventory and 9-slot hotbar.
-- Building blocks such as natural terrain blocks, wool colors, colored blocks, wood planks, stairs, slabs, fences, doors, trapdoors, ladders, torches, crafting tables, furnaces, chests, bookshelves, stone variants, quartz, nether/end themed blocks, glass, water, glowstone, and sea lanterns.
-- Door and trapdoor right-click interaction.
-- Empty chest UI placeholder.
-- Minecraft-style lighting engine: BFS-propagated sky light and block light, glowing torches, glowstone, and sea lanterns, with water and leaves attenuating light.
-- Smooth lighting with ambient occlusion for soft corner shadows.
-- Day/night cycle (20-minute days) with a square sun and moon, sunrise/sunset sky tones, moonlit nights, and fog that follows the sky color.
-- Drifting flat cloud layer and frustum culling.
-- `F3` debug overlay: FPS, position, chunk, facing, light levels, and world time.
-- Persistent local world save/load, including the last saved player respawn position and world time.
-- OpenGL 3.3 rendering through LWJGL, with GLSL shader files and a procedural pixel-art block texture atlas.
+The current game focuses on **creative building**. It includes 70 selectable block types, a custom rendering pipeline, lighting and water simulation, and automated tests. See [Current Limitations](#limitations) for unfinished features, including survival gameplay and container storage.
 
-## Requirements
+## Contents
 
-- macOS, Windows, or Linux.
-- JDK 17 or newer. JDK 21 is a safe choice if a newer JDK causes Gradle compatibility issues.
-- A GPU and driver that support OpenGL 3.3.
-- Internet access the first time Gradle downloads dependencies from Maven Central and the Gradle distribution.
-- At least 4 GB RAM. 8 GB is more comfortable.
-- About 1 GB free disk space for Gradle caches, dependencies, and build outputs.
+- [Implemented Features](#features)
+- [Engineering Highlights](#engineering)
+- [Quick Start](#quick-start)
+- [How to Play](#playing)
+- [Blocks and Interactions](#blocks)
+- [Saves, Backups, and New Worlds](#saves)
+- [Configuration](#configuration)
+- [Development, Tests, and Packaging](#development)
+- [Project Files and Data](#project-structure)
+- [Current Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
 
-The Gradle wrapper downloads Gradle `8.10.2`. The project compiles Java source with `release 17`.
+<a id="features"></a>
+## Implemented Features
 
-## Installation
+### World and exploration
 
-1. Open a terminal.
-2. Go to the project folder.
-3. Run the game with the Gradle wrapper.
+- Terrain is generated from a **seed**, a number that makes the same terrain reproducible with the same generation code and settings.
+- The world is divided into **chunks**: sections measuring 16 × 16 blocks horizontally and 128 blocks high. Nearby chunks load as you explore.
+- Six terrain biomes: plains, forest, desert, snow, mountain, and badlands. Generation includes layered ground, bedrock, caves, sea-level water, and trees.
+- New-world spawn selection looks for a large forest and falls back to other suitable ground.
+
+### Movement and building
+
+- First-person walking, forward sprinting, jumping, crouching, swimming, ladder climbing, and double-tap flight.
+- Movement acceleration, gravity, collisions, automatic stepping onto slabs/stairs, smooth crouch/step camera movement, and walking camera bob.
+- Shape-aware targeting and collision for partial blocks such as slabs, stairs, doors, and fences. The selection outline follows the targeted block's shape.
+- Instant block breaking with textured debris; hold the mouse button to break or place repeatedly.
+- A 9-slot hotbar and a creative inventory with **70 selectable block types across 2 pages**, up to 45 entries per page. Blocks are unlimited.
+- Directional placement for oak stairs, doors, and ladders; doors and trapdoors open and close. Chests open an empty 27-slot interface.
+
+### Water, lighting, and visuals
+
+- Source water flows downward and spreads sideways, fills holes, and recedes when its source is blocked. Two neighboring sources can create another source when the cell below provides support.
+- Water updates continue across loaded chunk boundaries and resume from saved pending updates after reopening the world.
+- Separate sky light and block light spread through the world. Torches, glowstone, and sea lanterns emit light; water and leaves reduce light passing through them.
+- Smooth lighting and **ambient occlusion (AO)**, which darkens corners where blocks meet.
+- A 20-minute day/night cycle, square sun and moon, sunrise/sunset colors, moonlit nights, sky-colored fog, and drifting flat clouds.
+- Glass and water transparency, pixel-art textures generated by code, block thumbnails, and a custom pixel-font HUD (the crosshair, hotbar, and information drawn over the world).
+- `F3` shows FPS (frames per second), player position, chunk coordinates/count, facing, sky/block light, and world time.
+- The window title also updates the game mode, `Flight: ON/OFF`, FPS, loaded chunk count, and selected block name.
+
+### Local persistence
+
+- A local world file stores the seed, loaded chunk blocks, world time, the last position recorded on exit, and pending water simulation state.
+- Pending edits are checked for autosave every 20 seconds; normal exit also saves.
+- Temporary-file writes and atomic replacement protect the previous save if writing fails. Invalid or unsupported saves stop startup instead of being replaced.
+- Save format version 4 can load versions 1–3 and upgrade them on the next successful save.
+
+<a id="engineering"></a>
+## Engineering Highlights
+
+These are implemented parts of the project that can be described in a portfolio. The source links show where each feature lives; [verification commands](#development) explain how to check it.
+
+| Area | Implementation and purpose | Source |
+| --- | --- | --- |
+| Procedural generation | Layered 2D/3D noise (fBm) determines terrain, climate, and caves. World-coordinate sampling keeps generation repeatable, including negative coordinates; terrain is completed before trunks and leaves are placed. | [TerrainGenerator.java](src/main/java/com/minecraftin/clone/world/TerrainGenerator.java), [Noise.java](src/main/java/com/minecraftin/clone/util/Noise.java) |
+| Block shapes and interaction | 3D DDA steps through cells along the crosshair ray, then tests actual block boxes. AABB collision uses boxes aligned to world axes for movement, placement checks, and stepping onto partial blocks. | [World.java](src/main/java/com/minecraftin/clone/world/World.java), [BlockType.java](src/main/java/com/minecraftin/clone/world/BlockType.java), [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java) |
+| Lighting | Breadth-first propagation (BFS) spreads sky/block light levels from 0–15. Smooth per-vertex lighting and AO sample neighbors; changes at chunk corners also invalidate diagonal meshes. | [LightEngine.java](src/main/java/com/minecraftin/clone/world/LightEngine.java), [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [World.java](src/main/java/com/minecraftin/clone/world/World.java) |
+| Water simulation | A scheduled queue advances water every 0.25 seconds, with a per-tick work limit. Flow queries do not generate missing terrain; boundary updates resume when neighboring chunks load. | [World.java](src/main/java/com/minecraftin/clone/world/World.java) |
+| Background mesh building | A mesh is the triangle data sent to the GPU. Workers build meshes from independent block/light snapshots; nearby work is prioritized, pending jobs are bounded, and outdated results are discarded. GPU uploads stay on the main thread and are capped at 16 results per frame. | [ChunkSnapshot.java](src/main/java/com/minecraftin/clone/world/ChunkSnapshot.java), [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
+| Rendering workload | Internal faces are omitted. Frustum culling skips chunks outside the camera view. Opaque and translucent geometry use separate passes; translucent chunks are drawn far to near. GPU meshes outside render distance are released. | [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
+| Textures and UI | Code generates 16 × 16-pixel texture tiles in one atlas shared by world blocks and HUD icons. Custom glyphs, inventory paging, shape-specific thumbnails, and window/framebuffer coordinate handling support the UI. | [TextureAtlas.java](src/main/java/com/minecraftin/clone/engine/TextureAtlas.java), [HudRenderer.java](src/main/java/com/minecraftin/clone/render/HudRenderer.java), [InputState.java](src/main/java/com/minecraftin/clone/engine/InputState.java) |
+| Save reliability | A versioned binary format validates headers, dimensions, block IDs, positions, time, and water state before applying loaded data. Failed writes keep the old save and pending changes. | [World.java](src/main/java/com/minecraftin/clone/world/World.java), [WorldPersistenceTest.java](src/test/java/com/minecraftin/clone/world/WorldPersistenceTest.java) |
+| Resource ownership | Scoped cleanup closes resources in reverse order, including after initialization failures; additional cleanup failures are retained. Mesh workers and GPU resources are closed when rendering ends. | [ResourceScope.java](src/main/java/com/minecraftin/clone/engine/ResourceScope.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java), [ResourceScopeTest.java](src/test/java/com/minecraftin/clone/engine/ResourceScopeTest.java) |
+| Verification and distribution | Headless JUnit regression tests are separate from a desktop OpenGL smoke test. The Gradle wrapper fixes the build version; native dependencies are selected for the build machine's OS and CPU. | [Tests](src/test/java/com/minecraftin/clone), [build.gradle](build.gradle), [Gradle wrapper settings](gradle/wrapper/gradle-wrapper.properties) |
+
+A concise project description:
+
+> Built a Java/LWJGL voxel sandbox with procedural terrain, 70 selectable block types, shape-aware interaction, sky/block lighting, water simulation, background chunk meshing, and versioned local saves, with automated logic and OpenGL smoke tests.
+
+The rendering techniques above are implemented; this repository does not provide a benchmark establishing a particular FPS or percentage speedup. Use measurements from a stated machine and scene before adding performance numbers to a résumé.
+
+<a id="quick-start"></a>
+## Quick Start
+
+### 1. Prepare your computer
+
+- Use a local macOS, Windows, or Linux desktop with a GPU/driver supporting **OpenGL 3.3**.
+- Install **JDK 21** (recommended) or JDK 17. A JDK includes both Java and its compiler; a runtime-only JRE is insufficient to build this source project. [Eclipse Temurin installation guide](https://adoptium.net/installation/).
+- Select a JDK matching your OS and CPU, such as ARM64/aarch64 for Apple Silicon or x64 for an Intel/AMD computer.
+- Allow internet access for the first download of Gradle and dependencies. You do not need a Minecraft installation, account, API key, database, or separate Gradle installation.
+- As a starting guideline, allow 4 GB system RAM, preferably 8 GB, and roughly 1 GB disk space for build tools. These are not benchmarked minimums; caches and explored worlds can grow. The game JVM starts with a 1 GB heap and allows up to 2 GB by default.
+
+The wrapper uses Gradle `8.10.2`, and source code targets Java `release 17`. With this unchanged build, use a JDK in the **17–23** range; Java 24 or later is outside this Gradle version's supported runtime range. [Gradle 8.10.2 compatibility](https://docs.gradle.org/8.10.2/userguide/compatibility.html).
+
+### 2. Get the whole project
+
+On the [GitHub repository](https://github.com/TsengPinRuei/Minecraftin), choose **Code → Download ZIP**, then extract it into a writable folder. The extracted folder name may include a branch name. Keep all files, including `gradle/wrapper/gradle-wrapper.jar`; downloading just a README or Java file is insufficient.
+
+If you already use Git, run this instead from the folder where you want the project:
+
+```text
+git clone https://github.com/TsengPinRuei/Minecraftin.git
+cd Minecraftin
+```
+
+If the project is already on your computer, use that existing folder.
+
+### 3. Open a terminal in the project root
+
+On macOS, open Terminal; on Linux, open your terminal app; on Windows, open PowerShell. The **project root** is the folder containing `build.gradle`, `gradlew`, and `gradlew.bat`.
+
+Replace the example path below with your actual folder. Keep quotes around paths containing spaces. From this point, run commands in that folder unless a step says otherwise.
 
 macOS / Linux:
 
 ```bash
-cd /path/to/Minecraftin
+cd "/path/to/Minecraftin"
+java -version
+javac -version
+./gradlew --version
 ./gradlew run
 ```
 
 Windows PowerShell:
 
 ```powershell
-cd C:\path\to\Minecraftin
+cd "C:\path\to\Minecraftin"
+java -version
+javac -version
+.\gradlew.bat --version
 .\gradlew.bat run
 ```
 
-The first run can take a few minutes because Gradle downloads its own runtime and project dependencies.
+Run one line at a time. The Java commands should show your chosen compatible JDK; the wrapper should show Gradle `8.10.2` and a compatible JVM. If a version check fails, follow [Troubleshooting](#troubleshooting) before continuing.
 
-## Configuration
+### 4. Recognize a successful launch
 
-This project does not use environment variables, API keys, databases, or external services.
+The first run can take several minutes while dependencies download and terrain is prepared. A window titled `Minecraftin Java Clone` should display terrain, a crosshair, and the hotbar. The terminal stays busy while the game runs; that is expected.
 
-Most game settings are Java constants in `src/main/java/com/minecraftin/clone/config/GameConfig.java`:
+If the command ends with `BUILD FAILED`, or the window never appears and an error is printed, keep the terminal error and check [Troubleshooting](#troubleshooting).
 
-- Window size and title.
-- Field of view and camera clipping distance.
-- Chunk size, chunk height, and render distance.
-- Creative-mode flag.
-- Mouse sensitivity.
-- Walk, fly, sprint, jump, and gravity values.
-- Player collision size.
-- Block interaction distance and cooldowns.
-- Day/night cycle length.
-- World save path: `saves/world.dat`.
-- Default world seed: `20260219`.
+<a id="playing"></a>
+## How to Play
 
-Important seed note: the save file stores the world seed. Changing `DEFAULT_WORLD_SEED` only affects a new world. Delete `saves/world.dat` first if you want the changed seed to generate a fresh world.
+### Your first session
 
-Build and dependency settings live in `build.gradle`:
+1. Left-click inside the game window, then release the button. The cursor is captured so the mouse controls your view; this first click does not break a block.
+2. Use `W/A/S/D` to walk and the mouse to look around. Aim the crosshair at nearby ground.
+3. Press `5` to select Oak Planks. Right-click a block face to place a plank beside it. Move back if the new block would overlap your body.
+4. Left-click a block to break it. The reach is 5 blocks, and bedrock cannot be broken.
+5. Press `E`, choose a hotbar slot with `1–9`, then click a block icon to assign it. Scroll for the other inventory page. Right-click an icon to select it and close the inventory.
+6. Double-tap `Space` to fly, hold `Space` to rise, and hold `Left Shift` to descend. Double-tap again to leave flight. Flying still collides with blocks, and `W` follows your viewing direction, including upward/downward. Check `Flight: ON` in the window title to confirm flight.
+7. To finish, press `Esc` to release the cursor and use the window's close button. If an inventory/chest is open, close it first with `E` or `Esc`. Let the game finish saving and return to the terminal prompt.
 
-- Main class: `com.minecraftin.clone.MinecraftClone`.
-- LWJGL version: `3.3.3`.
-- JOML version: `1.10.5`.
-- JUnit version: `5.10.2`.
-- macOS run argument: `-XstartOnFirstThread`.
-- Default JVM memory arguments: `-Xms1g` and `-Xmx2g`.
-
-## Usage
-
-Run the game:
-
-```bash
-./gradlew run
-```
-
-Windows:
-
-```powershell
-.\gradlew.bat run
-```
-
-When the game opens, left-click the window to capture the mouse. Press `Esc` to release the mouse.
+**`Esc` is not a pause or quit menu.** Player control stops while the cursor is released or a panel is open, but water, time, and autosave continue. After closing a panel, left-click the world if the mouse is still free. Prefer the window's close button over force-quitting or stopping the terminal process.
 
 ### Controls
 
 | Input | Action |
 | --- | --- |
-| `W` / `A` / `S` / `D` | Move |
-| Mouse | Look around |
-| `Left Ctrl` + `W` | Sprint forward or fast fly |
-| `Space` | Jump |
-| `Left Shift` while grounded | Crouch |
-| Double-tap `Space` | Toggle creative flight |
-| `Space` while flying | Fly up |
-| `Left Shift` while flying | Fly down |
-| In water + `W` / `A` / `S` / `D` | Swim horizontally |
-| In water + `Space` | Swim up (release to sink slowly) |
-| In water + `Left Shift` | Swim down |
-| Double-tap `Space` in water | Toggle creative flight |
-| Ladder + `W` or `Space` | Climb up |
-| Ladder + `S` or `Left Shift` | Climb down |
-| `E` | Open or close the creative inventory |
-| `Left Click` | Capture mouse, or break the targeted block while captured; hold to break continuously |
-| `Right Click` | Place the selected block, or interact with doors, trapdoors, and chests; hold to place repeatedly |
-| `1`-`9` | Select a hotbar slot |
-| Mouse wheel | Change hotbar slot |
-| Mouse wheel in creative inventory | Change inventory page |
-| Left click in creative inventory | Assign a block to the selected hotbar slot |
-| Right click in creative inventory | Assign a block and close the inventory |
-| `Esc` | Release mouse, close open UI, or return to first-person control |
-| `F3` | Toggle the debug overlay |
+| `W / A / S / D` | Move forward / left / backward / right |
+| Mouse | Look around while captured |
+| `Left Ctrl + W` | Sprint forward or fly faster |
+| `Space` | Jump; swim up in water; fly up in flight |
+| `Left Shift` | Crouch and move more slowly; swim down in water; fly down in flight |
+| Double-tap `Space` | Toggle creative flight, including in water |
+| In water + `W/A/S/D` | Swim horizontally; without vertical input you slowly sink |
+| Touch a ladder + `W` or `Space` | Climb up |
+| Touch a ladder + `S` or `Left Shift` | Climb down |
+| `E` | Open/close creative inventory, or close an open chest |
+| Left-click | Capture mouse; once captured, break the target block; hold for repeated breaking |
+| Right-click | Interact with a door/trapdoor/chest, otherwise place a block; hold for repeated placement |
+| `1–9` | Select a hotbar slot, including while the creative inventory is open |
+| Mouse wheel in the world | Change hotbar slot |
+| Mouse wheel in creative inventory | Change page |
+| Left-click an inventory block icon | Assign it to the selected hotbar slot and keep the inventory open |
+| Right-click an inventory block icon | Assign it and close the inventory |
+| `Esc` | Close an open panel, or release the captured mouse |
+| `F3` | Toggle debug information; some keyboards require `Fn + F3` |
+| Window close button | Exit and attempt to save |
 
-### Starter Hotbar
+**Starter hotbar:** 1 Grass Block · 2 Dirt · 3 Stone · 4 Cobblestone · 5 Oak Planks · 6 Oak Log · 7 Glass · 8 Torch · 9 Crafting Table.
 
-1. Grass Block
-2. Dirt
-3. Stone
-4. Cobblestone
-5. Oak Planks
-6. Oak Log
-7. Glass
-8. Torch
-9. Crafting Table
+### A short feature demonstration
 
-### Save Files
+| Try this | What it demonstrates |
+| --- | --- |
+| Build a small wall with a door, window, stairs, and slabs. Walk around it and open the door. | Placement, transparent glass, directional blocks, collision, and stepping |
+| Place a torch or glowstone under a roof, then remove it. Use `F3` to inspect light values. | Emitted light, shadows, and lighting updates |
+| Dig a shallow basin with a solid floor, select Water in `E`, and place it against the floor or wall. Fill the source cell with a solid block. | Water spreading and receding; nearby sources may keep water supplied |
+| Scroll through both inventory pages and replace several hotbar slots. | Block catalog, paging, and UI selection |
+| Build a recognizable marker, close the window normally, and run the game again. | World persistence; check the terminal for save errors |
 
-World data is saved to:
+For a portfolio demo, these are features to demonstrate and capture yourself. The automated graphics-test screenshots described below are test scenes.
 
-```text
-saves/world.dat
-```
+<a id="blocks"></a>
+## Blocks and Interactions
 
-Every 20 seconds, the game checks for pending changes and saves a snapshot of all loaded chunks when needed. Clean shutdown also saves the player respawn position and world time. Pending water updates and their tick timing are saved so flow continues after loading.
+The following groups account for all **70 creative-palette entries** in [BlockType.java](src/main/java/com/minecraftin/clone/world/BlockType.java). Internal air, flowing-water levels, door halves, and directional/open-state variants are not additional selectable entries.
 
-Saves are written to a temporary file and atomically replace the previous save only after writing succeeds. A failed save preserves the previous file and keeps changes pending. If an existing save is corrupt, unreadable, or uses an unsupported version, startup stops without replacing it; see the terminal error for the cause.
+| Group | Available blocks |
+| --- | --- |
+| Terrain and water (8) | Grass Block, Dirt, Stone, Cobblestone, Sand, Snow Block, Bedrock, Water |
+| Wood and leaves (6) | Oak Log, Oak/Birch/Spruce/Dark Oak Planks, Oak Leaves |
+| Building shapes (7) | Oak Stairs, Oak Slab, Stone Slab, Oak Fence, Oak Door, Oak Trapdoor, Ladder |
+| Utility and decoration (5) | Torch, Crafting Table, Furnace, Chest, Bookshelf |
+| Bricks and stone variants (13) | Bricks; Stone Bricks, Chiseled Stone Bricks, Mossy Stone Bricks; Granite, Diorite, Andesite and their polished variants; Deepslate, Polished Deepslate, Deepslate Bricks |
+| Quartz, themed blocks, glass, and lights (10) | Quartz Block, Quartz Pillar, Smooth Quartz, Obsidian, Netherrack, Nether Bricks, End Stone, Glass, Glowstone, Sea Lantern |
+| Wool (15) | White, Light Gray, Gray, Black, Brown, Red, Orange, Yellow, Lime, Green, Cyan, Blue, Purple, Magenta, Pink |
+| Colored concrete blocks (6) | Red, Orange, Yellow, Green, Blue, Purple |
 
-The current save format is version 4. Versions 1–3 can still be loaded and are upgraded on the next save. Keep a copy before upgrading if you need to return to an older game version, which cannot read version 4.
+Interaction rules:
 
-To reset the world:
+- Placement needs a target face within reach and free space (air or water). A solid block cannot be placed through your body.
+- Oak stairs and doors face according to your view; ladders use the clicked side. A door needs two free vertical cells; breaking either half removes the matching half.
+- Right-clicking a door, trapdoor, or chest uses that block's interaction before placement. There is no sneak-to-bypass interaction; aim at another block face when building beside them.
+- Water cannot be selected or broken directly with the crosshair. Replace its source cell with a solid block to stop it. For a new infinite source, the gap needs at least two horizontal source neighbors and solid ground or source water beneath it.
+- Bedrock is selectable and placeable but **cannot be broken** in the current game.
+- A chest's 27 slots are an empty interface; items cannot be stored or transferred. Crafting tables and furnaces are placeable blocks without crafting or smelting logic.
+- Nether/End-themed blocks are building materials; there are no Nether/End dimensions or portals.
+
+<a id="saves"></a>
+## Saves, Backups, and New Worlds
+
+### What gets saved
+
+The default file is `saves/world.dat`. With `gradlew run`, it is inside the project root. Directly launched distribution scripts use the terminal's current folder, so always launch from the same folder to find the same world.
+
+| Data | Saved? |
+| --- | --- |
+| Seed and all loaded chunks' block IDs, including building edits and door states | Yes |
+| World time, pending water updates, and water tick timing | Yes |
+| Player position | Recorded when exiting normally; autosave does not continually update the player position |
+| Camera direction, flight state, hotbar choices/selected slot, open panels | No; these return to startup defaults |
+| Textures, meshes, and lighting arrays | Rebuilt from code and world data |
+
+Every 20 seconds of game update time, pending block/position changes are checked. When needed, the game writes a snapshot of **all loaded chunks**. Normal exit also saves world time and the current player position. Force-quitting may lose changes since the last successful save.
+
+Writes go through a temporary file before an atomic replacement (replacing the old file in one filesystem operation). A failure keeps the previous save and pending changes. There is no rotating backup history. Check for `World save failed` in the terminal even if Gradle eventually prints `BUILD SUCCESSFUL`.
+
+Version 4 reads save versions 1–3 and upgrades them on the next successful save. Keep a backup before using a newer game version; older readers may not understand the upgraded file. This is Minecraftin's own binary format, not an import format for official Minecraft worlds.
+
+### Back up before resetting, restoring, or updating
+
+**Close the game first**, wait for it to finish, and confirm `saves/world.dat` exists. Run one of these from the project root to make a timestamped copy:
 
 macOS / Linux:
 
 ```bash
-rm -f saves/world.dat
+cp saves/world.dat "saves/world-backup-$(date +%Y%m%d-%H%M%S).dat"
 ```
 
 Windows PowerShell:
 
 ```powershell
-Remove-Item .\saves\world.dat -ErrorAction SilentlyContinue
+$worldBackupPath = ".\saves\world-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').dat"
+Copy-Item .\saves\world.dat $worldBackupPath
+Write-Output $worldBackupPath
 ```
 
-Run the game again after deleting the save file.
+Check that the new file exists in `saves/`. Keep a copy outside this project too if you may delete or replace the project folder. Git ignores the entire `saves/` folder, so a commit or push does not back up your world.
 
-## Common Commands
+### Start a new world or restore a backup
+
+With the game closed:
+
+1. Make the backup above.
+2. To reset, rename `saves/world.dat` in your file manager to an unused name such as `world-before-reset.dat`. The game creates a new world next time `world.dat` is absent.
+3. To restore instead, keep the current world under another name, then **copy** your chosen backup into `saves/` and name the copy exactly `world.dat`.
+4. Start the game and check your expected world.
+
+The same seed/settings regenerate the same starting terrain. For different terrain, change `DEFAULT_WORLD_SEED` before starting without an existing `world.dat`. Changing the default seed does not change an existing save. If there is no save yet, skip the backup/rename steps.
+
+<a id="configuration"></a>
+## Configuration
+
+There is no in-game settings screen. Close the game, edit the relevant source file in a text editor, save it, then run Gradle again to recompile.
+
+Most settings live in [GameConfig.java](src/main/java/com/minecraftin/clone/config/GameConfig.java):
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `WINDOW_WIDTH` / `WINDOW_HEIGHT` | `1600` / `900` | Initial window size |
+| `FOV_DEGREES` | `70.0f` | Field of view: how wide the camera sees |
+| `MOUSE_SENSITIVITY` | `0.12f` | Lower values make looking around slower |
+| `RENDER_DISTANCE_CHUNKS` | `10` | View distance in chunks; try `6` for a lower rendering workload |
+| `CHUNK_SIZE` / `CHUNK_HEIGHT` | `16` / `128` | World storage dimensions; changing them can make existing saves unreadable |
+| `BLOCK_REACH` | `5.0f` | Maximum block interaction distance |
+| `BREAK_COOLDOWN_SECONDS` / `PLACE_COOLDOWN_SECONDS` | `0.25f` / `0.2f` | Repeat intervals while holding a mouse button |
+| `DAY_LENGTH_SECONDS` | `1200.0f` | Duration of a full day/night cycle in seconds |
+| `DEFAULT_WORLD_SEED` | `20260219L` | Seed used only when no world file exists |
+| `WORLD_FILE` | `"saves/world.dat"` | World path, relative to the working folder |
+| `CREATIVE_MODE_ONLY` | `true` | Enables creative movement; setting `false` does not implement survival systems |
+
+The same file also controls the window title, camera clipping distances, walk/fly/sprint/jump/gravity values, and player collision/eye dimensions. Crouching, swimming, ladder, and stepping constants are in [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java); water update limits are in [World.java](src/main/java/com/minecraftin/clone/world/World.java).
+
+Build settings are in [build.gradle](build.gradle): Java application entry point `com.minecraftin.clone.MinecraftClone`, LWJGL `3.3.3`, JOML `1.10.5`, JUnit `5.10.2`, and game JVM heap options `-Xms1g -Xmx2g`. macOS launches automatically add `-XstartOnFirstThread`. No game-specific environment variables or online services are required; `JAVA_HOME` and `GRADLE_USER_HOME` are optional Java/build-tool settings.
+
+<a id="development"></a>
+## Development, Tests, and Packaging
+
+### Common commands
+
+Use the row matching your goal; you do not need to run every command to play.
+
+| Goal | macOS / Linux | Windows PowerShell |
+| --- | --- | --- |
+| Launch the game | `./gradlew run` | `.\gradlew.bat run` |
+| Run logic tests without a window | `./gradlew test` | `.\gradlew.bat test` |
+| Run the desktop graphics check | `./gradlew graphicsSmokeTest` | `.\gradlew.bat graphicsSmokeTest` |
+| Compile, test, and create distributions | `./gradlew build` | `.\gradlew.bat build` |
+| Create a local runnable layout | `./gradlew installDist` | `.\gradlew.bat installDist` |
+| Remove generated build output | `./gradlew clean` | `.\gradlew.bat clean` |
+
+A finished build task should report `BUILD SUCCESSFUL`; `UP-TO-DATE` means Gradle reused current output. To force a fresh logic-test run, use `./gradlew test --rerun-tasks` or `.\gradlew.bat test --rerun-tasks`. `clean` removes `build/`, including installed distributions, reports, and screenshots; it does not remove the root `saves/` folder.
+
+### What the checks cover
+
+| Check | Evidence |
+| --- | --- |
+| Lighting and water regression tests | Light attenuation/removal, chunk-border lighting, diagonal mesh invalidation, spreading/receding water, source creation, boundary continuation, and save/reload continuation |
+| World persistence tests | Blocks, seed, position, and time round trips; legacy versions; rejected corrupt data; failed-write preservation and temporary-file cleanup |
+| Geometry and movement tests | Partial-block raycasts, fence selection, invalid rays, stable mesh snapshots, hidden water faces, stepping, and movement while looking down |
+| Input and resource tests | Focus-loss cleanup, scroll reset, invalid mesh layout, queue behavior, and reverse-order resource cleanup after failures |
+| Desktop graphics smoke test | Shader compilation, actual background mesh uploads, rendering, block updates/particles, HUD/inventory, window sizing, and OpenGL error checks |
+
+Headless test reports are generated at `build/reports/tests/test/index.html`; machine-readable results are in `build/test-results/test/`.
+
+`graphicsSmokeTest` needs a real desktop with OpenGL 3.3 or newer. It opens a temporary test scene, finishes automatically, and prints `Graphics smoke passed: ...` on success. It does not read or write `saves/world.dat` and is separate from `test` and `build`. Its screenshots are:
+
+- `build/reports/graphics-smoke/world.png`
+- `build/reports/graphics-smoke/inventory.png`
+
+The graphics check is a short smoke test, not a complete manual gameplay test or performance benchmark. Supporting OS/CPU combinations in build logic does not by itself prove gameplay on each platform.
+
+**Verification snapshot — 2026-09-12:** macOS ARM64, JDK `21.0.10`: a fresh `test graphicsSmokeTest --rerun-tasks` run passed all 45 JUnit tests (0 failures, errors, or skips) and the OpenGL smoke test; both screenshots were inspected. `build installDist` also completed successfully. Windows and Linux commands/build configuration were reviewed but were not executed in this verification. Re-run the checks after code changes.
+
+### Run a packaged copy
+
+First run `installDist` from the command table. Keep both `bin/` and `lib/` inside `build/install/minecraftin-clone/`; the launcher needs the libraries. A compatible Java installation is still required.
+
+To keep using the project-root save, stay in the project root and run:
 
 macOS / Linux:
 
 ```bash
-./gradlew run
-./gradlew test
-./gradlew graphicsSmokeTest
-./gradlew build
-./gradlew clean
-./gradlew installDist
+./build/install/minecraftin-clone/bin/minecraftin-clone
 ```
 
 Windows PowerShell:
 
 ```powershell
-.\gradlew.bat run
-.\gradlew.bat test
-.\gradlew.bat graphicsSmokeTest
-.\gradlew.bat build
-.\gradlew.bat clean
-.\gradlew.bat installDist
+.\build\install\minecraftin-clone\bin\minecraftin-clone.bat
 ```
 
-Command notes:
+`build` also produces ZIP/TAR distributions under `build/distributions/`. For another computer, extract the full distribution and choose a consistent working folder before launching. Copy the world separately if you want it included.
 
-- `run` starts the game.
-- `test` runs headless JUnit tests covering lighting, water, save compatibility and failure handling, raycasts, mesh snapshots, terrain stability, player movement, input, and resource cleanup.
-- `graphicsSmokeTest` opens a temporary test world on a local desktop with OpenGL 3.3 or newer. It checks shader compilation, background chunk meshing, rendering, HUD, resizing, and OpenGL errors. Screenshots are saved under `build/reports/graphics-smoke/`; it does not access `saves/world.dat` and is separate from `build`.
-- `build` compiles the project, runs tests, and creates Gradle build artifacts.
-- `clean` removes build outputs.
-- `installDist` creates a runnable local application layout under `build/install/minecraftin-clone`.
+**Distributions are built for the build machine's OS and CPU.** Both launcher scripts may be present, but the bundled LWJGL native libraries and JVM options are chosen at build time. Rebuild on the target platform; a package produced on macOS is not a Windows package. The project JAR in `build/libs/` is not a self-contained executable with all dependencies.
 
-If your local environment blocks Gradle daemon sockets or shared Gradle cache locations, try a workspace-local Gradle cache and no daemon:
+### Where to extend the project
 
-macOS / Linux:
+- New selectable blocks: update [BlockType.java](src/main/java/com/minecraftin/clone/world/BlockType.java), including `CREATIVE_PALETTE`; connect tile IDs in [AtlasTiles.java](src/main/java/com/minecraftin/clone/render/AtlasTiles.java) and generated pixels in [TextureAtlas.java](src/main/java/com/minecraftin/clone/engine/TextureAtlas.java). Special shapes may also need bounds, placement, and HUD icon changes.
+- New movement or interaction: start with [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java) and [Game.java](src/main/java/com/minecraftin/clone/game/Game.java).
+- Terrain, water, lighting, or save changes: start with the relevant classes under [world/](src/main/java/com/minecraftin/clone/world), then run the matching regression tests.
+- Preserve existing block IDs: saves store `id()`, not enum `ordinal()`. Changing IDs, chunk dimensions, or the binary layout needs a compatibility/migration decision and tests.
+- Run `test` for logic changes and `graphicsSmokeTest` for rendering/UI changes on a desktop. Keep both READMEs aligned with completed behavior.
 
-```bash
-GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon run
-```
+<a id="project-structure"></a>
+## Project Files and Data
 
-Windows PowerShell:
+### Files included in the repository
 
-```powershell
-$env:GRADLE_USER_HOME = ".gradle-home"
-.\gradlew.bat --no-daemon run
-```
+| Path | Purpose |
+| --- | --- |
+| [README.md](README.md), [READMEzhTW.md](READMEzhTW.md) | English and Traditional Chinese guides |
+| [build.gradle](build.gradle), [settings.gradle](settings.gradle) | Dependencies, Java settings, tasks, and project name `minecraftin-clone` |
+| [gradlew](gradlew), [gradlew.bat](gradlew.bat), [gradle/wrapper/](gradle/wrapper) | Build-tool launchers, pinned distribution settings, and wrapper JAR |
+| [MinecraftClone.java](src/main/java/com/minecraftin/clone/MinecraftClone.java) | Application entry point |
+| [config/](src/main/java/com/minecraftin/clone/config), [game/](src/main/java/com/minecraftin/clone/game) | Game constants and the main loop/input/UI/save coordination |
+| [engine/](src/main/java/com/minecraftin/clone/engine) | Window, input, camera, shaders, GPU meshes, generated texture atlas, and resource cleanup |
+| [gameplay/](src/main/java/com/minecraftin/clone/gameplay) | Player movement and collision |
+| [render/](src/main/java/com/minecraftin/clone/render) | World rendering, mesh scheduling, sky/clouds/particles, HUD, and atlas tile IDs |
+| [world/](src/main/java/com/minecraftin/clone/world) | Blocks/bounds, chunks/snapshots, terrain, lighting, water, raycasting, meshing, and persistence |
+| [util/](src/main/java/com/minecraftin/clone/util) | Noise functions, a primitive long queue, and a float-array builder |
+| [src/main/resources/shaders/](src/main/resources/shaders) | `world.vert/.frag`, `hud.vert/.frag`, and `line.vert/.frag` shader pairs |
+| [src/test/java/com/minecraftin/clone/](src/test/java/com/minecraftin/clone) | JUnit tests and the separate `GraphicsSmokeTest` entry point |
+| [.gitignore](.gitignore) | Excludes local saves, build outputs, caches, logs, and editor files |
 
-## Project Structure
+### Files created on your computer
 
-```text
-Minecraftin/
-├─ build.gradle
-│  # Gradle plugins, dependencies, Java version, JVM args, and main class.
-├─ settings.gradle
-│  # Gradle root project name: minecraftin-clone.
-├─ gradlew / gradlew.bat
-│  # Gradle wrapper launchers for macOS/Linux and Windows.
-├─ gradle/wrapper/
-│  # Gradle wrapper metadata and wrapper JAR.
-├─ src/main/java/com/minecraftin/clone/
-│  ├─ MinecraftClone.java
-│  │  # JVM entry point.
-│  ├─ config/GameConfig.java
-│  │  # Central game constants.
-│  ├─ game/Game.java
-│  │  # Main loop, input flow, block interaction, autosave, and UI state.
-│  ├─ engine/
-│  │  # Window, input, camera, shader, mesh, and procedural texture atlas support.
-│  ├─ gameplay/
-│  │  # Player movement, collision, flight, jumping, and ladder behavior.
-│  ├─ render/
-│  │  # World renderer, HUD renderer, and atlas tile IDs.
-│  ├─ util/
-│  │  # Noise, queue, and float array helpers.
-│  └─ world/
-│     # Chunks, block types, terrain generation, lighting, raycast, water flow, save/load.
-├─ src/main/resources/shaders/
-│  # GLSL shaders for world, HUD, and line rendering.
-├─ src/test/java/com/minecraftin/clone/
-│  # Headless JUnit tests and the separate desktop graphics smoke test.
-├─ saves/
-│  # Local world save data. Ignored by Git.
-├─ build/
-│  # Gradle build outputs. Ignored by Git.
-└─ .gradle/ and .gradle-home/
-   # Gradle cache folders. Ignored by Git.
-```
+| Path | Contents |
+| --- | --- |
+| `saves/world.dat` | Your local world; preserve or back it up |
+| `build/classes/`, `build/resources/`, `build/libs/` | Compiled Java, copied shaders, and the project JAR |
+| `build/install/minecraftin-clone/` | Installed launchers and runtime libraries |
+| `build/distributions/` | ZIP/TAR distributions |
+| `build/reports/`, `build/test-results/` | Test reports, results, and graphics-test screenshots |
+| `.gradle/` | Local Gradle project cache |
+| `.gradle-home/` | Only created if selected as a local Gradle user home; otherwise Gradle normally uses `~/.gradle` (Windows: `%USERPROFILE%\.gradle`) |
 
+Generated folders may not exist before their corresponding command runs. They are ignored by Git. The repository needs no downloaded map, image dataset, database, or external texture pack: terrain, texture pixels, and HUD glyphs are generated by code; shader source files are included.
+
+<a id="limitations"></a>
+## Current Limitations
+
+These boundaries describe the current implementation, not a committed roadmap.
+
+- **Creative sandbox only:** no health/hunger, damage/combat, mobs, item drops, recipes, smelting, or survival progression. Changing `CREATIVE_MODE_ONLY` does not add these systems.
+- **UI prototypes:** chests have no item storage; the creative palette assigns unlimited blocks to hotbar slots. There is no full inventory/stack system, hotbar persistence, or in-game language selector; UI labels are English.
+- **One local world path:** no world-selection screen, in-game seed/settings/keybinding menu, pause menu, multiplayer, account system, or cloud save.
+- **Simplified block behavior:** trapdoor opening direction and fence shape are fixed; no connected-fence logic, upside-down/merged slabs, or full Minecraft block-state rules. Crouching does not provide ledge protection.
+- **Rendering and memory limits:** transparency is sorted by chunk, not by every face. GPU meshes are pruned, but loaded block data remains in memory and is saved together; extended exploration can increase RAM use and save size. Terrain generation still happens on the main thread; background work handles mesh construction.
+- **Other missing systems:** no audio, weather, redstone, portals/dimensions, or official Minecraft world import. Themed building blocks do not imply those systems exist.
+
+<a id="troubleshooting"></a>
 ## Troubleshooting
 
-### `java: command not found`
+| Symptom | What to do |
+| --- | --- |
+| `java` or `javac` not found; `JAVA_HOME` invalid | Install a full JDK 21 or 17, reopen the terminal, and repeat the version checks. If using `JAVA_HOME`, point it to the JDK folder, not its `bin` folder or the Java executable. Check the JVM reported by the wrapper too. |
+| Unsupported Java/class-file version | Use the compatible JDK range described in Quick Start. A newer JDK is not automatically supported by Gradle 8.10.2. |
+| `gradlew` not found / current folder is not a Gradle build | Enter the extracted folder containing `build.gradle`. On PowerShell use `.\gradlew.bat`, including the leading `.\`. |
+| `./gradlew: Permission denied` | On macOS/Linux run `chmod +x gradlew`, then retry `./gradlew run`. |
+| Wrapper JAR missing | Extract or clone the complete repository again; keep `gradle/wrapper/gradle-wrapper.jar`. |
+| Dependency download failure | Check internet access and retry. For school/company networks, use their approved Gradle proxy configuration. A first run cannot work offline without the required caches. |
+| macOS error asking for `-XstartOnFirstThread` | Use `./gradlew run` or a launcher generated on macOS; these add the flag. A manually configured Java/IDE launch must include it. |
+| `Unsupported platform`, native-library error, or `UnsatisfiedLinkError` | Check JDK CPU architecture and build on the target OS/CPU. Do not reuse another platform's distribution. |
+| Black screen or immediate close | Read the terminal error; check local OpenGL 3.3 support and drivers. Remote desktops or virtual machines may not expose the required graphics support. |
+| Cursor or movement does not respond | Close any panel, left-click the window, and release the button before playing. For right-click on a trackpad, enable the OS secondary-click gesture. |
+| Cannot place/break a block | Stay within 5 blocks, target a solid face, and keep the placement space clear of your body. Bedrock cannot be broken; water is not directly targetable. Doors need two free cells. |
+| Low FPS or slow terrain appearance | Lower `RENDER_DISTANCE_CHUNKS` (for example to `6`) and restart. New meshes appear as background jobs finish. Large explored worlds still retain block data in RAM. |
+| World disappeared or seed change had no effect | Check the launch working folder and `WORLD_FILE`. Existing saves retain their seed; use the backup/new-world steps rather than deleting data blindly. |
+| `Failed to load world from saves/world.dat` | Keep the file and read the underlying error. It may be corrupt, unreadable, or incompatible. Restore a known-good backup or use the matching game version; do not overwrite the only copy. |
+| `World save failed: Failed to save world to saves/world.dat` | Ensure the folder is writable and has disk space. The filesystem must support atomic replacement. The old file is kept on failure, but recent changes have not necessarily been saved. |
+| `Deprecated Gradle features were used in this build` | This warning alone is not failure. Check the final status; use `./gradlew --warning-mode all build` or `.\gradlew.bat --warning-mode all build` to inspect it. |
 
-Install JDK 17 or newer, reopen your terminal, and verify:
-
-```bash
-java -version
-```
-
-If you have multiple JDKs installed, make sure `JAVA_HOME` points to a compatible JDK.
-
-### `./gradlew: Permission denied`
+For cache-permission problems, try a project-local Gradle user home:
 
 macOS / Linux:
-
-```bash
-chmod +x gradlew
-./gradlew run
-```
-
-### Gradle Cannot Download Dependencies
-
-The first run needs internet access. Check your network and retry. If you are behind a company or school proxy, configure Gradle proxy settings.
-
-### Gradle Fails in a Restricted Environment
-
-Some sandboxes block daemon sockets, local cache access, or network access. Try:
 
 ```bash
 GRADLE_USER_HOME=.gradle-home ./gradlew --no-daemon build
 ```
 
-If the error mentions `java.net.SocketException: Operation not permitted`, first suspect the execution environment before assuming the project code is broken.
+Windows PowerShell:
 
-### Gradle Shows a Deprecation Warning
-
-Gradle may print `Deprecated Gradle features were used in this build`. This is a warning, not a failed build. If the command ends with `BUILD SUCCESSFUL`, the command completed. Use `./gradlew --warning-mode all build` when you need the detailed warning source.
-
-### macOS GLFW First Thread Error
-
-Example:
-
-```text
-GLFW may only be used on the main thread ... run the JVM with -XstartOnFirstThread
+```powershell
+$env:GRADLE_USER_HOME = "$PWD\.gradle-home"
+.\gradlew.bat --no-daemon build
 ```
 
-Use:
-
-```bash
-./gradlew run
-```
-
-The Gradle `run` task already includes `-XstartOnFirstThread` on macOS. If you launch the Java application manually, add that JVM argument yourself.
-
-### Black Screen or Immediate Close
-
-Possible causes:
-
-- The GPU or driver does not support OpenGL 3.3.
-- The game is running through a remote desktop or virtual machine without proper OpenGL support.
-- The display driver is outdated.
-
-Run locally on supported hardware and update your graphics driver.
-
-### World Save Failed
-
-Example:
-
-```text
-World save failed: Failed to save world to saves/world.dat
-```
-
-Check that the project folder is writable and that the `saves/` directory can be created. Avoid running the project from read-only folders or locked external drives.
-
-The error's cause also identifies unsupported atomic moves or other filesystem failures. Save on a filesystem that supports atomic replacement; the game retains the previous save when replacement fails.
-
-### Changed the Default Seed but the World Did Not Change
-
-Delete `saves/world.dat`. Existing saves keep their original seed.
+The PowerShell setting lasts for that terminal session. A local cache may download dependencies again. **`--no-daemon` can still start a single-use Gradle process and use local sockets.** It cannot bypass a sandbox or network restriction. If the error mentions `java.net.SocketException: Operation not permitted`, run from a permitted local terminal or correct the environment restriction.

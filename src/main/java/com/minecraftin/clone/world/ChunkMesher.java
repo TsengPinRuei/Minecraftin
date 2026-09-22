@@ -4,30 +4,36 @@ import com.minecraftin.clone.config.GameConfig;
 import com.minecraftin.clone.engine.TextureAtlas;
 import com.minecraftin.clone.util.FloatArrayBuilder;
 
-// 負責把 Chunk 內的方塊資料轉成可用來繪製的頂點資料。
-// 輸出格式必須與 WorldRenderer 建立 Mesh 時的 attribute layout 以及 world.vert 保持一致。
+// Build chunk-local vertices from a snapshot; keep the layout aligned with WorldRenderer and
+// world.vert.
 public final class ChunkMesher {
 
-    // 每個頂點包含 8 個 float：x、y、z、u、v、面陰影*AO、天空光、方塊光。
+    // Each vertex has eight floats: XYZ, UV, face shade times AO, sky light, and block light.
     public static final int STRIDE_FLOATS = 8;
 
-    // 先把所有面存起來，方便後面直接遍歷。
+    // Cache enum values to avoid allocating the same face array for every build.
     private static final Face[] FACES = Face.values();
 
-    // 四個 AO 等級對應的亮度倍率；0 是被兩側完全夾住的最暗角落。
+    // Map corner occlusion levels to brightness; two blocked sides always use the darkest level.
     private static final float[] AO_LEVELS = { 0.55f, 0.70f, 0.85f, 1.0f };
 
-    // 每個面四個頂點的位置偏移（a、b、c、d 各 3 個 0/1 值），順序對應 Face 的 enum 順序。
+    // Face rows follow Face.ordinal(); each row contains four XYZ corners in a/b/c/d order.
     private static final int[][] FACE_POSITIONS = {
-            { 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0 }, // NORTH
-            { 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 }, // SOUTH
-            { 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 0 }, // WEST
-            { 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1 }, // EAST
-            { 0, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1 }, // UP
-            { 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0 }, // DOWN
+            // NORTH
+            { 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0 },
+            // SOUTH
+            { 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 },
+            // WEST
+            { 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 0 },
+            // EAST
+            { 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1 },
+            // UP
+            { 0, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1 },
+            // DOWN
+            { 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0 },
     };
 
-    // 每個面在平面上的兩個切線軸；角落取樣沿這兩個軸位移。
+    // Use two tangent axes per face to sample neighboring cells around each corner.
     private static final int[][] FACE_TANGENT1 = {
             { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 0, 1 }, { 1, 0, 0 }, { 1, 0, 0 },
     };
@@ -35,46 +41,58 @@ public final class ChunkMesher {
             { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, { 0, 0, 1 },
     };
 
-    // 每個頂點在兩個切線軸上的角落方向（-1 或 +1），與 FACE_POSITIONS 的頂點順序對齊。
+    // Corner signs along the tangent axes must match FACE_POSITIONS and each other.
     private static final int[][] FACE_SU = {
-            { 1, -1, -1, 1 },   // NORTH
-            { -1, 1, 1, -1 },   // SOUTH
-            { -1, 1, 1, -1 },   // WEST
-            { 1, -1, -1, 1 },   // EAST
-            { -1, 1, 1, -1 },   // UP
-            { -1, -1, 1, 1 },   // DOWN
+            // NORTH
+            { 1, -1, -1, 1 },
+            // SOUTH
+            { -1, 1, 1, -1 },
+            // WEST
+            { -1, 1, 1, -1 },
+            // EAST
+            { 1, -1, -1, 1 },
+            // UP
+            { -1, 1, 1, -1 },
+            // DOWN
+            { -1, -1, 1, 1 },
     };
     private static final int[][] FACE_SV = {
-            { -1, -1, 1, 1 },   // NORTH
-            { -1, -1, 1, 1 },   // SOUTH
-            { -1, -1, 1, 1 },   // WEST
-            { -1, -1, 1, 1 },   // EAST
-            { -1, -1, 1, 1 },   // UP
-            { -1, 1, 1, -1 },   // DOWN
+            // NORTH
+            { -1, -1, 1, 1 },
+            // SOUTH
+            { -1, -1, 1, 1 },
+            // WEST
+            { -1, -1, 1, 1 },
+            // EAST
+            { -1, -1, 1, 1 },
+            // UP
+            { -1, -1, 1, 1 },
+            // DOWN
+            { -1, 1, 1, -1 },
     };
 
-    // 依 AO 對角線方向選擇三角形頂點順序；預先配置，避免每個外露面都建立 int[]。
+    // Choose a quad diagonal from corner shading; reuse index arrays instead of allocating per
+    // face.
     private static final int[] QUAD_ORDER_NORMAL = { 0, 1, 2, 2, 3, 0 };
     private static final int[] QUAD_ORDER_FLIPPED = { 1, 2, 3, 3, 0, 1 };
 
-    // Chunk meshing 分成不透明與半透明兩組，讓 renderer 能先寫入不透明深度，再混合水與玻璃。
+    // Separate opaque and translucent vertices so blending can follow the opaque depth pass.
     public record MeshData(float[] opaqueVertices, float[] translucentVertices) {
     }
 
-    // 這個類別只提供靜態方法，不需要建立物件。
     private ChunkMesher() {
     }
 
-    // 根據 Chunk 內容建立對應的頂點資料；只輸出外露面，內部相鄰面會被省略以降低頂點數。
+    // Cull hidden faces of full cubes; partial blocks emit all faces of their render boxes.
     public static MeshData build(ChunkSnapshot chunk) {
         FloatArrayBuilder opaqueVertices = new FloatArrayBuilder(16384);
         FloatArrayBuilder translucentVertices = new FloatArrayBuilder(4096);
         ChunkSnapshot sampler = chunk;
 
-        // FaceScratch 屬於單次 build 呼叫；即使 meshing 在背景執行緒跑，也不會跨 Chunk 共用。
+        // Keep scratch arrays local to this build so concurrent chunk jobs do not share mutable
+        // state.
         FaceScratch scratch = new FaceScratch();
 
-        // 逐一檢查 Chunk 內每一個方塊。
         for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new java.util.concurrent.CancellationException("Chunk meshing interrupted");
@@ -83,7 +101,6 @@ public final class ChunkMesher {
                 for (int x = 0; x < GameConfig.CHUNK_SIZE; x++) {
                     BlockType block = chunk.get(x, y, z);
 
-                    // 空氣不需要繪製，直接跳過。
                     if (block == BlockType.AIR) {
                         continue;
                     }
@@ -91,31 +108,30 @@ public final class ChunkMesher {
                     FloatArrayBuilder targetVertices = block.isTranslucent() ? translucentVertices : opaqueVertices;
 
                     if (!block.isFullCube()) {
-                        // 非完整方塊直接依 renderBoxes 畫出簡化幾何，不做鄰面裁切，避免薄片或樓梯缺面。
+                        // Emit every face of partial-block boxes to avoid holes in thin or stepped
+                        // geometry.
                         addBlockBoxes(targetVertices, sampler, block, x, y, z);
                         continue;
                     }
 
-                    // 檢查這個方塊的六個面，判斷哪些面需要被畫出來。
                     for (Face face : FACES) {
                         int neighborX = x + face.dx();
                         int neighborY = y + face.dy();
                         int neighborZ = z + face.dz();
+                        // Read neighbors from the snapshot border; meshing must not generate or
+                        // access mutable chunks.
                         BlockType neighbor = chunk.get(neighborX, neighborY, neighborZ);
 
-                        // 邊界資料已包含在快照中，meshing 不會生成鄰近 Chunk。
                         if (!shouldRenderFace(block, neighbor)) {
                             continue;
                         }
 
-                        // 取得這個面的貼圖範圍。
                         int tile = block.tileForFace(face);
                         float u0 = TextureAtlas.u0(tile);
                         float v0 = TextureAtlas.v0(tile);
                         float u1 = TextureAtlas.u1(tile);
                         float v1 = TextureAtlas.v1(tile);
 
-                        // 把這個面加入頂點資料中，含平滑光照與 AO。
                         addFace(targetVertices, sampler, x, y, z, face, u0, v0, u1, v1, scratch);
                     }
                 }
@@ -125,33 +141,31 @@ public final class ChunkMesher {
         return new MeshData(opaqueVertices.toArray(), translucentVertices.toArray());
     }
 
-    // 判斷目前方塊的某個面是否需要被繪製。
     private static boolean shouldRenderFace(BlockType current, BlockType neighbor) {
-        // 鄰居是空氣時，這個面一定要畫出來。
         if (neighbor == BlockType.AIR) {
             return true;
         }
 
-        // 水（含流動水）只在旁邊不是水時才繪製面，避免相鄰水格中間產生多餘透明面。
+        // Hide water-to-water faces and faces against opaque full cubes.
         if (current.isWaterBlock()) {
             return !neighbor.isWaterBlock() && (!neighbor.isFullCube() || neighbor.isTransparent());
         }
 
-        // 鄰居不是完整方塊時，仍要繪製完整方塊的面，避免門、柵欄、樓梯旁出現缺面。
+        // Keep the face beside partial blocks because their geometry may leave it exposed.
         if (!neighbor.isFullCube()) {
             return true;
         }
 
-        // 透明方塊彼此相鄰時，如果是同一種方塊，就不畫中間那個面。
+        // Hide the shared face between identical transparent full cubes.
         if (current.isTransparent() && neighbor == current) {
             return false;
         }
 
-        // 鄰居是透明方塊時，這個面需要顯示。
         return neighbor.isTransparent();
     }
 
-    // 完整方塊的面：對四個頂點做 Minecraft 式平滑光照取樣（鄰面四格平均）與 AO 計算。
+    // Average neighboring light samples at each corner and apply ambient occlusion from nearby full
+    // opaque blocks.
     private static void addFace(
             FloatArrayBuilder out,
             ChunkSnapshot sampler,
@@ -171,7 +185,7 @@ public final class ChunkMesher {
         int[] suList = FACE_SU[faceIndex];
         int[] svList = FACE_SV[faceIndex];
 
-        // 面前方那一格是光照取樣的基準。
+        // Use the cell immediately outside the face as the base light sample.
         int baseX = x + face.dx();
         int baseY = y + face.dy();
         int baseZ = z + face.dz();
@@ -200,7 +214,8 @@ public final class ChunkMesher {
             int ao = (side1 && side2) ? 0 : 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
             shade[i] = faceShade * AO_LEVELS[ao];
 
-            // 平滑光照：取角落周圍四格的平均；被不透明方塊佔住的格子改用面前那格的值，避免過度變暗。
+            // Average four light samples per corner; substitute the base sample for full opaque
+            // cells to avoid excess darkening.
             int sumSky = baseSky;
             int sumBlock = baseBlock;
 
@@ -215,7 +230,7 @@ public final class ChunkMesher {
             blockLight[i] = sumBlock / (4.0f * LightEngine.MAX_LIGHT);
         }
 
-        // 四個頂點的位置與 UV；a=(u0,v1)、b=(u1,v1)、c=(u1,v0)、d=(u0,v0)。
+        // Map corners a/b/c/d to UV bottom-left/bottom-right/top-right/top-left.
         float[] px = scratch.px;
         float[] py = scratch.py;
         float[] pz = scratch.pz;
@@ -235,7 +250,7 @@ public final class ChunkMesher {
         v[2] = v0;
         v[3] = v0;
 
-        // 依角落亮度選擇對角線，避免 AO 在四邊形內插時出現方向性條紋。
+        // Choose the diagonal from corner shading to reduce directional interpolation artifacts.
         boolean flip = shade[0] + shade[2] < shade[1] + shade[3];
         int[] order = flip ? QUAD_ORDER_FLIPPED : QUAD_ORDER_NORMAL;
 
@@ -245,10 +260,11 @@ public final class ChunkMesher {
         }
     }
 
-    // 將同一個非完整方塊的多個局部盒轉成 mesh，例如樓梯兩盒、柵欄三盒。
+    // Emit all local boxes for a partial block, such as the two stair boxes or three fence boxes.
     private static void addBlockBoxes(FloatArrayBuilder out, ChunkSnapshot sampler, BlockType block, int x, int y,
             int z) {
-        // 非完整方塊用自身格子的光照，不做 AO；火把因為自身格子有光，會自然顯得明亮。
+        // Use the partial block's own cell light without corner AO; emissive blocks therefore light
+        // themselves.
         float skyLight = sampler.sky(x, y, z) / (float) LightEngine.MAX_LIGHT;
         float blockLight = sampler.block(x, y, z) / (float) LightEngine.MAX_LIGHT;
 
@@ -257,9 +273,9 @@ public final class ChunkMesher {
         }
     }
 
-    // render box 使用 Chunk 本地座標加上局部 AABB，材質仍依原方塊的六面貼圖規則取得。
-    // UV 依局部盒在單位方塊中的位置裁切，讓火把、樓梯等非完整方塊取樣貼圖的對應子區域，
-    // 而不是把整張貼圖擠進縮小的面；裁切座標需與 addBoxFace 的頂點繞行順序一致。
+    // Place local boxes in chunk coordinates and crop UVs to their position within a unit block.
+    // Keep crop orientation aligned with addBoxFace instead of stretching the entire tile onto each
+    // small face.
     private static void addBox(FloatArrayBuilder out, BlockType block, float x, float y, float z,
             BlockBounds bounds, float skyLight, float blockLight) {
         float minX = x + bounds.minX();
@@ -269,7 +285,8 @@ public final class ChunkMesher {
         float maxY = y + bounds.maxY();
         float maxZ = z + bounds.maxZ();
 
-        // 柵欄柱這類局部盒可能超出單位方塊（maxY 1.5），先 clamp 避免取樣到圖集鄰格。
+        // Clamp texture fractions for boxes extending above one cell, such as fence posts, to avoid
+        // sampling another tile.
         float x0f = clamp01(bounds.minX());
         float y0f = clamp01(bounds.minY());
         float z0f = clamp01(bounds.minZ());
@@ -284,7 +301,7 @@ public final class ChunkMesher {
             float uSpan = TextureAtlas.u1(tile) - u0;
             float vSpan = TextureAtlas.v1(tile) - v0;
 
-            // 側面的垂直裁切共用：貼圖上緣（v0）對應盒頂、下緣對應盒底。
+            // Map the cropped texture top to the box top and the cropped bottom to the box bottom.
             float sideV0 = v0 + (1.0f - y1f) * vSpan;
             float sideV1 = v0 + (1.0f - y0f) * vSpan;
 
@@ -336,13 +353,11 @@ public final class ChunkMesher {
         }
     }
 
-    // 把比例限制在 0 到 1 之間，供 render box 的 UV 裁切使用。
     private static float clamp01(float value) {
         return Math.min(1.0f, Math.max(0.0f, value));
     }
 
-    // 和完整方塊的 addFace 相同輸出 6 個頂點，但座標來自 render box 的 min/max。
-    // 這讓樓梯、門板、柵欄等非完整方塊能共用同一套 Mesh/shader attribute 格式。
+    // Use the same vertex layout as full-cube faces, with corners taken from the render box.
     private static void addBoxFace(
             FloatArrayBuilder out,
             Face face,
@@ -375,7 +390,6 @@ public final class ChunkMesher {
         }
     }
 
-    // 把四邊形拆成兩個三角形，加入頂點資料。
     private static void addQuad(
             FloatArrayBuilder out,
             float ax, float ay, float az,
@@ -393,7 +407,7 @@ public final class ChunkMesher {
         out.add(ax, ay, az, u0, v1, shade, skyLight, blockLight);
     }
 
-    // 單次 Chunk meshing 內重複使用的小型暫存，避免每個外露面配置多個 4 格陣列。
+    // Reuse per-face scratch arrays within this build to avoid repeated small allocations.
     private static final class FaceScratch {
         private final float[] shade = new float[4];
         private final float[] sky = new float[4];

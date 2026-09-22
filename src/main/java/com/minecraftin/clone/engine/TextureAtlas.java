@@ -7,22 +7,20 @@ import java.nio.ByteBuffer;
 
 import static org.lwjgl.opengl.GL33C.*;
 
-// 以程式方式產生方塊材質圖集，避免專案額外依賴圖片資產。
-// tile 編號需與 AtlasTiles 與 BlockType.tileForFace() 保持一致。
+// Generate block textures in code so the game does not require external image assets.
+// Keep tile indices aligned with AtlasTiles and BlockType.tileForFace().
 public final class TextureAtlas implements AutoCloseable {
-    // 每個小貼圖的寬高都是 16 像素。
+    // Tile generators use fixed 16-pixel coordinates; the mipmap limit also assumes a power-of-two
+    // tile size.
     public static final int TILE_SIZE = 16;
 
-    // 每一列放 16 個小貼圖。
     public static final int TILES_PER_ROW = 16;
 
-    // 整張材質圖集的總寬度。
     private static final int WIDTH = TILE_SIZE * TILES_PER_ROW;
 
-    // 整張材質圖集的總高度。
     private static final int HEIGHT = TILE_SIZE * TILES_PER_ROW;
 
-    // 圖集固定為 16x16 tile，UV 座標可預先算好供 mesher 熱路徑查表。
+    // Precompute UV bounds for the fixed atlas grid so meshing can use array lookups.
     private static final int TILE_COUNT = TILES_PER_ROW * TILES_PER_ROW;
     private static final float[] U0 = new float[TILE_COUNT];
     private static final float[] V0 = new float[TILE_COUNT];
@@ -38,10 +36,8 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // OpenGL 材質物件的 ID。
     private final int textureId;
 
-    // 建立整張材質圖集，並把像素資料上傳到顯示卡。
     public TextureAtlas() {
         try (ResourceScope resources = new ResourceScope()) {
             textureId = glGenTextures();
@@ -51,7 +47,8 @@ public final class TextureAtlas implements AutoCloseable {
             try {
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                // 每格縮至一個 texel 即停止，避免更低層 mipmap 把相鄰方塊貼圖混色。
+                // Stop mipmaps when each tile is one texel; smaller levels would mix neighboring
+                // tiles.
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, Integer.numberOfTrailingZeros(TILE_SIZE));
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -68,14 +65,12 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 把這張材質綁定到指定的 texture unit。
     public void bind(int unit) {
         glActiveTexture(GL_TEXTURE0 + unit);
         glBindTexture(GL_TEXTURE_2D, textureId);
     }
 
-    // 回傳指定 tile 左上角的 U 座標。
-    // 0.01f 是留一點邊界，減少 mipmap 或浮點誤差取樣到隔壁 tile。
+    // Inset each UV edge by one percent of a tile to reduce sampling from adjacent tiles.
     public static float u0(int tile) {
         return tile >= 0 && tile < TILE_COUNT ? U0[tile] : computeU0(tile);
     }
@@ -108,18 +103,15 @@ public final class TextureAtlas implements AutoCloseable {
         return ((tile / TILES_PER_ROW) + 0.99f) / TILES_PER_ROW;
     }
 
-    // 刪除顯示卡中的材質資源。
     @Override
     public void close() {
         glDeleteTextures(textureId);
     }
 
-    // 產生整張圖集的像素內容，並寫入 ByteBuffer。
     private void fillAtlas(ByteBuffer buffer) {
-        // 先用 int 陣列暫存整張圖的 ARGB 顏色值。
+        // Use packed ARGB pixels while generating the atlas; convert to RGBA bytes for upload.
         int[] colors = new int[WIDTH * HEIGHT];
 
-        // 依序把各種方塊材質畫到圖集中的對應位置。
         fillGrassSideTile(colors, AtlasTiles.GRASS_SIDE);
         fillGrassTopTile(colors, AtlasTiles.GRASS_TOP);
         fillDirtTile(colors, AtlasTiles.DIRT);
@@ -201,7 +193,7 @@ public final class TextureAtlas implements AutoCloseable {
         fillBookshelfTile(colors, AtlasTiles.BOOKSHELF, 0xA56C32, 0x3D5D9A);
         fillSolidTile(colors, AtlasTiles.WHITE, 0xFFFFFF);
 
-        // 把 ARGB 轉成 OpenGL 需要的 RGBA 順序後寫進 buffer。
+        // Upload bytes in RGBA order even though the temporary pixel array uses packed ARGB.
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
                 int argb = colors[y * WIDTH + x];
@@ -455,24 +447,22 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 在圖集中填入一個 tile 的像素內容。
     private void fillTile(int[] pixels, int tile, int colorA, int colorB, boolean stripe) {
-        // 算出這個 tile 在整張圖集中的左上角位置。
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
 
         for (int y = 0; y < TILE_SIZE; y++) {
             for (int x = 0; x < TILE_SIZE; x++) {
-                // 用低頻群塊噪點取代逐像素雜訊，細節較多但不會變成砂紙感。
+                // Favor coarse patches over strong per-pixel variation to keep textures readable at
+                // a distance.
                 float blend = blockyBlend(tile, x, y);
 
-                // 如果需要條紋效果，就依照 x 的區段調整混色比例。
+                // The stripe option adds crossed grooves to distinguish polished tiles.
                 if (stripe) {
                     boolean groove = x % 5 == 0 || y % 5 == 0;
                     blend = groove ? Math.min(1.0f, blend + 0.30f) : blend * 0.68f;
                 }
 
-                // 用兩種顏色混合出最後顏色。
                 int color = mix(colorA, colorB, blend);
                 int accent = hash(tile + 53, x, y) & 0xFF;
                 if (accent > 248) {
@@ -483,10 +473,8 @@ public final class TextureAtlas implements AutoCloseable {
 
                 int alpha = 255;
 
-                // 組成 ARGB 顏色值。
                 int pixel = (alpha << 24) | color;
 
-                // 寫入圖集對應位置。
                 int px = tileX + x;
                 int py = tileY + y;
                 pixels[py * WIDTH + px] = pixel;
@@ -494,7 +482,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 多尺度但低頻的格狀混色，讓程式化貼圖有細節又不會出現逐像素雜訊。
+    // Combine coarse four-pixel and two-pixel patches with a weaker per-pixel accent.
     private float blockyBlend(int tile, int x, int y) {
         int broad = hash(tile, x / 4, y / 4) & 0x1F;
         int mid = hash(tile + 17, x / 2, y / 2) & 0x1F;
@@ -503,7 +491,7 @@ public final class TextureAtlas implements AutoCloseable {
         return Math.min(0.86f, blend);
     }
 
-    // 羊毛用交錯線條與低對比雜訊，避免看起來像單純混凝土。
+    // Use diagonal threads and low-contrast variation to distinguish wool from concrete.
     private void fillWoolTile(int[] pixels, int tile, int colorA, int colorB) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -520,7 +508,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 木板用水平縫線與木紋雜訊，讓它和原木、一般色塊分開。
+    // Horizontal seams and wood grain distinguish planks from logs and plain color blocks.
     private void fillPlanksTile(int[] pixels, int tile, int colorA, int colorB) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -538,7 +526,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 石磚使用錯位磚縫，讓建築牆面有 Minecraft 常見的砌磚語彙。
+    // Offset the mortar lines between rows to produce a brick pattern.
     private void fillBrickTile(int[] pixels, int tile, int colorA, int colorB) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -555,7 +543,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 苔石磚沿用石磚縫線，再局部混入苔色；這樣和普通石磚相鄰時圖案節奏一致。
+    // Match ordinary brick joints before adding moss so adjacent brick variants align.
     private void fillMossyBrickTile(int[] pixels, int tile, int colorA, int mossColor) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -574,7 +562,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 石英柱側面用垂直溝槽與上下橫帶，讓同一個方塊的 side/top 貼圖在視覺上可區分。
+    // Use vertical grooves and horizontal bands to distinguish pillar sides from their tops.
     private void fillPillarSideTile(int[] pixels, int tile, int colorA, int colorB) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -615,7 +603,8 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 門的上半貼圖：外框與中央立柱、兩扇淡色窗格，門把畫在靠近中縫處（與 Minecraft 的橡木門語彙一致）。
+    // Draw framed windows and a handle on the upper door tile; the lower tile supplies the solid
+    // panels.
     private void fillDoorUpperTile(int[] pixels, int tile, int wood, int dark) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -641,7 +630,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 門的下半貼圖：外框與中央立柱、兩塊內凹門板。
+    // Use framed inset panels for the lower half of the door.
     private void fillDoorLowerTile(int[] pixels, int tile, int wood, int dark) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -682,7 +671,8 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 梯子與火把會寫入透明像素；world.frag 會丟棄低 alpha 像素，讓貼圖輪廓不遮住背景。
+    // Ladder and torch tiles include transparent pixels; world.frag discards them before depth is
+    // written.
     private void fillLadderTile(int[] pixels, int tile, int wood, int dark) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -698,8 +688,9 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 火把貼圖配合 render box 的 UV 裁切設計：世界中的火把盒只取樣中央直條（x 6~9、y 6~16），
-    // 火焰必須畫在直條頂端（y 3~8）才會出現在盒子上方；直條外加寬的火焰只出現在 HUD 平面圖示，讓圖示更醒目。
+    // At the base mip level, the world torch's side UVs cover columns 6-9 and rows 6-15.
+    // Only flame rows 6-8 appear on those sides; HUD icons use the full tile, including the wider
+    // flame.
     private void fillTorchTile(int[] pixels, int tile, int flame, int handle) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -711,7 +702,6 @@ public final class TextureAtlas implements AutoCloseable {
                 int alpha = stick || fire ? 255 : 0;
                 int color;
                 if (fire) {
-                    // 火焰中心是亮黃核心，外圈混入偏橘的焰色。
                     boolean core = x >= 6 && x <= 9 && y >= 4 && y < 8;
                     color = core ? mix(0xFFE36A, flame, (hash(tile, x, y) & 0x07) / 14.0f)
                             : mix(flame, 0xD8741F, (hash(tile, x, y) & 0x0F) / 24.0f);
@@ -812,7 +802,7 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 填入單一純色 tile；目前只用於 HUD 取樣的純白格。
+    // Provide a white tile so the HUD can draw solid colors with the same textured shader.
     private void fillSolidTile(int[] pixels, int tile, int color) {
         int tileX = (tile % TILES_PER_ROW) * TILE_SIZE;
         int tileY = (tile / TILES_PER_ROW) * TILE_SIZE;
@@ -824,7 +814,6 @@ public final class TextureAtlas implements AutoCloseable {
         }
     }
 
-    // 依照比例 t，把兩個顏色混合成一個新顏色。
     private int mix(int a, int b, float t) {
         int ar = (a >>> 16) & 0xFF;
         int ag = (a >>> 8) & 0xFF;
@@ -841,7 +830,7 @@ public final class TextureAtlas implements AutoCloseable {
         return (r << 16) | (g << 8) | bCh;
     }
 
-    // 根據 tile 編號與像素座標產生穩定雜訊；只用於視覺變化，不是安全用途的雜湊。
+    // Deterministic visual variation only; this hash is not suitable for security use.
     private int hash(int tile, int x, int y) {
         int h = tile * 0x9E3779B9;
         h ^= x * 0x85EBCA77;

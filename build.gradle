@@ -20,7 +20,7 @@ def architecture = [
         arm: 'arm32', armv7: 'arm32', armv7l: 'arm32'
 ][arch]
 
-// LWJGL 的 native jar 必須同時符合 OS 與 CPU；ARM64 不能只因名稱含 64 就使用 x86_64。
+// Match LWJGL native libraries to both the operating system and CPU architecture.
 def lwjglNatives = [
         windows: [x64: 'natives-windows', x86: 'natives-windows-x86', arm64: 'natives-windows-arm64'],
         macos: [x64: 'natives-macos', arm64: 'natives-macos-arm64'],
@@ -37,7 +37,7 @@ ext {
 
 def defaultJvmArgs = ['-Xms1g', '-Xmx2g']
 if (nativePlatform == 'macos') {
-    // macOS 的 GLFW 必須在第一個執行緒建立視窗。
+    // GLFW window creation on macOS must run on the first thread.
     defaultJvmArgs += '-XstartOnFirstThread'
 }
 
@@ -70,7 +70,7 @@ test {
     useJUnitPlatform()
 }
 
-// 需要可用的桌面與 OpenGL 3.3；另行執行，避免無視窗環境的 build 失敗。
+// Run this desktop OpenGL 3.3 smoke test separately so headless builds do not require a display.
 tasks.register('graphicsSmokeTest', JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath

@@ -69,6 +69,8 @@ final class WorldPersistenceTest {
         chunk.setRaw(15, 120, 8, (short) BlockType.TORCH.id());
         chunk.setRaw(8, 120, 8, (short) BlockType.WATER.id());
         chunk.setRaw(8, 119, 8, (short) BlockType.STONE.id());
+        // Write legacy bytes directly so the current serializer cannot hide compatibility
+        // regressions in the loader.
         try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(file))) {
             out.writeInt(0x4D434C4E);
             out.writeInt(version);
@@ -103,6 +105,8 @@ final class WorldPersistenceTest {
         World world = new World(file, 123);
         world.initialize();
         world.setBlock(8, 120, 8, BlockType.GLASS);
+        // Use a nonempty directory as the target to force replacement failure without relying on
+        // platform permission rules.
         Files.createDirectory(file);
         Files.writeString(file.resolve("keep.txt"), "existing data");
         assertThrows(IllegalStateException.class, world::save);

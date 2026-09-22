@@ -2,7 +2,8 @@ package com.minecraftin.clone.engine;
 
 import static org.lwjgl.opengl.GL33C.*;
 
-// attributeSizes 順序須與 shader 的 layout(location=...) 一致。
+// Attribute sizes define interleaved float data in shader location order.
+// Construct, update, draw, and close only while the owning OpenGL context is current.
 public final class Mesh implements AutoCloseable {
     private final int vao;
     private final int vbo;
@@ -50,7 +51,8 @@ public final class Mesh implements AutoCloseable {
         }
     }
 
-    // 格式由建構子固定，更新時不能改 stride 而留下不相符的 VAO。
+    // Keep the constructor's vertex stride; changing it would invalidate the existing attribute
+    // layout.
     public void update(float[] vertices) {
         validateVertexLayout(vertices, strideFloats);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);

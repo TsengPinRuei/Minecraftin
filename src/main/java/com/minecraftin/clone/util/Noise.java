@@ -1,14 +1,13 @@
 package com.minecraftin.clone.util;
 
-// 提供可重現的 value noise 與 fBM 工具方法，用來生成地形高度、洞穴形狀等隨機效果。
-// 不使用全域 Random，確保結果只由座標與 seed 決定。
+// Deterministic value noise for terrain and caves; results depend only on inputs and seed.
 public final class Noise {
 
     private Noise() {
     }
 
-    // 產生 2D 的 fBM 雜訊。
-    // fBM 會把多層不同頻率與振幅的雜訊疊加，讓結果更自然。
+    // Combine layers at different frequencies and amplitudes.
+    // Lacunarity scales frequency and gain scales amplitude; normalize by total amplitude.
     public static float fbm2(float x, float z, int octaves, float lacunarity, float gain, long seed) {
         float amplitude = 1.0f;
         float frequency = 1.0f;
@@ -22,12 +21,11 @@ public final class Noise {
             frequency *= lacunarity;
         }
 
-        // 用總振幅做正規化，避免數值隨 octaves 增加而失控。
+        // Normalize by total amplitude so adding octaves does not increase the output range.
         return norm == 0.0f ? 0.0f : sum / norm;
     }
 
-    // 產生 3D 的 fBM 雜訊。
-    // 常用在洞穴這種需要三維分布的地形。
+    // Three-dimensional layered noise for cave shapes, normalized by total amplitude.
     public static float fbm3(float x, float y, float z, int octaves, float lacunarity, float gain, long seed) {
         float amplitude = 1.0f;
         float frequency = 1.0f;
@@ -44,8 +42,7 @@ public final class Noise {
         return norm == 0.0f ? 0.0f : sum / norm;
     }
 
-    // 產生 2D value noise。
-    // 做法是先取得周圍四個格點的隨機值，再用插值平滑混合。
+    // Smoothly interpolate the four surrounding lattice values.
     public static float value2(float x, float z, long seed) {
         int x0 = fastFloor(x);
         int z0 = fastFloor(z);
@@ -68,8 +65,7 @@ public final class Noise {
         return lerp(nx0, nx1, sz);
     }
 
-    // 產生 3D value noise。
-    // 做法和 2D 類似，但會取立方體八個角落的值再插值。
+    // Smoothly interpolate the eight surrounding lattice values.
     public static float value3(float x, float y, float z, long seed) {
         int x0 = fastFloor(x);
         int y0 = fastFloor(y);
@@ -105,7 +101,7 @@ public final class Noise {
         return lerp(c0, c1, sz);
     }
 
-    // 將輸入值打亂成看起來隨機的 long。
+    // Mix bits deterministically for procedural variation; this is not a cryptographic hash.
     public static long hash(long x) {
         x ^= (x >>> 30);
         x *= 0xBF58476D1CE4E5B9L;
@@ -115,7 +111,6 @@ public final class Noise {
         return x;
     }
 
-    // 根據三個整數座標與種子，產生對應的整數雜湊值。
     public static int hashInt(int x, int y, int z, long seed) {
         long h = seed;
         h ^= 0x9E3779B97F4A7C15L * x;
@@ -124,7 +119,7 @@ public final class Noise {
         return (int) hash(h);
     }
 
-    // 將 2D 格點座標轉成 -1 到 1 之間的隨機值。
+    // Map a 2D lattice point and seed to a deterministic value in [-1, 1].
     private static float hash2ToUnit(int x, int z, long seed) {
         long h = seed;
         h ^= 0x9E3779B97F4A7C15L * x;
@@ -132,7 +127,7 @@ public final class Noise {
         return toUnit(hash(h));
     }
 
-    // 將 3D 格點座標轉成 -1 到 1 之間的隨機值。
+    // Map a 3D lattice point and seed to a deterministic value in [-1, 1].
     private static float hash3ToUnit(int x, int y, int z, long seed) {
         long h = seed;
         h ^= 0x9E3779B97F4A7C15L * x;
@@ -141,25 +136,23 @@ public final class Noise {
         return toUnit(hash(h));
     }
 
-    // 把 long 轉成 -1 到 1 之間的 float。
     private static float toUnit(long value) {
         int bits = (int) (value & 0x7FFFFFFF);
         float normalized = bits / (float) 0x7FFFFFFF;
         return normalized * 2.0f - 1.0f;
     }
 
-    // 將 float 向下取整成 int。
+    // Correct truncation toward zero so negative fractional coordinates use the lower grid cell.
     private static int fastFloor(float v) {
         int i = (int) v;
         return v < i ? i - 1 : i;
     }
 
-    // 平滑函式，讓插值結果不要太生硬。
+    // Use a cubic curve with zero slope at lattice boundaries to smooth interpolation.
     private static float smooth(float t) {
         return t * t * (3.0f - 2.0f * t);
     }
 
-    // 線性插值，依照 t 在 a 和 b 之間取值。
     private static float lerp(float a, float b, float t) {
         return a + (b - a) * t;
     }

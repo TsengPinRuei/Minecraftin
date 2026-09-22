@@ -13,7 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
-// 水源/流動水模擬的行為測試；在高空石頭平台上驗證，不依賴特定種子的地形。
+// Most cases use an elevated platform; the ocean-refill case searches natural terrain generated
+// from the fixed seed.
 final class WaterFlowTest {
 
     @TempDir
@@ -21,7 +22,7 @@ final class WaterFlowTest {
 
     private World world;
 
-    // 平台中心與平台面上一格的高度。
+    // Platform center and the Y coordinate of the platform blocks.
     private int x;
     private int z;
     private int floorY;
@@ -36,7 +37,7 @@ final class WaterFlowTest {
         floorY = buildPlatform(x, z);
     }
 
-    // 鋪一個 15x15 的石頭平台，邊緣加一圈擋牆避免水流出平台影響判定。
+    // Surround the platform with a one-block wall to keep ordinary spreading tests contained.
     private int buildPlatform(int centerX, int centerZ) {
         int areaTop = world.seaLevel();
         for (int dx = -9; dx <= 9; dx++) {
@@ -59,7 +60,7 @@ final class WaterFlowTest {
         return platformY;
     }
 
-    // 推進若干個水流 tick（每 tick 0.25 秒）。
+    // Advance water in 0.25-second simulation steps.
     private void tick(int ticks) {
         for (int i = 0; i < ticks; i++) {
             world.update(0.25f);
@@ -128,7 +129,7 @@ final class WaterFlowTest {
         tick(10);
         assertTrue(world.getBlock(x + 3, floorY + 1, z).isWaterBlock(), "前置條件：水已擴散開");
 
-        // 用石頭蓋掉水源，失去支撐的流動水應逐步退去。
+        // Replace the source with stone; downstream flow should recede after losing its supply.
         world.setBlock(x, floorY + 1, z, BlockType.STONE);
         tick(20);
 
@@ -142,7 +143,7 @@ final class WaterFlowTest {
         tick(6);
         assertTrue(world.getBlock(x + 2, floorY + 1, z).isWaterBlock(), "前置條件：水流到了洞的上方");
 
-        // 在水面下方挖洞，水應該流進去。
+        // Open a hole beneath existing water and verify downward flow.
         world.setBlock(x + 2, floorY, z, BlockType.AIR);
         tick(6);
 
@@ -151,7 +152,7 @@ final class WaterFlowTest {
 
     @Test
     void twoSourcesCreateInfiniteWater() {
-        // 經典無限水源：兩格水源夾一格空位，中間那格會升級成新的水源。
+        // Two sources separated by a supported cell should turn that cell into a new source.
         world.setBlock(x - 1, floorY + 1, z, BlockType.WATER);
         world.setBlock(x + 1, floorY + 1, z, BlockType.WATER);
         tick(6);
@@ -161,7 +162,8 @@ final class WaterFlowTest {
 
     @Test
     void waterfallDriesUpWhenSourceBlocked() {
-        // 平台邊牆上的水源往下流出平台形成瀑布。
+        // Place a source on a raised block over the platform center so water can fall to the
+        // platform below.
         int ledgeY = floorY + 4;
         world.setBlock(x, ledgeY, z, BlockType.STONE);
         world.setBlock(x, ledgeY + 1, z, BlockType.WATER);
@@ -170,7 +172,7 @@ final class WaterFlowTest {
         assertTrue(world.getBlock(x + 1, floorY + 1, z).isWaterBlock()
                 || world.getBlock(x + 1, ledgeY + 1, z).isWaterBlock(), "前置條件：水從高處流下");
 
-        // 蓋掉水源後，整條瀑布應乾涸。
+        // Remove the source, then verify the tested waterfall and pooling area dries.
         world.setBlock(x, ledgeY + 1, z, BlockType.STONE);
         tick(30);
 
@@ -188,7 +190,8 @@ final class WaterFlowTest {
 
     @Test
     void oceanHoleRefillsAndHealsToSource() {
-        // 找一片海面，在海面挖出一格空缺，周圍水源應回填並依無限水源規則癒合成水源。
+        // Find neighboring natural source cells and verify a removed surface cell refills as a
+        // source.
         int sea = world.seaLevel();
         for (int sx = 0; sx < 256; sx += 4) {
             for (int sz = 0; sz < 256; sz += 4) {
@@ -199,7 +202,7 @@ final class WaterFlowTest {
                     continue;
                 }
 
-                // 先放石頭擠掉水，再挖掉，模擬「在水中破壞方塊」。
+                // Replace water with stone, then remove the stone to simulate digging underwater.
                 world.setBlock(sx, sea, sz, BlockType.STONE);
                 world.setBlock(sx, sea, sz, BlockType.AIR);
                 tick(8);

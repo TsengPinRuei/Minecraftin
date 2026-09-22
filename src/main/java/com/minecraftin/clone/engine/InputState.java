@@ -10,7 +10,7 @@ import java.util.Arrays;
 
 import static org.lwjgl.glfw.GLFW.*;
 
-// 將 GLFW callback 收到的事件整理成「持續按住」與「本幀剛發生」兩種輸入狀態。
+// Keep held input separate from press events that last for one frame.
 public final class InputState {
     private final boolean[] keys = new boolean[GLFW_KEY_LAST + 1];
 
@@ -20,7 +20,7 @@ public final class InputState {
 
     private final boolean[] mouseDown = new boolean[GLFW_MOUSE_BUTTON_LAST + 1];
 
-    // 用來判斷滑鼠是否第一次移動，避免第一次就產生很大的位移量。
+    // Treat the next cursor event as a new baseline to avoid a large camera jump.
     private boolean firstMouse = true;
 
     private double lastMouseX;
@@ -58,7 +58,7 @@ public final class InputState {
     };
 
     private final GLFWCursorPosCallbackI cursorCallback = (window, xpos, ypos) -> {
-        // 第一次接收到滑鼠位置時，只初始化座標，不計算位移。
+        // Establish a baseline before accumulating movement.
         if (firstMouse) {
             lastMouseX = xpos;
             lastMouseY = ypos;
@@ -80,7 +80,7 @@ public final class InputState {
             Arrays.fill(mouseDown, false);
             endFrame();
         }
-        // 重新取得焦點時的游標座標可能不同，不能把它當成一次視角轉動。
+        // Reset on focus changes so the next cursor position cannot cause a camera jump.
         resetMouseTracking();
     };
 
@@ -116,24 +116,25 @@ public final class InputState {
         return mouseDeltaY;
     }
 
-    // 取得目前滑鼠 X 座標，單位與 GLFW 視窗座標一致。
+    // GLFW window coordinates, not framebuffer pixels; use window dimensions for HUD hit tests.
     public double mouseX() {
         return lastMouseX;
     }
 
-    // 取得目前滑鼠 Y 座標，單位與 GLFW 視窗座標一致。
+    // GLFW window coordinates, not framebuffer pixels; use window dimensions for HUD hit tests.
     public double mouseY() {
         return lastMouseY;
     }
 
-    // 取得目前累積的滾輪垂直位移，並在取出後清空。
+    // Consume accumulated vertical scrolling once; subsequent reads return zero until another
+    // event.
     public double consumeScrollDeltaY() {
         double value = scrollDeltaY;
         scrollDeltaY = 0.0;
         return value;
     }
 
-    // 每一幀結束時呼叫，清除只需要記錄一幀的輸入資料；呼叫太早會讓 Game 讀不到瞬時按鍵。
+    // Clear transient input only after all consumers have processed the frame.
     public void endFrame() {
         Arrays.fill(keysPressed, false);
         Arrays.fill(mousePressed, false);
@@ -142,7 +143,7 @@ public final class InputState {
         mouseDeltaY = 0.0;
     }
 
-    // 重新初始化滑鼠追蹤狀態；切換游標鎖定時必須呼叫，避免第一次 delta 使用舊座標造成鏡頭暴衝。
+    // Reset after cursor capture changes so movement is not measured from an old cursor position.
     public void resetMouseTracking() {
         firstMouse = true;
         mouseDeltaX = 0.0;

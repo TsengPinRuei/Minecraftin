@@ -18,54 +18,55 @@ import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.Map;
 
-// 負責管理整個世界的區塊、方塊資料、出生點、射線檢測，以及存檔與讀檔。
-// 這個類別是「世界狀態」的邊界：會生成 Chunk、標記 mesh dirty、追蹤需要持久化的變更。
+// Own mutable world state on the game thread, coordinating generation, lighting, water, targeting,
+// and persistence.
 public final class World {
 
-    // 存檔檔頭，用來確認這是不是本遊戲建立的存檔；值為 "MCLN" 的整數形式。
+    // The binary save magic is the ASCII sequence MCLN.
     private static final int SAVE_MAGIC = 0x4D434C4E;
 
-    // 寫出版本 4，仍可讀取版本 1 到 3；欄位演進見 save()。
+    // Write version 4 and accept versions 1-4; save() documents the added fields.
     private static final int SAVE_VERSION = 4;
 
-    // 新世界的初始時間：清晨剛過日出。
+    // Start new worlds shortly after sunrise.
     private static final float DEFAULT_TIME_OF_DAY = 0.03f;
 
-    // 玩家出生時，腳底上方的偏移量，避免卡進地面。
+    // Place the player's feet 1.05 blocks above the floor cell's base: one block of height plus a
+    // small clearance.
     private static final float SPAWN_Y_OFFSET = 1.05f;
 
-    // 水流模擬的 tick 間隔；Minecraft 的水每 5 game tick（0.25 秒）更新一次。
+    // Advance scheduled water every 0.25 simulation seconds.
     private static final float WATER_TICK_SECONDS = 0.25f;
 
-    // 每個 tick 最多處理多少格水，避免大規模改動造成單幀卡頓；剩餘格子留到下一個 tick。
+    // Limit work per water tick; leave excess scheduled cells queued for later ticks.
     private static final int WATER_MAX_CELLS_PER_TICK = 4096;
 
-    // 搜尋大片森林出生區域時，最遠搜尋半徑。
+    // Limit the coarse forest search radius in world blocks.
     private static final int FOREST_SPAWN_SEARCH_MAX_RADIUS = 1536;
 
-    // 搜尋大片森林時，每次移動的距離。
+    // Spacing between coarse forest search samples, in world blocks.
     private static final int FOREST_SPAWN_SEARCH_STEP = 64;
 
-    // 找到森林中心後，在附近細部搜尋安全出生點的最大半徑。
+    // Limit the local safe-spawn search around the selected forest center.
     private static final int FOREST_LOCAL_SPAWN_RADIUS = 56;
 
-    // 在森林中心附近搜尋出生點時，每次移動的距離。
+    // Spacing between local safe-spawn candidates, in world blocks.
     private static final int FOREST_LOCAL_SPAWN_STEP = 8;
 
-    // 已載入的所有 Chunk，key 是 Chunk 座標。
-    // World 由遊戲執行緒存取；背景 mesher 只讀取 ChunkSnapshot。
+    // Access mutable chunks only on the game thread; background meshing reads ChunkSnapshot
+    // instead.
     private final Map<ChunkPos, Chunk> chunks = new HashMap<>();
 
-    // 維護天空光與方塊光的引擎；區塊載入與方塊變更時負責增量更新。
     private final LightEngine lightEngine = new LightEngine(this);
 
-    // 世界時間，0 到 1 為一天；0 是日出、0.25 是正午、0.5 是日落。
+    // One day is [0, 1): sunrise at 0, noon at 0.25, and sunset at 0.5.
     private float timeOfDay = DEFAULT_TIME_OF_DAY;
 
-    // 待更新的水格排程（去重、保留插入順序）；方塊變更會把自己與鄰居排進來，由固定 tick 處理。
+    // Deduplicate scheduled water cells while preserving insertion order for repeatable tick
+    // processing.
     private final LinkedHashSet<Long> scheduledWaterCells = new LinkedHashSet<>();
 
-    // 水流 tick 每次最多處理固定數量的格子；重複使用批次陣列，避免每個 tick 都配置 long[]。
+    // Reuse a bounded batch array so each water tick does not allocate a new one.
     private final long[] waterTickBatch = new long[WATER_MAX_CELLS_PER_TICK];
 
     private final Path worldFile;
@@ -88,7 +89,8 @@ public final class World {
         this.terrainGenerator = new TerrainGenerator(seed, 62);
     }
 
-    // 只有缺少存檔時建立新世界；讀檔錯誤交給呼叫端，避免覆蓋既有資料。
+    // Create a new world only when the save is missing; propagate other load failures to avoid
+    // overwriting existing data.
     public void initialize() {
         try {
             Path parent = worldFile.getParent();
@@ -147,6 +149,8 @@ public final class World {
         return false;
     }
 
+    // Only block edits and respawn changes trigger autosave.
+    // Time and water timer changes alone wait for another save trigger or shutdown.
     public boolean hasPendingSave() {
         return respawnPositionDirty || hasModifiedChunks();
     }
@@ -188,8 +192,7 @@ public final class World {
         return chunks.get(new ChunkPos(chunkX, chunkZ));
     }
 
-    // 取得指定座標的 Chunk。
-    // 若不存在，會先建立並生成地形；這是會改變世界快取內容的讀取操作。
+    // Generate missing terrain and add it to the world; this lookup can change world state.
     public Chunk getOrCreateChunk(int chunkX, int chunkZ) {
         ChunkPos key = new ChunkPos(chunkX, chunkZ);
         Chunk existing = chunks.get(key);
@@ -201,10 +204,11 @@ public final class World {
         terrainGenerator.generate(chunk);
         chunks.put(key, chunk);
 
-        // 計算新 Chunk 的初始光照，並與已載入鄰居互相傳播。
+        // Initialize lighting and exchange light with already loaded neighbors.
         lightEngine.onChunkLoaded(chunk);
 
-        // 新增 Chunk 後，周圍 Chunk 的邊界顯示可能受影響，因此一併標記為需要重建 mesh。
+        // Invalidate surrounding meshes because a newly loaded chunk changes face and corner
+        // samples.
         for (int dz = -1; dz <= 1; dz++) {
             for (int dx = -1; dx <= 1; dx++) {
                 markChunkMeshDirty(chunkX + dx, chunkZ + dz);
@@ -215,8 +219,8 @@ public final class World {
         return chunk;
     }
 
-    // 取得世界座標上的方塊。
-    // 若超出高度範圍，回傳床岩或空氣；合法高度內會自動生成缺少的 Chunk。
+    // Below the world return BEDROCK, above it return AIR; valid-height reads generate missing
+    // chunks.
     public BlockType getBlock(int worldX, int y, int worldZ) {
         if (y < 0) {
             return BlockType.BEDROCK;
@@ -234,8 +238,8 @@ public final class World {
         return chunk.get(localX, y, localZ);
     }
 
-    // 讀取世界座標上的方塊，但不主動建立新的 Chunk。
-    // 光照與水流只看已載入狀態，避免查詢本身造成地形生成。
+    // Read without generating chunks; missing chunks return AIR.
+    // Lighting and water must use loaded state so simulation queries cannot create terrain.
     public BlockType peekBlock(int worldX, int y, int worldZ) {
         if (y < 0) {
             return BlockType.BEDROCK;
@@ -256,13 +260,13 @@ public final class World {
         return chunk.get(localX, y, localZ);
     }
 
-    // 水流行為不需要特例：setBlockInternal 會把鄰近水格排進水流模擬，
-    // 破壞方塊時水自然流入、擋住水源時失去支撐的流動水會自動退去。
+    // Block edits schedule nearby water so opened spaces fill and unsupported flows can recede.
     public boolean setBlock(int worldX, int y, int worldZ, BlockType type) {
         return setBlockInternal(worldX, y, worldZ, type, true);
     }
 
-    // createMissingChunk 為 true 時，缺少 Chunk 會自動建立。
+    // Water simulation passes false to avoid generating terrain while writing across unloaded
+    // boundaries.
     private boolean setBlockInternal(int worldX, int y, int worldZ, BlockType type, boolean createMissingChunk) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return false;
@@ -285,23 +289,23 @@ public final class World {
 
         chunk.set(localX, y, localZ, type);
 
-        // 增量更新光照；引擎會把光照變化波及的 Chunk 標記為需要重建 mesh。
+        // Recompute affected light and invalidate any meshes whose light samples change.
         lightEngine.onBlockChanged(worldX, y, worldZ, existing, type);
 
-        // 任何方塊變更都喚醒自己與六個鄰格的水流更新；水流模擬本身的寫入也靠這裡形成連鎖。
+        // Wake nearby water after every block change, including changes made by water itself.
         scheduleWaterNeighborhood(worldX, y, worldZ);
 
-        // 如果修改位置在 Chunk 邊界，鄰近 Chunk 的 mesh 也要重建。
+        // Invalidate neighboring meshes when a boundary block changes.
         markNeighborMeshesDirty(chunk, localX, localZ);
 
         return true;
     }
 
-    // ====== 水流模擬 ======
-    // 簡化的水流模型：WATER 是水源（強度 8），WATER_FLOW_7..1 是流動水。
-    // 每個 tick 重算排程格子的強度（失去支撐就退去），再向外擴散（向下優先、水平遞減）。
-
-    // 依累積時間推進水流 tick；一次最多補跑 4 個 tick，避免卡頓後爆量。
+    // Water sources have strength 8; flowing states use 7 down to 1.
+    // Scheduled ticks recompute support and spread downward first, then horizontally with
+    // decreasing strength.
+    // Process at most four overdue ticks per update; retain the remaining accumulated time for
+    // later calls.
     private void updateWaterSimulation(float deltaSeconds) {
         if (scheduledWaterCells.isEmpty()) {
             waterTickTimer = 0.0f;
@@ -318,8 +322,7 @@ public final class World {
         }
     }
 
-    // 處理一個水流 tick：取出目前排程的格子逐一更新。
-    // 更新過程排入的新格子留到下一個 tick，水才會一格一格地往外流。
+    // Extract the current batch before updating it so newly queued work waits for a later tick.
     private void runWaterTick() {
         int count = Math.min(scheduledWaterCells.size(), WATER_MAX_CELLS_PER_TICK);
         if (count == 0) {
@@ -338,7 +341,6 @@ public final class World {
         }
     }
 
-    // 更新單一水格：流動水先依鄰居重算強度，然後嘗試向外流。
     private void updateWaterCell(int x, int y, int z) {
         BlockType block = peekBlock(x, y, z);
         if (!block.isWaterBlock()) {
@@ -347,7 +349,8 @@ public final class World {
 
         int strength = block.waterStrength();
 
-        // 流動水沒有自己的水量，強度完全由支撐決定；支撐消失就降級直到退成空氣。
+        // Recompute flowing water from neighboring supplies; it may strengthen, become a source, or
+        // recede.
         if (strength < 8) {
             int desired = computeWaterStrength(x, y, z);
             if (desired != strength) {
@@ -364,9 +367,8 @@ public final class World {
         spreadWater(x, y, z, strength);
     }
 
-    // 依鄰居計算一格流動水應有的強度。
     private int computeWaterStrength(int x, int y, int z) {
-        // 上方有水：垂直落水保持高強度。
+        // Any water directly above supplies a falling flow of strength 7.
         if (y + 1 < GameConfig.CHUNK_HEIGHT && peekBlock(x, y + 1, z).isWaterBlock()) {
             return 7;
         }
@@ -385,7 +387,8 @@ public final class World {
         sourceNeighbors += south == BlockType.WATER ? 1 : 0;
         sourceNeighbors += north == BlockType.WATER ? 1 : 0;
 
-        // 無限水源規則：兩個以上水源相鄰且下方有支撐，這一格升級為新的水源。
+        // Two horizontal source neighbors create a source only when supported by a solid block or
+        // source water below.
         if (sourceNeighbors >= 2) {
             BlockType below = peekBlock(x, y - 1, z);
             if (below.isSolid() || below == BlockType.WATER) {
@@ -396,7 +399,7 @@ public final class World {
         return Math.min(7, bestHorizontal - 1);
     }
 
-    // 把水向外推：能往下流就往下；瀑布中段不水平攤開，只有水源或落在地面/水面上的水才向四周擴散。
+    // Try downward flow first; only sources or supported water can then spread sideways.
     private void spreadWater(int x, int y, int z, int strength) {
         BlockType below = y > 0 ? peekBlock(x, y - 1, z) : BlockType.BEDROCK;
 
@@ -405,7 +408,8 @@ public final class World {
             return;
         }
 
-        // 只有「落定」的水會水平擴散：水源、踩在實心方塊上，或浮在水源面上（瀑布落入水池的那一層）。
+        // Allow horizontal spreading for sources, water above solids, or water above a source
+        // surface.
         boolean landed = strength == 8 || below.isSolid() || below == BlockType.WATER;
         if (!landed || strength <= 1) {
             return;
@@ -424,7 +428,8 @@ public final class World {
         }
     }
 
-    // 水能否流入：空氣可以，較弱的流動水會被蓋掉；不會吞掉火把、門這類非完整方塊。
+    // Flow replaces only air or weaker flowing water; it does not wash away torches, doors, or
+    // other blocks.
     private boolean canWaterFlowInto(BlockType target, int incomingStrength) {
         if (target == BlockType.AIR) {
             return true;
@@ -432,7 +437,7 @@ public final class World {
         return target.isFlowingWater() && target.waterStrength() < incomingStrength;
     }
 
-    // 把一格與它的六個鄰格排入水流更新；setBlockInternal 在每次方塊變更後呼叫。
+    // Wake water in the changed cell and its six direct neighbors.
     private void scheduleWaterNeighborhood(int x, int y, int z) {
         scheduleWaterCell(x, y, z);
         scheduleWaterCell(x + 1, y, z);
@@ -450,8 +455,8 @@ public final class World {
         scheduledWaterCells.add(packWaterCell(x, y, z));
     }
 
-    // 將座標壓進一個 long：x 與 z 各 26 bits（二補數含符號）、y 12 bits。
-    // v4 存檔也使用此格式；unpack 依賴位移做符號還原，不能拿來存放任意大座標。
+    // Pack signed 26-bit X/Z and unsigned 12-bit Y; version 4 saves store this exact format.
+    // Coordinates outside those ranges cannot be represented without truncation.
     private static long packWaterCell(int x, int y, int z) {
         return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
@@ -468,7 +473,8 @@ public final class World {
         return (int) (packed & 0xFFF);
     }
 
-    // AO 與平滑光照會取樣對角格，角落變動需同時更新對角 Chunk。
+    // Corner changes also affect diagonal chunk meshes because smooth light and AO sample diagonal
+    // cells.
     void markNeighborMeshesDirty(Chunk chunk, int localX, int localZ) {
         int minDx = localX == 0 ? -1 : 0;
         int maxDx = localX == GameConfig.CHUNK_SIZE - 1 ? 1 : 0;
@@ -483,7 +489,8 @@ public final class World {
         }
     }
 
-    // 原本流向未載入區域的水，在邊界兩側到齊後才能繼續。
+    // Reschedule both sides when a neighbor loads so water previously stopped at that boundary can
+    // continue.
     private void scheduleWaterBorders(Chunk chunk) {
         scheduleWaterBorder(chunk, getChunkIfLoaded(chunk.chunkX() - 1, chunk.chunkZ()), -1, 0);
         scheduleWaterBorder(chunk, getChunkIfLoaded(chunk.chunkX() + 1, chunk.chunkZ()), 1, 0);
@@ -535,8 +542,7 @@ public final class World {
         return 1;
     }
 
-    // 計算預設出生點。
-    // 優先找大片森林，找不到再退回一般安全地面；這會生成搜尋路徑上的 Chunk。
+    // Prefer a broad forest region, then search for safe ground; these checks may generate chunks.
     public Vector3f defaultSpawn(Vector3f out) {
         if (trySpawnInLargeForest(out)) {
             return out;
@@ -572,12 +578,15 @@ public final class World {
             return out;
         }
 
+        // Last-resort fallback above the origin's top solid cell; this position has not passed the
+        // safe-spawn checks.
         int fallbackY = topSolidY(fallbackX, fallbackZ);
         out.set(fallbackX + 0.5f, fallbackY + SPAWN_Y_OFFSET, fallbackZ + 0.5f);
         return out;
     }
 
-    // 先用較大範圍搜尋，找出適合出生的大片森林區域；只評分地表取樣，不立即要求每格都可站立。
+    // Choose a broad forest region from surface samples before performing local standability
+    // checks.
     private boolean trySpawnInLargeForest(Vector3f out) {
         int[] bestScore = new int[] { Integer.MIN_VALUE };
         int[] bestX = new int[] { 0 };
@@ -599,7 +608,7 @@ public final class World {
                 evaluateForestSpawnCandidate(radius, z, bestScore, bestX, bestZ, foundForestRegion);
             }
 
-            // 已經找到非常理想的森林區域時，就提早停止搜尋。
+            // Stop searching once the score reaches the preferred-region threshold.
             if (foundForestRegion[0] && bestScore[0] >= 290) {
                 break;
             }
@@ -612,7 +621,7 @@ public final class World {
         return trySpawnNearForestCenter(out, bestX[0], bestZ[0]);
     }
 
-    // 評估某個位置是否適合作為森林出生區候選點；用陣列包裝是為了在 helper 中更新目前最佳結果。
+    // Use one-element arrays so this helper can update the best candidate across calls.
     private void evaluateForestSpawnCandidate(
             int x, int z, int[] bestScore, int[] bestX, int[] bestZ, boolean[] foundForestRegion) {
         int score = terrainGenerator.forestSpawnRegionScore(x, z);
@@ -641,7 +650,7 @@ public final class World {
         return false;
     }
 
-    // 在森林中心附近找一個看得到森林且可安全站立的位置。
+    // Search near the forest center for safe ground with nearby sampled tree cover.
     private boolean trySpawnNearForestCenter(Vector3f out, int centerX, int centerZ) {
         if (trySpawnAtForestVisible(out, centerX, centerZ)) {
             return true;
@@ -664,7 +673,8 @@ public final class World {
             }
         }
 
-        // 若真的找不到「看得到森林」的位置，退一步接受一般安全地面。
+        // If no candidate has enough sampled tree cover, accept safe ground without that cover
+        // requirement.
         for (int radius = 0; radius <= FOREST_LOCAL_SPAWN_RADIUS; radius += FOREST_LOCAL_SPAWN_STEP) {
             for (int x = centerX - radius; x <= centerX + radius; x += FOREST_LOCAL_SPAWN_STEP) {
                 if (trySpawnAt(out, x, centerZ - radius) || trySpawnAt(out, x, centerZ + radius)) {
@@ -683,7 +693,8 @@ public final class World {
         return false;
     }
 
-    // 檢查某位置是否能安全出生，且附近確實看得到樹。
+    // Require safe ground and at least six sampled columns containing logs or leaves.
+    // This estimates nearby tree cover; it does not test line of sight.
     private boolean trySpawnAtForestVisible(Vector3f out, int x, int z) {
         int y = topSolidY(x, z);
         if (!isSafeSpawnAt(x, y, z)) {
@@ -722,7 +733,7 @@ public final class World {
         return true;
     }
 
-    // 共用安全出生點判定，避免森林可見性檢查先 trySpawnAt 後又重掃一次地表高度。
+    // Reuse the already computed floor height when checking spawn clearance.
     private boolean isSafeSpawnAt(int x, int y, int z) {
         if (y <= seaLevel()) {
             return false;
@@ -738,7 +749,8 @@ public final class World {
         return feet == BlockType.AIR && head == BlockType.AIR;
     }
 
-    // DDA 篩選候選格，再與實際幾何盒求交；半磚空隙不應擋住射線。
+    // Step through candidate cells, then intersect actual render boxes so gaps in partial blocks do
+    // not block the ray.
     public RaycastHit raycast(Vector3f origin, Vector3f direction, float maxDistance) {
         if (!origin.isFinite() || !direction.isFinite() || !Float.isFinite(maxDistance) || maxDistance < 0) {
             return null;
@@ -773,12 +785,12 @@ public final class World {
 
         float traveled = 0.0f;
 
-        // 使用類似 3D DDA 的方式，沿著方塊格子一步一步前進；水（含流動水）不會被準星選中。
+        // Traverse the voxel grid; air and all water states are ignored by the shape intersection.
         while (traveled <= maxDistance) {
             BlockType block = getBlock(x, y, z);
             float segmentEnd = Math.min(maxDistance, Math.min(tx, Math.min(ty, tz)));
             RaycastHit hit = intersectBlock(x, y, z, block, origin, dx, dy, dz, segmentEnd);
-            // 柵欄的盒子高於一格，因此也檢查射線目前格正下方的方塊。
+            // Also test the cell below because fence render boxes extend above their own cell.
             if (y > 0 && y <= GameConfig.CHUNK_HEIGHT) {
                 RaycastHit below = intersectBlock(x, y - 1, z, getBlock(x, y - 1, z),
                         origin, dx, dy, dz, segmentEnd);
@@ -816,6 +828,10 @@ public final class World {
         return null;
     }
 
+    // Intersect the ray intervals allowed by each axis-aligned box face; reject the box if near
+    // exceeds far.
+    // The latest entry axis supplies the hit normal. Starting inside a box leaves distance and
+    // normal at zero.
     private static RaycastHit intersectBlock(int x, int y, int z, BlockType block, Vector3f origin,
             float dx, float dy, float dz, float maxDistance) {
         if (block == BlockType.AIR || block.isWaterBlock()) {
@@ -864,8 +880,9 @@ public final class World {
         return closest;
     }
 
-    // v1: seed/chunks；v2: respawn；v3: time；v4: 待處理水流與 tick 計時。
-    // 先完成暫存檔、flush/force/close，再原子替換；替換失敗時保留原檔和 dirty 狀態。
+    // Version additions: v1 seed/chunks, v2 respawn, v3 time, v4 water queue and tick timer.
+    // Write and force a temporary file before atomic replacement; clear dirty flags only after
+    // replacement succeeds.
     public void save() {
         Path target = worldFile.toAbsolutePath();
         Path temporary = null;
@@ -903,6 +920,9 @@ public final class World {
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 channel.force(true);
             }
+            // Require atomic replacement; filesystems that do not support it cause the save to
+            // fail.
+            // Do not fall back to overwriting the existing file in place.
             Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             temporary = null;
             for (Chunk chunk : chunks.values()) {
@@ -922,7 +942,8 @@ public final class World {
         }
     }
 
-    // 只有檔案不存在才建立新世界。損壞、不支援或不可讀的存檔必須停止載入，避免離開時覆蓋原始資料。
+    // Only a missing file means a new world; corrupt, unsupported, or unreadable saves must fail
+    // instead of being replaced.
     private boolean load() {
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(worldFile)))) {
             long fileSize = Files.size(worldFile);
@@ -948,6 +969,8 @@ public final class World {
 
             int blockCount = GameConfig.CHUNK_SIZE * GameConfig.CHUNK_HEIGHT * GameConfig.CHUNK_SIZE;
             int count = in.readInt();
+            // Bound the declared count by the minimum record size before reading chunks.
+            // Each record needs 12 bytes for X, Z, and block count, plus its block IDs.
             if (count < 0 || count > fileSize / (12L + blockCount * Short.BYTES)) {
                 throw new IOException("Invalid chunk count: " + count);
             }
@@ -996,7 +1019,8 @@ public final class World {
                 throw new IOException("Unexpected data after world save");
             }
 
-            // 全檔驗證完成後才更新世界；光照重建需要所有 Chunk 先到齊。
+            // Apply loaded state only after validating the whole file; restore all chunks before
+            // rebuilding cross-chunk lighting.
             seed = loadedSeed;
             terrainGenerator = new TerrainGenerator(seed, 62);
             savedRespawnPosition.set(loadedPosition);
@@ -1022,7 +1046,8 @@ public final class World {
         }
     }
 
-    // 舊版未記錄排程，只恢復流動水與仍可流出的水源，避免把整片靜止海水排入佇列。
+    // Older saves lack a water queue; schedule flowing water and sources that can spread instead of
+    // queuing every ocean cell.
     private void restoreLegacyWaterSimulation() {
         for (Chunk chunk : chunks.values()) {
             for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
@@ -1054,12 +1079,13 @@ public final class World {
         respawnPositionDirty = false;
     }
 
-    // 世界座標轉 Chunk 座標；集中使用同一套換算，避免熱路徑重複 floorDiv/floorMod。
+    // Use floor division so negative world coordinates map to the chunk containing them.
     static int chunkCoord(int worldCoord) {
         return Math.floorDiv(worldCoord, GameConfig.CHUNK_SIZE);
     }
 
-    // chunkCoord 已用 floorDiv 處理負座標；這裡用減法得到 0..CHUNK_SIZE-1，等價 floorMod 但少一次除法。
+    // With a floor-divided chunk coordinate, subtraction produces a local coordinate in [0,
+    // CHUNK_SIZE).
     static int localCoord(int worldCoord, int chunkCoord) {
         return worldCoord - chunkCoord * GameConfig.CHUNK_SIZE;
     }

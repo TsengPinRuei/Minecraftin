@@ -3,31 +3,31 @@ package com.minecraftin.clone.world;
 import com.minecraftin.clone.config.GameConfig;
 import java.util.Arrays;
 
-// Chunk 代表世界中的一小塊區域，負責儲存該區域內所有方塊資料。
-// 它只知道本地座標與 dirty 狀態；跨 Chunk 的生成、存檔與 mesh 管理由 World/WorldRenderer 協調。
+// Store one chunk's blocks, lighting, and dirty flags; World coordinates changes across chunks.
 public final class Chunk {
 
     private final int chunkX;
 
     private final int chunkZ;
 
-    // Chunk 座標的穩定 key，Renderer 可重複使用，避免每幀為同一個 Chunk 建立新 ChunkPos。
+    // Reuse a stable value key when looking up this chunk in renderer maps.
     private final ChunkPos pos;
 
-    // 用一維陣列儲存 Chunk 內所有方塊 id，排序為 y -> z -> x，需與存檔讀寫保持一致。
+    // Store blocks with X varying fastest, then Z, then Y; the save format uses this exact order.
     private final short[] blocks;
 
-    // 天空光與方塊光（0 到 15），索引與 blocks 相同；由 LightEngine 維護，不寫入存檔。
+    // Sky and block light use the block-array index and levels 0-15; they are rebuilt instead of
+    // saved.
     private final byte[] skyLight;
     private final byte[] blockLight;
 
-    // 表示這個 Chunk 的模型是否需要重新生成；方塊改變或鄰近 Chunk 邊界改變時都要標記。
+    // Rebuild geometry after block or sampled neighbor-light changes.
     private boolean meshDirty = true;
 
-    // 表示這個 Chunk 是否曾被玩家或水流等遊戲行為修改過，用來判斷是否需要存檔。
+    // Track unsaved block changes, including water simulation changes; successful saves clear this
+    // flag.
     private boolean modified;
 
-    // 建立一個新的 Chunk，並將所有方塊初始化為 AIR。
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
@@ -58,13 +58,14 @@ public final class Chunk {
         return chunkZ * GameConfig.CHUNK_SIZE;
     }
 
-    // 直接回傳內部的方塊資料陣列，僅供存檔讀寫使用；呼叫端必須自行維護 dirty 狀態。
+    // Expose live storage for persistence and controlled bulk setup.
+    // Direct writes bypass dirty flags, light updates, and water scheduling; runtime edits should
+    // use World.setBlock().
     public short[] rawBlocks() {
         return blocks;
     }
 
-    // 取得指定區域座標的方塊種類。
-    // 如果座標超出範圍，回傳 AIR。
+    // Return AIR for local coordinates outside this chunk.
     public BlockType get(int localX, int y, int localZ) {
         if (!inBounds(localX, y, localZ)) {
             return BlockType.AIR;
@@ -72,8 +73,7 @@ public final class Chunk {
         return BlockType.byId(blocks[index(localX, y, localZ)]);
     }
 
-    // 設定指定區域座標的方塊種類。
-    // 如果座標超出範圍，或新舊方塊相同，就不做任何事。
+    // Ignore out-of-bounds or unchanged writes; changed writes mark this chunk dirty and modified.
     public void set(int localX, int y, int localZ, BlockType type) {
         if (!inBounds(localX, y, localZ)) {
             return;
@@ -89,13 +89,12 @@ public final class Chunk {
 
         blocks[index] = now;
 
-        // 方塊內容改變後，代表模型需要重建，且資料已被修改。
         meshDirty = true;
         modified = true;
     }
 
-    // 直接用方塊 id 設定資料，不額外處理 modified 或 meshDirty。
-    // 通常用在地形生成或載入原始資料時，完成後由呼叫端統一設定 dirty/modified。
+    // Write an ID without updating lighting or dirty flags; bulk callers must restore the required
+    // state afterward.
     public void setRaw(int localX, int y, int localZ, short blockId) {
         if (!inBounds(localX, y, localZ)) {
             return;
@@ -110,7 +109,7 @@ public final class Chunk {
         return skyLight[index(localX, y, localZ)];
     }
 
-    // 設定指定座標的天空光；回傳值是否有變化。
+    // Return whether sky light changed; LightEngine is responsible for mesh invalidation.
     public boolean setSkyLight(int localX, int y, int localZ, int value) {
         if (!inBounds(localX, y, localZ)) {
             return false;
@@ -130,7 +129,7 @@ public final class Chunk {
         return blockLight[index(localX, y, localZ)];
     }
 
-    // 設定指定座標的方塊光；回傳值是否有變化。
+    // Return whether block light changed; LightEngine is responsible for mesh invalidation.
     public boolean setBlockLight(int localX, int y, int localZ, int value) {
         if (!inBounds(localX, y, localZ)) {
             return false;
@@ -147,7 +146,6 @@ public final class Chunk {
         return meshDirty;
     }
 
-    // 手動標記這個 Chunk 的模型需要重建。
     public void markMeshDirty() {
         meshDirty = true;
     }
@@ -164,12 +162,10 @@ public final class Chunk {
         modified = false;
     }
 
-    // 將三維座標轉成一維陣列索引。
     private int index(int localX, int y, int localZ) {
         return (y * GameConfig.CHUNK_SIZE + localZ) * GameConfig.CHUNK_SIZE + localX;
     }
 
-    // 檢查座標是否落在 Chunk 的合法範圍內。
     private boolean inBounds(int localX, int y, int localZ) {
         return localX >= 0
                 && localX < GameConfig.CHUNK_SIZE

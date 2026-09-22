@@ -2,7 +2,8 @@ package com.minecraftin.clone.engine;
 
 import java.util.ArrayDeque;
 
-// 依建立順序的反向釋放資源；部分初始化失敗時也會執行所有清理，並保留原始例外。
+// Close registered resources in reverse order, even if cleanup fails.
+// Report the first cleanup failure and retain later failures as suppressed exceptions.
 public final class ResourceScope implements AutoCloseable {
     private final ArrayDeque<AutoCloseable> resources = new ArrayDeque<>();
 
@@ -11,7 +12,7 @@ public final class ResourceScope implements AutoCloseable {
         return resource;
     }
 
-    // 建構完成後把所有權交給呼叫端；未呼叫時由 try-with-resources 回收。
+    // Transfer ownership to the caller without closing resources; otherwise close() releases them.
     public void release() {
         resources.clear();
     }

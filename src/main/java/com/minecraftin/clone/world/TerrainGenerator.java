@@ -6,11 +6,9 @@ import com.minecraftin.clone.util.Noise;
 import java.util.ArrayList;
 import java.util.List;
 
-// 負責依照種子產生地形、地表材質與樹木。
-// 所有取樣都必須只依賴世界座標與 seed，確保同一個 Chunk 不論何時生成都得到相同結果。
+// Generate repeatable terrain and trees from world coordinates, seed, and fixed generator settings.
 public final class TerrainGenerator {
 
-    // 表示不同的地形區域種類。
     private enum Biome {
         PLAINS,
         FOREST,
@@ -20,10 +18,8 @@ public final class TerrainGenerator {
         BADLANDS
     }
 
-    // 讓同一個世界可重現相同地形。
     private final long seed;
 
-    // 海平面高度。
     private final int seaLevel;
 
     public TerrainGenerator(long seed, int seaLevel) {
@@ -31,8 +27,8 @@ public final class TerrainGenerator {
         this.seaLevel = seaLevel;
     }
 
-    // 產生一個 Chunk 的所有地形資料。
-    // 流程分成地層、水/洞穴、樹木規劃、樹幹、樹葉，避免樹葉先放後被地形覆蓋。
+    // Finish terrain before planning and placing trees; place all trunks before leaves so foliage
+    // cannot overwrite terrain or trunks.
     public void generate(Chunk chunk) {
         int worldMinX = chunk.worldMinX();
         int worldMinZ = chunk.worldMinZ();
@@ -43,10 +39,10 @@ public final class TerrainGenerator {
 
         Biome[] biomes = new Biome[columnCount];
 
-        // 先記下要生成的樹，等地形都完成後再放置；這樣樹木不會干擾同一 Chunk 的地表高度判斷。
+        // Collect tree plans before placing any tree so earlier trees cannot change later placement
+        // checks.
         List<TreeSpec> plannedTrees = new ArrayList<>(16);
 
-        // 先產生方塊地形。
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
             for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
                 int worldX = worldMinX + lx;
@@ -56,7 +52,7 @@ public final class TerrainGenerator {
                 int height = surface.height();
                 Biome biome = surface.biome();
 
-                // 沙漠與惡地的表層較厚。
+                // Use a thicker near-surface layer in desert and badlands biomes.
                 int topDepth = biome == Biome.DESERT || biome == Biome.BADLANDS ? 5 : 4;
 
                 int columnIndex = columnIndex(lx, lz);
@@ -66,23 +62,24 @@ public final class TerrainGenerator {
                 for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
                     BlockType block;
 
-                    // 最底層固定為基岩。
+                    // Keep the bottom layer as bedrock.
                     if (y == 0) {
                         block = BlockType.BEDROCK;
 
-                        // 高於地表時，海平面以下填水，海平面以上填空氣。
                     } else if (y > height) {
+                        // Above the terrain surface, fill through sea level with water and leave
+                        // higher cells as air.
                         block = y <= seaLevel ? BlockType.WATER : BlockType.AIR;
 
                     } else {
-                        // 在地底加入洞穴噪音。
+                        // Keep a solid layer near bedrock and the terrain surface while carving
+                        // caves below.
                         float caveThreshold = biome == Biome.MOUNTAIN ? 0.58f : 0.64f;
                         if (y > 5 && y < height - 3
                                 && Noise.fbm3(worldX * 0.055f, y * 0.090f, worldZ * 0.055f,
                                         3, 2.0f, 0.5f, seed + 73) > caveThreshold) {
                             block = y <= seaLevel ? BlockType.WATER : BlockType.AIR;
                         } else {
-                            // 根據生態區與深度決定地層方塊。
                             block = selectStrataBlock(biome, y, height, topDepth);
                         }
                     }
@@ -92,13 +89,12 @@ public final class TerrainGenerator {
             }
         }
 
-        // 再規劃樹木要長在哪裡。
         for (int lx = 0; lx < GameConfig.CHUNK_SIZE; lx++) {
             for (int lz = 0; lz < GameConfig.CHUNK_SIZE; lz++) {
                 int columnIndex = columnIndex(lx, lz);
                 int height = heights[columnIndex];
 
-                // 海平面太低的地方不生成樹。
+                // Skip trees where terrain is at or below sea level plus one block.
                 if (height <= seaLevel + 1) {
                     continue;
                 }
@@ -113,7 +109,7 @@ public final class TerrainGenerator {
             }
         }
 
-        // 先放樹幹，再放樹葉。
+        // Place every trunk before any leaves so overlapping canopies cannot replace trunks.
         for (TreeSpec tree : plannedTrees) {
             placeTrunk(chunk, tree);
         }
@@ -121,7 +117,7 @@ public final class TerrainGenerator {
             placeCanopy(chunk, tree);
         }
 
-        // 生成完後要重新建立模型，但不算玩家修改。
+        // New terrain needs a mesh but is not treated as an unsaved gameplay edit.
         chunk.markMeshDirty();
         chunk.clearModified();
     }
@@ -130,7 +126,7 @@ public final class TerrainGenerator {
         return seaLevel;
     }
 
-    // 將 Chunk 內 X/Z 欄位轉成一維暫存陣列索引，避免每次生成 Chunk 都建立多個小陣列。
+    // Use a flat column cache with Z varying fastest.
     private static int columnIndex(int localX, int localZ) {
         return localX * GameConfig.CHUNK_SIZE + localZ;
     }
@@ -138,7 +134,7 @@ public final class TerrainGenerator {
     public int forestSpawnRegionScore(int centerX, int centerZ) {
         SurfaceSample center = sampleSurface(centerX, centerZ);
 
-        // 中心點必須是森林，且不能太接近海面。
+        // Reject non-forest centers and centers too close to sea level.
         if (center.height() <= seaLevel + 3 || center.biome() != Biome.FOREST) {
             return Integer.MIN_VALUE;
         }
@@ -153,7 +149,8 @@ public final class TerrainGenerator {
         int minHeight = Integer.MAX_VALUE;
         int maxHeight = Integer.MIN_VALUE;
 
-        // 在周圍取樣，評估這片區域是否夠大、夠平穩、夠像森林內陸。
+        // Sample surrounding terrain to favor broad, inland forest regions with limited height
+        // variation.
         for (int dz = -sampleRadius; dz <= sampleRadius; dz += sampleStep) {
             for (int dx = -sampleRadius; dx <= sampleRadius; dx += sampleStep) {
                 SurfaceSample sample = sampleSurface(centerX + dx, centerZ + dz);
@@ -177,14 +174,14 @@ public final class TerrainGenerator {
             }
         }
 
-        // 陸地與森林比例不足時，直接視為不適合。
+        // Reject regions without enough land and forest samples.
         if (landCount < 20 || forestCount < 15) {
             return Integer.MIN_VALUE;
         }
 
         int heightRange = maxHeight - minHeight;
 
-        // 大陸性越高，代表越偏內陸，分數越高。
+        // Reward higher continental noise as a proxy for inland terrain.
         int inlandBonus = Math.round(Math.max(0.0f, center.continental() + 0.12f) * 60.0f);
 
         return forestCount * 9
@@ -195,8 +192,9 @@ public final class TerrainGenerator {
                 - Math.max(0, heightRange - 10) * 3;
     }
 
-    // 取樣某個座標的地表高度、生態區與大陸性。
-    // 這是地形生成的核心函式，任何 seed 偏移值調整都會改變整個世界外觀。
+    // Noise seed offsets are part of the generation contract.
+    // Changing them affects newly generated chunks and can create seams beside terrain stored in
+    // existing saves.
     private SurfaceSample sampleSurface(int worldX, int worldZ) {
         float continental = Noise.fbm2(worldX * 0.0019f, worldZ * 0.0019f, 5, 2.0f, 0.5f, seed + 17);
         float erosion = Noise.fbm2(worldX * 0.0036f, worldZ * 0.0036f, 4, 2.0f, 0.53f, seed + 23);
@@ -206,14 +204,12 @@ public final class TerrainGenerator {
         float moisture = Noise.fbm2(worldX * 0.0013f, worldZ * 0.0013f, 4, 2.0f, 0.5f, seed + 47);
         float weirdness = Noise.fbm2(worldX * 0.0048f, worldZ * 0.0048f, 3, 2.0f, 0.5f, seed + 53);
 
-        // 先用多組噪音決定基礎高度。
         float baseHeight = 57.0f
                 + continental * 20.0f
                 + detail * 7.5f
                 - Math.max(0.0f, -continental) * 8.0f
                 - Math.max(0.0f, -erosion) * 3.0f;
 
-        // 山地地形會額外抬高高度。
         float mountainMask = Math.max(0.0f, ridges - 0.27f) / 0.73f;
         float mountainBoost = mountainMask * mountainMask * (30.0f + Math.max(0.0f, weirdness) * 18.0f);
 
@@ -224,7 +220,6 @@ public final class TerrainGenerator {
         return new SurfaceSample(height, biome, continental);
     }
 
-    // 根據高度與多種噪音值決定這裡屬於哪種生態區。
     private Biome pickBiome(int height, float continental, float ridges, float temperature, float moisture) {
         if (ridges > 0.72f && continental > -0.20f) {
             return Biome.MOUNTAIN;
@@ -244,9 +239,7 @@ public final class TerrainGenerator {
         return Biome.PLAINS;
     }
 
-    // 根據生態區與深度決定某一層應該用哪種方塊。
     private BlockType selectStrataBlock(Biome biome, int y, int height, int topDepth) {
-        // 最上層通常是地表。
         if (y == height) {
             return switch (biome) {
                 case DESERT, BADLANDS -> BlockType.SAND;
@@ -256,7 +249,6 @@ public final class TerrainGenerator {
             };
         }
 
-        // 接近地表的幾層通常是泥土或沙。
         if (y >= height - topDepth) {
             return switch (biome) {
                 case DESERT, BADLANDS -> BlockType.SAND;
@@ -265,29 +257,28 @@ public final class TerrainGenerator {
             };
         }
 
-        // 更深處大多是石頭，惡地偶爾混入泥土。
+        // Use periodic dirt bands in deep badlands strata; other deep layers are stone.
         return switch (biome) {
             case BADLANDS -> (y % 6 == 0) ? BlockType.DIRT : BlockType.STONE;
             default -> BlockType.STONE;
         };
     }
 
-    // 規劃某個位置是否要長一棵樹，以及樹的基本資訊。
-    // 目前只允許樹完整落在單一 Chunk 內，避免跨 Chunk 生成順序造成樹冠缺口或重複。
+    // Keep each tree inside one chunk so generation order cannot truncate or duplicate cross-chunk
+    // canopies.
     private TreeSpec planTree(Chunk chunk, Biome biome, int lx, int baseY, int lz, int worldX, int worldZ) {
-        // 某些生態區不長樹。
         if (biome == Biome.DESERT || biome == Biome.BADLANDS || biome == Biome.MOUNTAIN) {
             return null;
         }
 
-        // 只有符合格網位置的座標才有機會生成樹，避免太密。
+        // Allow only one candidate slot per grid cell to control tree spacing.
         if (!matchesTreeGridSlot(biome, worldX, worldZ)) {
             return null;
         }
 
         int hash = Noise.hashInt(worldX, 0, worldZ, seed + 191);
 
-        // 不同生態區有不同機率長樹。
+        // Apply a biome-specific threshold to the deterministic placement hash.
         int chance = switch (biome) {
             case FOREST -> 34;
             case SNOW -> 10;
@@ -302,17 +293,17 @@ public final class TerrainGenerator {
         int trunkHeight = 3 + Math.abs(hash % 3);
         int topY = baseY + trunkHeight;
 
-        // 樹太高會超出世界高度時，不生成。
+        // Reserve space above the trunk for the canopy.
         if (topY + 3 >= GameConfig.CHUNK_HEIGHT) {
             return null;
         }
 
-        // 太靠近 Chunk 邊界時不生成，避免樹冠被切掉。
+        // Leave room for the widest leaf layer at chunk edges.
         if (lx < 2 || lx >= GameConfig.CHUNK_SIZE - 2 || lz < 2 || lz >= GameConfig.CHUNK_SIZE - 2) {
             return null;
         }
 
-        // 樹幹位置必須是空氣。
+        // Reject a tree if its planned trunk would replace existing terrain.
         for (int y = 0; y < trunkHeight; y++) {
             if (chunk.get(lx, baseY + y, lz) != BlockType.AIR) {
                 return null;
@@ -322,7 +313,8 @@ public final class TerrainGenerator {
         return new TreeSpec(lx, lz, baseY, trunkHeight);
     }
 
-    // 用格網加上隨機偏移，控制樹木分布位置；比逐格純機率更能避免樹木成片擠在一起。
+    // Use a seeded offset within each world-space grid cell to distribute tree candidates
+    // consistently, including at negative coordinates.
     private boolean matchesTreeGridSlot(Biome biome, int worldX, int worldZ) {
         int cellSize = biome == Biome.FOREST ? 5 : 6;
 
@@ -338,18 +330,16 @@ public final class TerrainGenerator {
         return localX == slotX && localZ == slotZ;
     }
 
-    // 放置樹幹。
     private void placeTrunk(Chunk chunk, TreeSpec tree) {
         for (int y = 0; y < tree.trunkHeight(); y++) {
             chunk.setRaw(tree.lx(), tree.baseY() + y, tree.lz(), (short) BlockType.LOG.id());
         }
     }
 
-    // 放置樹冠。
     private void placeCanopy(Chunk chunk, TreeSpec tree) {
         int topY = tree.topY();
 
-        // 樹葉從樹幹上半部開始包覆。
+        // Leave at least the lowest trunk block exposed before starting the canopy.
         int canopyBaseY = tree.baseY() + Math.max(1, tree.trunkHeight() - 4);
 
         for (int y = canopyBaseY; y <= topY + 2; y++) {
@@ -357,7 +347,7 @@ public final class TerrainGenerator {
             int radius;
             boolean trimCorners;
 
-            // 不同高度使用不同的葉層半徑，讓樹冠看起來較自然。
+            // Vary leaf radius by height to shape the canopy.
             if (rel <= -3) {
                 radius = 1;
                 trimCorners = false;
@@ -377,7 +367,6 @@ public final class TerrainGenerator {
 
     }
 
-    // 放置某一層的樹葉。
     private void placeLeafLayer(Chunk chunk, int centerX, int y, int centerZ, int radius, boolean trimCorners) {
         if (radius <= 0) {
             trySetLeaf(chunk, centerX, y, centerZ);
@@ -386,7 +375,7 @@ public final class TerrainGenerator {
 
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                // 需要時把四個角落去掉，避免樹冠太方。
+                // Trim selected layer corners to soften the square canopy outline.
                 if (trimCorners && Math.abs(dx) == radius && Math.abs(dz) == radius) {
                     continue;
                 }
@@ -395,7 +384,6 @@ public final class TerrainGenerator {
         }
     }
 
-    // 嘗試在指定位置放置樹葉。
     private void trySetLeaf(Chunk chunk, int x, int y, int z) {
         if (x < 0 || x >= GameConfig.CHUNK_SIZE || z < 0 || z >= GameConfig.CHUNK_SIZE) {
             return;
@@ -404,7 +392,7 @@ public final class TerrainGenerator {
             return;
         }
 
-        // 只在空氣位置放樹葉，不覆蓋其他方塊。
+        // Place leaves only in air so terrain and previously placed trunks remain intact.
         if (chunk.get(x, y, z) == BlockType.AIR) {
             chunk.setRaw(x, y, z, (short) BlockType.LEAVES.id());
         }

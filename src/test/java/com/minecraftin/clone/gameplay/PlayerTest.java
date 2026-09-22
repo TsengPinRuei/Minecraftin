@@ -61,6 +61,7 @@ final class PlayerTest {
         assertTrue(player.position().y >= 120.5f);
     }
 
+    // Inject key presses through the callback so movement tests do not need a native window.
     private static InputState input(int... keys) throws Exception {
         InputState input = new InputState();
         var field = InputState.class.getDeclaredField("keyCallback");

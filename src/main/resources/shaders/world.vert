@@ -1,10 +1,10 @@
 #version 330 core
-// 世界方塊的頂點著色器。
-// attribute layout 必須與 ChunkMesher.STRIDE_FLOATS 以及 WorldRenderer 建立 Mesh 時的 (3, 2, 3) 對齊。
 
+// Keep the eight-float layout aligned with ChunkMesher and WorldRenderer's attributes (3, 2, 3).
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec2 aUv;
-layout (location = 2) in vec3 aLight; // x = 面陰影*AO，y = 天空光，z = 方塊光
+// x = face shade times AO; y = sky light; z = block light.
+layout (location = 2) in vec3 aLight;
 
 uniform mat4 uProjection;
 uniform mat4 uView;
@@ -15,7 +15,7 @@ out vec3 vLight;
 out vec3 vWorldPos;
 
 void main() {
-    // 先輸出世界座標給 fragment shader，讓霧效可以用真實相機距離計算。
+    // Pass world-space positions so fog uses distance from the actual camera position.
     vec4 worldPos = uModel * vec4(aPosition, 1.0);
     vUv = aUv;
     vLight = aLight;

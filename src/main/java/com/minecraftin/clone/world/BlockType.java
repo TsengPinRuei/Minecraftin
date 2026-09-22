@@ -3,71 +3,54 @@ package com.minecraftin.clone.world;
 import com.minecraftin.clone.render.AtlasTiles;
 import java.util.Locale;
 
-// 定義遊戲中的方塊種類，以及每種方塊的碰撞、透明度與貼圖資訊。
-// id 會直接寫入世界存檔；新增或調整方塊時不要重排既有 id，否則舊存檔會讀成錯誤方塊。
+// Persist explicit block IDs, never enum ordinals; do not renumber or reuse IDs without a save
+// migration.
 public enum BlockType {
 
-    // 空氣方塊，不可碰撞，也不遮擋視線。
     AIR(0, false, false, 0, 0, 0),
 
-    // 草地方塊，側面、上面、下面使用不同貼圖。
     GRASS(1, true, true, AtlasTiles.GRASS_SIDE, AtlasTiles.GRASS_TOP, AtlasTiles.DIRT),
 
-    // 泥土方塊，三個面都使用相同貼圖。
     DIRT(2, true, true, AtlasTiles.DIRT, AtlasTiles.DIRT, AtlasTiles.DIRT),
 
-    // 石頭方塊。
     STONE(3, true, true, AtlasTiles.STONE, AtlasTiles.STONE, AtlasTiles.STONE),
 
-    // 沙子方塊。
     SAND(4, true, true, AtlasTiles.SAND, AtlasTiles.SAND, AtlasTiles.SAND),
 
-    // 水方塊，不是實心，也不遮擋視線。
+    // Source water does not block movement or targeting.
     WATER(5, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
 
-    // 原木方塊，側面與上下表面貼圖不同。
     LOG(6, true, true, AtlasTiles.LOG_SIDE, AtlasTiles.LOG_TOP, AtlasTiles.LOG_TOP),
 
-    // 樹葉方塊，可碰撞，但不完全遮擋視線。
+    // Leaves block movement but allow attenuated light; their current texture pixels are fully
+    // opaque.
     LEAVES(7, true, false, AtlasTiles.LEAVES, AtlasTiles.LEAVES, AtlasTiles.LEAVES),
 
-    // 鵝卵石方塊。
     COBBLESTONE(8, true, true, AtlasTiles.COBBLE, AtlasTiles.COBBLE, AtlasTiles.COBBLE),
 
-    // 木板方塊。
     PLANKS(9, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
 
-    // 玻璃方塊，可碰撞，但可透視。
     GLASS(10, true, false, AtlasTiles.GLASS, AtlasTiles.GLASS, AtlasTiles.GLASS),
 
-    // 磚塊方塊。
     BRICKS(11, true, true, AtlasTiles.BRICKS, AtlasTiles.BRICKS, AtlasTiles.BRICKS),
 
-    // 基岩方塊。
     BEDROCK(12, true, true, AtlasTiles.BEDROCK, AtlasTiles.BEDROCK, AtlasTiles.BEDROCK),
 
-    // 雪地方塊。
     SNOW(13, true, true, AtlasTiles.SNOW, AtlasTiles.SNOW, AtlasTiles.SNOW),
 
-    // 紅色方塊。
     RED_BLOCK(14, true, true, AtlasTiles.RED_BLOCK, AtlasTiles.RED_BLOCK, AtlasTiles.RED_BLOCK),
 
-    // 橘色方塊。
     ORANGE_BLOCK(15, true, true, AtlasTiles.ORANGE_BLOCK, AtlasTiles.ORANGE_BLOCK, AtlasTiles.ORANGE_BLOCK),
 
-    // 黃色方塊。
     YELLOW_BLOCK(16, true, true, AtlasTiles.YELLOW_BLOCK, AtlasTiles.YELLOW_BLOCK, AtlasTiles.YELLOW_BLOCK),
 
-    // 綠色方塊。
     GREEN_BLOCK(17, true, true, AtlasTiles.GREEN_BLOCK, AtlasTiles.GREEN_BLOCK, AtlasTiles.GREEN_BLOCK),
 
-    // 藍色方塊。
     BLUE_BLOCK(18, true, true, AtlasTiles.BLUE_BLOCK, AtlasTiles.BLUE_BLOCK, AtlasTiles.BLUE_BLOCK),
 
-    // 紫色方塊。
     PURPLE_BLOCK(19, true, true, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK, AtlasTiles.PURPLE_BLOCK),
 
-    // 羊毛系列，提供創造模式常用的柔和彩色建材。
+    // Selectable wool colors share full-cube behavior.
     WHITE_WOOL(20, true, true, AtlasTiles.WHITE_WOOL, AtlasTiles.WHITE_WOOL, AtlasTiles.WHITE_WOOL),
     LIGHT_GRAY_WOOL(21, true, true, AtlasTiles.LIGHT_GRAY_WOOL, AtlasTiles.LIGHT_GRAY_WOOL, AtlasTiles.LIGHT_GRAY_WOOL),
     GRAY_WOOL(22, true, true, AtlasTiles.GRAY_WOOL, AtlasTiles.GRAY_WOOL, AtlasTiles.GRAY_WOOL),
@@ -84,12 +67,10 @@ public enum BlockType {
     MAGENTA_WOOL(33, true, true, AtlasTiles.MAGENTA_WOOL, AtlasTiles.MAGENTA_WOOL, AtlasTiles.MAGENTA_WOOL),
     PINK_WOOL(34, true, true, AtlasTiles.PINK_WOOL, AtlasTiles.PINK_WOOL, AtlasTiles.PINK_WOOL),
 
-    // 木材系列。
     BIRCH_PLANKS(35, true, true, AtlasTiles.BIRCH_PLANKS, AtlasTiles.BIRCH_PLANKS, AtlasTiles.BIRCH_PLANKS),
     SPRUCE_PLANKS(36, true, true, AtlasTiles.SPRUCE_PLANKS, AtlasTiles.SPRUCE_PLANKS, AtlasTiles.SPRUCE_PLANKS),
     DARK_OAK_PLANKS(37, true, true, AtlasTiles.DARK_OAK_PLANKS, AtlasTiles.DARK_OAK_PLANKS, AtlasTiles.DARK_OAK_PLANKS),
 
-    // 石材與建築材料。
     STONE_BRICKS(38, true, true, AtlasTiles.STONE_BRICKS, AtlasTiles.STONE_BRICKS, AtlasTiles.STONE_BRICKS),
     CHISELED_STONE_BRICKS(39, true, true, AtlasTiles.CHISELED_STONE_BRICKS, AtlasTiles.CHISELED_STONE_BRICKS,
             AtlasTiles.CHISELED_STONE_BRICKS),
@@ -120,7 +101,8 @@ public enum BlockType {
     GLOWSTONE(57, true, true, AtlasTiles.GLOWSTONE, AtlasTiles.GLOWSTONE, AtlasTiles.GLOWSTONE),
     SEA_LANTERN(58, true, true, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN, AtlasTiles.SEA_LANTERN),
 
-    // 創造模式常用基本物品與非完整方塊。Base 版本出現在背包；方向版本由放置流程寫入世界。
+    // The creative palette exposes base entries; placement converts directional blocks to world
+    // variants.
     OAK_STAIRS(59, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
     OAK_STAIRS_NORTH(60, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
     OAK_STAIRS_EAST(61, true, true, AtlasTiles.PLANKS, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
@@ -151,7 +133,7 @@ public enum BlockType {
     CHEST(85, true, true, AtlasTiles.CHEST_SIDE, AtlasTiles.CHEST_TOP, AtlasTiles.CHEST_TOP),
     BOOKSHELF(86, true, true, AtlasTiles.BOOKSHELF, AtlasTiles.PLANKS, AtlasTiles.PLANKS),
 
-    // 開啟狀態追加在既有 id 後方，避免舊存檔中的方塊編號被重排。
+    // Append open-state IDs without changing IDs already stored in existing saves.
     OAK_DOOR_NORTH_OPEN_BOTTOM(87, true, false, AtlasTiles.OAK_DOOR_LOWER, AtlasTiles.OAK_DOOR_LOWER, AtlasTiles.OAK_DOOR_LOWER),
     OAK_DOOR_NORTH_OPEN_TOP(88, true, false, AtlasTiles.OAK_DOOR_UPPER, AtlasTiles.OAK_DOOR_UPPER, AtlasTiles.OAK_DOOR_UPPER),
     OAK_DOOR_EAST_OPEN_BOTTOM(89, true, false, AtlasTiles.OAK_DOOR_LOWER, AtlasTiles.OAK_DOOR_LOWER, AtlasTiles.OAK_DOOR_LOWER),
@@ -162,8 +144,9 @@ public enum BlockType {
     OAK_DOOR_WEST_OPEN_TOP(94, true, false, AtlasTiles.OAK_DOOR_UPPER, AtlasTiles.OAK_DOOR_UPPER, AtlasTiles.OAK_DOOR_UPPER),
     OAK_TRAPDOOR_OPEN(95, true, false, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR, AtlasTiles.OAK_TRAPDOOR),
 
-    // 流動水，強度 7（緊鄰水源）遞減到 1（最遠端）。只由水流模擬寫入世界，不出現在背包；
-    // WATER 本身代表水源，失去支撐的流動水會逐步退去。
+    // Sources use WATER; simulation writes flowing states with strength 7 down to 1.
+    // Strength controls propagation, not visible surface height; all water states currently use
+    // full-cube geometry.
     WATER_FLOW_7(96, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
     WATER_FLOW_6(97, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
     WATER_FLOW_5(98, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
@@ -172,31 +155,31 @@ public enum BlockType {
     WATER_FLOW_2(101, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER),
     WATER_FLOW_1(102, false, false, AtlasTiles.WATER, AtlasTiles.WATER, AtlasTiles.WATER);
 
-    // 依照 id 快速查詢方塊種類的陣列，用在存檔與 Chunk 原始資料轉回 enum。
+    // Index persisted IDs separately from ordinal-based runtime caches.
     private static final BlockType[] BY_ID;
 
-    // 每種方塊顯示名稱的快取，避免 HUD 或視窗標題更新時重複拆字串與轉大小寫。
+    // Cache display names so HUD updates do not repeatedly split and capitalize enum names.
     private static final String[] DISPLAY_NAMES;
 
-    // 每種方塊是否為完整方塊的快取；ChunkMesher 會在熱路徑中頻繁查詢。
+    // Cache full-cube classification for frequent mesher queries.
     private static final boolean[] FULL_CUBE_FLAGS;
 
-    // 互動與碰撞常用分類快取，避免反覆跑大型 enum switch。
+    // Cache block categories used frequently by interaction and collision code.
     private static final boolean[] DOOR_FLAGS;
     private static final boolean[] DOOR_TOP_FLAGS;
     private static final boolean[] DOOR_OPEN_FLAGS;
     private static final boolean[] TRAPDOOR_FLAGS;
     private static final boolean[] LADDER_FLAGS;
 
-    // 每種方塊的發光強度與額外光衰減快取；光照 BFS 在熱路徑中頻繁查詢。
+    // Cache emission and attenuation for lighting propagation.
     private static final int[] LIGHT_EMISSION;
     private static final int[] LIGHT_OPACITY;
 
-    // 碰撞與渲染盒快取；玩家碰撞和 ChunkMesher 都會高頻查詢。
+    // Cache shared shape arrays for collision and mesh generation.
     private static final BlockBounds[][] COLLISION_BOXES;
     private static final BlockBounds[][] RENDER_BOXES;
 
-    // 以下碰撞/渲染盒都使用方塊局部座標，讓 Player、ChunkMesher 與互動判定共用同一份形狀定義。
+    // Use block-local boxes so collision, rendering, and targeting share shape definitions.
     private static final BlockBounds[] EMPTY_BOUNDS = new BlockBounds[0];
     private static final BlockBounds[] FULL_BOUNDS = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) };
     private static final BlockBounds[] NORTH_THIN = { new BlockBounds(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.1875f) };
@@ -233,7 +216,7 @@ public enum BlockType {
             new BlockBounds(0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f)
     };
 
-    // 創造模式背包只放「玩家可直接選取」的基礎方塊；方向變體由放置流程依視角或命中面轉換。
+    // Expose placeable base entries in the palette; placement chooses directional variants.
     private static final BlockType[] CREATIVE_PALETTE = {
             GRASS, DIRT, STONE, COBBLESTONE, SAND, SNOW, WATER, GLASS, BEDROCK,
             LOG, PLANKS, BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, LEAVES, OAK_STAIRS, OAK_SLAB, STONE_SLAB,
@@ -249,23 +232,24 @@ public enum BlockType {
             RED_BLOCK, ORANGE_BLOCK, YELLOW_BLOCK, GREEN_BLOCK, BLUE_BLOCK, PURPLE_BLOCK
     };
 
+    // Initialize FULL_CUBE_FLAGS before LIGHT_OPACITY because computeLightOpacity() calls
+    // isFullCube().
     static {
         int maxId = 0;
         BlockType[] types = values();
 
-        // 找出目前所有方塊中最大的 id。
         for (BlockType type : types) {
             maxId = Math.max(maxId, type.id);
         }
 
         BY_ID = new BlockType[maxId + 1];
 
-        // 將每個方塊放到對應 id 的位置。
         for (BlockType type : types) {
             BY_ID[type.id] = type;
         }
 
-        // 存檔讀寫使用 id；執行期快取使用 ordinal。兩者用途不同，新增方塊時不能混用。
+        // Use stable IDs for saves and ordinals only for runtime caches; these indices are not
+        // interchangeable.
         DISPLAY_NAMES = new String[types.length];
         for (BlockType type : types) {
             DISPLAY_NAMES[type.ordinal()] = type.computeDisplayName();
@@ -306,10 +290,11 @@ public enum BlockType {
 
     private final int id;
 
-    // 是否為實心方塊，會影響碰撞判定。
+    // Whether this block can provide solid support; actual player collisions use collisionBoxes().
     private final boolean solid;
 
-    // 是否為不透明方塊，會影響遮擋與渲染判定。
+    // Opacity classification affects face culling; light attenuation also depends on full-cube
+    // shape.
     private final boolean opaque;
 
     private final int sideTile;
@@ -318,7 +303,6 @@ public enum BlockType {
 
     private final int bottomTile;
 
-    // 建立一種方塊時，設定它的基本屬性與貼圖。
     BlockType(int id, boolean solid, boolean opaque, int sideTile, int topTile, int bottomTile) {
         this.id = id;
         this.solid = solid;
@@ -344,7 +328,7 @@ public enum BlockType {
         return !opaque;
     }
 
-    // 需要以半透明 pass 繪製的方塊；其他非不透明方塊多半是形狀或 cutout，而不是玻璃/水那種混色透明。
+    // Only water and glass use alpha blending; isTransparent() alone does not select this pass.
     public boolean isTranslucent() {
         return isWaterBlock() || this == GLASS;
     }
@@ -361,7 +345,7 @@ public enum BlockType {
         };
     }
 
-    // 水的流動強度：水源 8、流動水 7 到 1、非水 0。水流模擬以此決定衰減與覆蓋。
+    // Simulation strength is 8 for sources, 7-1 for flowing water, and 0 for other blocks.
     public int waterStrength() {
         return switch (this) {
             case WATER -> 8;
@@ -376,7 +360,7 @@ public enum BlockType {
         };
     }
 
-    // 依強度取得對應的流動水方塊；8 以上回傳水源。
+    // Map nonpositive strength to AIR, strengths 1-7 to flow states, and higher values to a source.
     public static BlockType flowingWaterOfStrength(int strength) {
         if (strength <= 0) {
             return AIR;
@@ -397,7 +381,8 @@ public enum BlockType {
         return DISPLAY_NAMES[ordinal()];
     }
 
-    // 建立顯示名稱；只在 enum 靜態初始化時呼叫一次，名稱盡量對齊 Minecraft 的英文方塊名。
+    // Compute each display name once; internal directional and state variants share the base block
+    // name.
     private String computeDisplayName() {
         return switch (this) {
             case GRASS -> "Grass Block";
@@ -422,12 +407,11 @@ public enum BlockType {
             case WATER_FLOW_7, WATER_FLOW_6, WATER_FLOW_5, WATER_FLOW_4,
                     WATER_FLOW_3, WATER_FLOW_2, WATER_FLOW_1 -> "Water";
 
-            // 其他方塊名稱會由列舉名稱自動轉成較好讀的格式。
             default -> titleCaseFromEnum(name());
         };
     }
 
-    // 根據方塊的面向，回傳該面要使用的貼圖編號。
+    // Choose the material by face; furnaces currently keep their front on NORTH.
     public int tileForFace(Face face) {
         if (this == FURNACE && face == Face.NORTH) {
             return AtlasTiles.FURNACE_FRONT;
@@ -439,8 +423,8 @@ public enum BlockType {
         };
     }
 
-    // 依照 id 取得方塊種類。
-    // 如果 id 超出範圍或找不到對應方塊，預設回傳 AIR。
+    // Unknown or out-of-range IDs return AIR; the save loader must validate IDs before accepting
+    // them.
     public static BlockType byId(int id) {
         if (id < 0 || id >= BY_ID.length) {
             return AIR;
@@ -450,7 +434,7 @@ public enum BlockType {
         return type != null ? type : AIR;
     }
 
-    // 回傳創造模式背包中可選用的方塊。回傳副本避免呼叫端改到全域順序。
+    // Return a copy so callers cannot reorder the global creative palette.
     public static BlockType[] creativePalette() {
         return CREATIVE_PALETTE.clone();
     }
@@ -459,17 +443,17 @@ public enum BlockType {
         return FULL_CUBE_FLAGS[ordinal()];
     }
 
-    // 方塊本身的發光強度（0 到 15）。
+    // Emitted block light level, from 0 to 15.
     public int lightEmission() {
         return LIGHT_EMISSION[ordinal()];
     }
 
-    // 穿過方塊的光衰減；15 完全阻擋。非直射光每跨一格至少衰減 1。
+    // Light attenuation through this block; 15 stops incoming light.
+    // Propagation still loses at least one level except for downward full-strength sky light.
     public int lightOpacity() {
         return LIGHT_OPACITY[ordinal()];
     }
 
-    // 建立發光強度；只在 enum 靜態初始化時呼叫一次，數值對齊 Minecraft。
     private int computeLightEmission() {
         return switch (this) {
             case TORCH -> 14;
@@ -478,7 +462,6 @@ public enum BlockType {
         };
     }
 
-    // 建立額外光衰減；只在 enum 靜態初始化時呼叫一次。
     private int computeLightOpacity() {
         if (isWaterBlock()) {
             return 2;
@@ -489,7 +472,6 @@ public enum BlockType {
         return isOpaque() && isFullCube() ? 15 : 0;
     }
 
-    // 建立完整方塊旗標；只在 enum 靜態初始化時呼叫一次。
     private boolean computeIsFullCube() {
         return switch (this) {
             case AIR, OAK_STAIRS, OAK_STAIRS_NORTH, OAK_STAIRS_EAST, OAK_STAIRS_SOUTH, OAK_STAIRS_WEST,
@@ -504,7 +486,7 @@ public enum BlockType {
         };
     }
 
-    // 門有上下半格與開關狀態多個 enum 變體，互動與破壞時都需要把它們視為同一類方塊。
+    // Treat all door orientations and open/closed halves as one interaction category.
     public boolean isDoorBlock() {
         return DOOR_FLAGS[ordinal()];
     }
@@ -520,7 +502,7 @@ public enum BlockType {
         };
     }
 
-    // 判斷目前門變體是否為上半部，用來定位同一扇門的底部座標。
+    // Identify top halves so interactions can locate the door's lower cell.
     public boolean isDoorTop() {
         return DOOR_TOP_FLAGS[ordinal()];
     }
@@ -534,7 +516,7 @@ public enum BlockType {
         };
     }
 
-    // 判斷門是否為開啟狀態；開關門時會在開/關變體之間切換，但保留朝向與上下半部。
+    // Report whether a door half is open, regardless of its orientation or top/bottom position.
     public boolean isDoorOpen() {
         return DOOR_OPEN_FLAGS[ordinal()];
     }
@@ -548,7 +530,7 @@ public enum BlockType {
         };
     }
 
-    // 活板門目前只有關閉與固定開啟方向兩種狀態。
+    // Trapdoors have only closed and fixed-direction open variants.
     public boolean isTrapdoorBlock() {
         return TRAPDOOR_FLAGS[ordinal()];
     }
@@ -557,7 +539,8 @@ public enum BlockType {
         return this == OAK_TRAPDOOR || this == OAK_TRAPDOOR_OPEN;
     }
 
-    // 梯子沒有碰撞盒，但玩家爬梯與渲染仍需要辨識它的方向變體。
+    // Ladders have no collision boxes, but climbing and rendering still use their directional
+    // variants.
     public boolean isLadderBlock() {
         return LADDER_FLAGS[ordinal()];
     }
@@ -567,7 +550,7 @@ public enum BlockType {
                 || this == LADDER_WEST;
     }
 
-    // 回傳活板門切換後的變體；呼叫端會先檢查新碰撞盒是否卡到玩家。
+    // Call only for a trapdoor; the caller must reject a new shape that would overlap the player.
     public BlockType toggledTrapdoorVariant() {
         return this == OAK_TRAPDOOR ? OAK_TRAPDOOR_OPEN : OAK_TRAPDOOR;
     }
@@ -576,7 +559,7 @@ public enum BlockType {
         return isDoorOpen() ? closedDoorVariant() : openedDoorVariant();
     }
 
-    // 關門變體轉開門變體；非關門變體原樣回傳，讓呼叫端可安全地對任意方塊呼叫。
+    // Convert directional closed-door states to open states; leave unrelated values unchanged.
     private BlockType openedDoorVariant() {
         return switch (this) {
             case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_OPEN_BOTTOM;
@@ -591,7 +574,7 @@ public enum BlockType {
         };
     }
 
-    // 開門變體轉關門變體；非開門變體原樣回傳。
+    // Convert open-door states to closed states; leave unrelated values unchanged.
     private BlockType closedDoorVariant() {
         return switch (this) {
             case OAK_DOOR_NORTH_OPEN_BOTTOM -> OAK_DOOR_NORTH_BOTTOM;
@@ -606,12 +589,12 @@ public enum BlockType {
         };
     }
 
-    // 背包中的 OAK_DOOR 是放置用代表項，真正寫入世界時會拆成上下兩格方向變體。
+    // OAK_DOOR is a palette entry; placement writes two directional halves.
     public boolean placesAsDoor() {
         return this == OAK_DOOR;
     }
 
-    // 將背包中的基礎方塊轉成實際寫入世界的朝向變體；facing 使用 Game 的 0=N、1=E、2=S、3=W 約定。
+    // Facing indices match Game: 0 = north, 1 = east, 2 = south, 3 = west.
     public BlockType placedVariantForFacing(int facing) {
         return switch (this) {
             case OAK_STAIRS -> switch (facing) {
@@ -626,7 +609,7 @@ public enum BlockType {
         };
     }
 
-    // 由門底部變體取得對應上半部；開關狀態與朝向必須一致。
+    // Find the matching top variant while preserving orientation and open/closed state.
     public BlockType doorTopVariant() {
         return switch (this) {
             case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_TOP;
@@ -641,7 +624,8 @@ public enum BlockType {
         };
     }
 
-    // 找出同一扇門的另一半；破壞或開關任一半時用來同步處理上下格。
+    // Find the paired half with the same orientation and state for synchronized interaction or
+    // removal.
     public BlockType matchingDoorHalf() {
         return switch (this) {
             case OAK_DOOR_NORTH_BOTTOM -> OAK_DOOR_NORTH_TOP;
@@ -664,7 +648,8 @@ public enum BlockType {
         };
     }
 
-    // 回傳實際會阻擋玩家的碰撞盒。梯子與火把可見但不阻擋，水也不阻擋。
+    // Return shared collision boxes; air, water, ladders, and torches do not block the player.
+    // Callers must not replace entries in the cached array.
     public BlockBounds[] collisionBoxes() {
         return COLLISION_BOXES[ordinal()];
     }
@@ -676,13 +661,15 @@ public enum BlockType {
         return computeRenderBoxes();
     }
 
-    // 回傳渲染用幾何盒；非完整方塊會在 ChunkMesher 中依這些盒子建立簡化模型。
+    // Return shared render geometry, also used by targeting; callers must not replace array
+    // entries.
     public BlockBounds[] renderBoxes() {
         return RENDER_BOXES[ordinal()];
     }
 
     private BlockBounds[] computeRenderBoxes() {
-        // 開門變體會把門板旋轉到相鄰薄面；方向約定需與 Game.facingFromCamera() 保持一致。
+        // Open doors rotate to an adjacent thin face; keep the orientation convention aligned with
+        // Game.
         return switch (this) {
             case AIR -> EMPTY_BOUNDS;
             case OAK_STAIRS, OAK_STAIRS_NORTH -> STAIRS_NORTH_BOUNDS;
@@ -710,7 +697,6 @@ public enum BlockType {
         };
     }
 
-    // 依玩家面向取得門底部變體，供放置流程建立下半部後再推得上半部。
     public static BlockType doorBottomForFacing(int facing) {
         return switch (facing) {
             case 1 -> OAK_DOOR_EAST_BOTTOM;
@@ -720,7 +706,8 @@ public enum BlockType {
         };
     }
 
-    // 依附著面方向取得梯子變體；方向代表梯子所在的薄面朝向。
+    // Facing identifies the cell side holding the ladder, not the outward normal of the block that
+    // was clicked.
     public static BlockType ladderForFacing(int facing) {
         return switch (facing) {
             case 1 -> LADDER_EAST;
@@ -730,8 +717,6 @@ public enum BlockType {
         };
     }
 
-    // 將列舉名稱轉成較易讀的文字。
-    // 例如 RED_BLOCK 會變成 Red Block。
     private static String titleCaseFromEnum(String enumName) {
         String[] words = enumName.toLowerCase(Locale.ROOT).split("_");
         StringBuilder out = new StringBuilder(enumName.length() + 4);
@@ -741,21 +726,17 @@ public enum BlockType {
                 continue;
             }
 
-            // 如果前面已經有文字，先補一個空白。
             if (!out.isEmpty()) {
                 out.append(' ');
             }
 
-            // 把每個單字的第一個字母改成大寫。
             out.append(Character.toUpperCase(word.charAt(0)));
 
-            // 如果單字長度大於 1，接上剩下的字元。
             if (word.length() > 1) {
                 out.append(word, 1, word.length());
             }
         }
 
-        // 如果轉換後沒有內容，就回傳原本的列舉名稱。
         return out.isEmpty() ? enumName : out.toString();
     }
 }

@@ -12,7 +12,8 @@ import java.nio.IntBuffer;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
-// 封裝 GLFW 視窗與 OpenGL context 建立流程，並持續追蹤 framebuffer 實際尺寸。
+// Own the application's GLFW window and OpenGL context.
+// Close dependent GPU resources before closing the window.
 public final class Window implements AutoCloseable {
     private long handle;
 
@@ -20,10 +21,10 @@ public final class Window implements AutoCloseable {
 
     private int height;
 
-    // 目前 GLFW 視窗邏輯寬度；滑鼠座標使用這個座標系。
+    // Logical window dimensions share the cursor coordinate system.
     private int windowWidth;
 
-    // 目前 GLFW 視窗邏輯高度；滑鼠座標使用這個座標系。
+    // Logical height for input and HUD hit testing.
     private int windowHeight;
 
     private boolean glfwInitialized;
@@ -48,7 +49,7 @@ public final class Window implements AutoCloseable {
         GLFWVidMode videoMode = monitor != NULL ? glfwGetVideoMode(monitor) : null;
 
         if (videoMode != null) {
-            // 預留一些邊界，避免視窗太貼近螢幕邊緣。
+            // Leave room around the window when the monitor dimensions allow it.
             int availableWidth = Math.max(1, videoMode.width() - 80);
             int availableHeight = Math.max(1, videoMode.height() - 120);
 
@@ -80,7 +81,7 @@ public final class Window implements AutoCloseable {
 
         glfwMakeContextCurrent(handle);
 
-        // 關閉垂直同步，讓畫面交換不受螢幕更新率限制；目前 FPS 顯示會反映未鎖幀的渲染速度。
+        // Disable vertical sync; the FPS counter therefore measures uncapped rendering.
         glfwSwapInterval(0);
 
         GL.createCapabilities();
@@ -123,8 +124,7 @@ public final class Window implements AutoCloseable {
         return glfwWindowShouldClose(handle);
     }
 
-    // 設定是否要鎖定滑鼠游標。
-    // true 代表隱藏並鎖定游標，常用在第一人稱視角。
+    // Capture hides the cursor and enables unrestricted relative movement for the camera.
     public void captureCursor(boolean capture) {
         glfwSetInputMode(handle, GLFW_CURSOR, capture ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
     }
@@ -157,8 +157,8 @@ public final class Window implements AutoCloseable {
         }
     }
 
-    // 重新取得 framebuffer 的實際大小。
-    // 這比單純使用視窗大小更準確，特別是在高 DPI 顯示器上。
+    // Use framebuffer pixels for rendering; these can differ from logical window size on high-DPI
+    // displays.
     private void refreshFramebufferSize() {
         if (handle == NULL) {
             return;
@@ -175,8 +175,7 @@ public final class Window implements AutoCloseable {
         }
     }
 
-    // 重新取得 GLFW 視窗的邏輯大小。
-    // 這組尺寸與滑鼠座標同一個座標系，HUD hit test 不能直接拿高 DPI framebuffer 尺寸替代。
+    // Use logical window dimensions with cursor coordinates for HUD hit tests.
     private void refreshWindowSize() {
         if (handle == NULL) {
             return;

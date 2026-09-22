@@ -18,17 +18,18 @@ import java.nio.file.Paths;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL33C.*;
 
-// 協調遊戲主流程：建立視窗、載入世界、更新玩家與互動、呼叫渲染器，最後集中釋放資源。
+// Coordinate window setup, world initialization, input, simulation, rendering, and shutdown.
 public final class Game {
     private static final String MODE_LABEL = GameConfig.CREATIVE_MODE_ONLY ? "CREATIVE" : "SURVIVAL";
 
-    // 角色走路時的鏡頭晃動參數；只影響視覺，不參與玩家碰撞或射線起點以外的物理狀態。
+    // Walking bob changes the camera and targeting ray origin, but not the player's collision
+    // position.
     private static final float WALK_BOB_VERTICAL_BASE = 0.020f;
     private static final float WALK_BOB_VERTICAL_SCALE = 0.024f;
     private static final float WALK_BOB_HORIZONTAL_FACTOR = 0.60f;
     private static final float WALK_BOB_RESET_SPEED = 8.0f;
 
-    // 快捷欄中可選擇的方塊，順序對應數字鍵 1 到 9；預設放 Minecraft 風格的基礎建材。
+    // Hotbar order matches number keys 1 through 9; inventory selection can replace these defaults.
     private final BlockType[] hotbar = {
             BlockType.GRASS,
             BlockType.DIRT,
@@ -50,7 +51,7 @@ public final class Game {
     private final Player player = new Player();
     private final World world = new World(Paths.get(GameConfig.WORLD_FILE), GameConfig.DEFAULT_WORLD_SEED);
 
-    // 主迴圈每幀都會使用的暫存向量，避免在高頻更新時製造大量短生命週期物件。
+    // Reuse vectors across frames to avoid temporary allocations.
     private final Vector3f tmpCameraRight = new Vector3f();
     private final Vector3f tmpRayOrigin = new Vector3f();
     private final Vector3f tmpRayDirection = new Vector3f();
@@ -60,25 +61,24 @@ public final class Game {
 
     private boolean cursorCaptured = false;
 
-    // 點擊視窗鎖定滑鼠的那一下不應該同時破壞方塊；按住直到放開前都先忽略互動。
+    // Ignore world interaction until both mouse buttons are released after capturing the cursor.
     private boolean suppressInteractionUntilRelease;
 
     private int hotbarIndex;
 
-    // 切換快捷欄後顯示方塊名稱的剩餘秒數；Minecraft 的名稱提示約顯示 2 秒後消失。
+    // Show the selected block name for this many simulation seconds.
     private static final float HOTBAR_LABEL_SECONDS = 2.0f;
     private float hotbarLabelTimer;
 
-    // 創造模式背包狀態；開啟 UI 時會暫時釋放滑鼠，關閉時依原本狀態恢復。
+    // Remember cursor capture state so closing the inventory can restore first-person control.
     private boolean creativeInventoryOpen;
     private boolean recaptureCursorAfterInventory;
     private int creativeInventoryPage;
 
-    // 箱子目前只有空容器介面；之後若加入物品堆疊，可在這個狀態上接容器資料與格子互動。
+    // The chest is currently an empty UI; it has no stored items or slot interactions.
     private boolean chestOpen;
     private boolean recaptureCursorAfterChest;
 
-    // 破壞、放置方塊與自動存檔的冷卻或計時。
     private float breakCooldown;
     private float placeCooldown;
     private float autosaveTimer;
@@ -93,17 +93,19 @@ public final class Game {
 
     private boolean debugOverlayVisible;
 
-    // 用來確認世界與玩家出生點是否已完成初始化。
+    // Save on exit only after world initialization succeeds; record respawn only after player
+    // placement succeeds.
     private boolean worldInitialized;
     private boolean playerSpawnInitialized;
 
-    // 走路時鏡頭晃動的狀態。
     private float walkBobPhase;
     private float walkBobVertical;
     private float walkBobHorizontal;
 
     public void run() {
         try (ResourceScope resources = new ResourceScope()) {
+            // Register the window before create() so partial initialization can be cleaned up.
+            // Register GPU resources later so they close before the window destroys its context.
             resources.add(window);
             try {
                 window.create();
@@ -114,11 +116,11 @@ public final class Game {
                 world.initialize();
                 worldInitialized = true;
 
-                // 建立渲染器；HUD 共用世界的材質圖集來畫方塊縮圖。
+                // The HUD borrows the world renderer's atlas, so it must close before the renderer.
                 worldRenderer = resources.add(new WorldRenderer());
                 hudRenderer = resources.add(new HudRenderer(worldRenderer.atlas()));
 
-                // 先嘗試讀取上次離開時的重生點；新世界或舊版存檔沒有重生點時才重新計算預設出生點。
+                // Use the saved exit position when present; otherwise compute a new spawn point.
                 Vector3f spawn = new Vector3f();
                 if (!world.tryGetSavedRespawnPosition(spawn)) {
                     world.defaultSpawn(spawn);
@@ -134,12 +136,14 @@ public final class Game {
 
                 loop();
             } finally {
-                // 結束前記錄玩家目前位置，作為下次重生點；這是離開遊戲時才更新的持久狀態。
+                // Record the player's exit position for the next session; autosave does not refresh
+                // this position.
                 if (worldInitialized && playerSpawnInitialized) {
                     world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
                 }
 
-                // 離開前固定存檔一次，讓世界時間等持續變動的狀態也能保留。
+                // Attempt a final save even when no blocks are dirty, so world time is also
+                // persisted.
                 if (worldInitialized) {
                     safeSaveWorld();
                 }
@@ -154,7 +158,7 @@ public final class Game {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // 水、玻璃和薄片需要從兩側看見。
+        // Render both sides of water, glass, and thin block geometry.
         glDisable(GL_CULL_FACE);
     }
 
@@ -164,14 +168,15 @@ public final class Game {
         while (!window.shouldClose()) {
             double now = glfwGetTime();
 
-            // 計算這一幀經過的秒數，並限制最大值，避免視窗卡住後讓物理與碰撞一次跳太遠。
+            // Cap the simulation step to limit collision movement after a stalled frame.
+            // Time beyond the cap is dropped, so simulation timers may lag wall-clock time.
             float delta = (float) Math.min(0.05, now - lastTime);
             lastTime = now;
 
             window.pollEvents();
             handleInputState();
 
-            // 根據玩家所在區塊，先載入渲染距離外一圈，讓邊界面判定與移動互動能看到鄰近 Chunk。
+            // Load one extra ring for neighbor sampling and interactions near the render boundary.
             int playerChunkX = Math.floorDiv((int) Math.floor(player.position().x), GameConfig.CHUNK_SIZE);
             int playerChunkZ = Math.floorDiv((int) Math.floor(player.position().z), GameConfig.CHUNK_SIZE);
             if (playerChunkX != loadedCenterX || playerChunkZ != loadedCenterZ) {
@@ -191,7 +196,7 @@ public final class Game {
                 updateBlockInteraction(delta);
             }
 
-            // 推進世界內的非玩家狀態，例如放置水的逐步流動動畫。
+            // World time and water keep advancing while the cursor is released or a panel is open.
             world.update(delta);
             worldRenderer.update(delta);
 
@@ -206,7 +211,9 @@ public final class Game {
             window.swapBuffers();
             input.endFrame();
 
-            // 自動存檔主要處理玩家改動過的 Chunk；重生點會在離開遊戲時由 finally 區塊保證寫入。
+            // Autosave is triggered by modified blocks or respawn state; a successful save writes
+            // all loaded chunks.
+            // Shutdown attempts to save the exit position, but safeSaveWorld only logs failures.
             autosaveTimer += delta;
             if (autosaveTimer >= 20.0f) {
                 if (world.hasPendingSave()) {
@@ -218,13 +225,13 @@ public final class Game {
     }
 
     private void handleInputState() {
-        // F3 在任何狀態下都能切換偵錯畫面，與 Minecraft 一致。
+        // Allow the debug overlay to toggle even while a panel is open.
         if (input.wasKeyPressed(GLFW_KEY_F3)) {
             debugOverlayVisible = !debugOverlayVisible;
         }
 
         if (chestOpen) {
-            // 容器 UI 會攔截 E/ESC，避免同一幀又落到遊戲互動或創造背包切換。
+            // Consume panel controls here so they cannot also trigger inventory or world actions.
             if (input.wasKeyPressed(GLFW_KEY_E) || input.wasKeyPressed(GLFW_KEY_ESCAPE)) {
                 closeChest(true);
             }
@@ -240,11 +247,11 @@ public final class Game {
         }
 
         if (creativeInventoryOpen) {
-            // 背包開啟時只處理 UI 選取，不讓滑鼠點擊同時破壞或放置世界方塊。
             if (input.wasKeyPressed(GLFW_KEY_ESCAPE)) {
                 closeCreativeInventory(true);
             }
             handleHotbarKeySelection();
+            // Route clicks to inventory selection while the panel is open.
             handleCreativeInventorySelection();
             return;
         }
@@ -255,7 +262,7 @@ public final class Game {
             input.resetMouseTracking();
         }
 
-        // 尚未鎖定滑鼠時，點左鍵可進入遊戲控制模式；這一下點擊不應該同時破壞方塊。
+        // The click that captures the cursor must not also break the targeted block.
         if (!cursorCaptured && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
             cursorCaptured = true;
             suppressInteractionUntilRelease = true;
@@ -284,7 +291,7 @@ public final class Game {
     }
 
     private void handleCreativeInventorySelection() {
-        // 背包頁面用滾輪切換；consumeScrollDeltaY 只可在本流程消耗一次。
+        // Consume scrolling once here; the world hotbar handler is skipped while inventory is open.
         double scroll = input.consumeScrollDeltaY();
         if (scroll != 0.0) {
             int direction = scroll > 0.0 ? -1 : 1;
@@ -312,14 +319,14 @@ public final class Game {
         hotbar[hotbarIndex] = creativeBlocks[blockIndex];
         hotbarLabelTimer = HOTBAR_LABEL_SECONDS;
 
-        // 右鍵可快速選取並回到遊戲，左鍵則保留背包開啟方便連續換槽。
+        // Right-click selects and closes the inventory; left-click keeps it open.
         if (rightClick) {
             closeCreativeInventory(true);
         }
     }
 
     private void openCreativeInventory() {
-        // 記住開啟前是否鎖定滑鼠，關閉 UI 時才知道是否要回到第一人稱控制。
+        // Restore the prior cursor capture state when this panel closes.
         recaptureCursorAfterInventory = cursorCaptured;
         creativeInventoryOpen = true;
         cursorCaptured = false;
@@ -344,7 +351,8 @@ public final class Game {
     }
 
     private void openChest() {
-        // 箱子與創造背包互斥，避免兩套 UI 同時重建 HUD mesh 或爭用游標狀態。
+        // Keep the chest and creative inventory mutually exclusive so they do not compete for
+        // cursor state.
         closeCreativeInventory(false);
         recaptureCursorAfterChest = cursorCaptured;
         chestOpen = true;
@@ -369,7 +377,7 @@ public final class Game {
     }
 
     private void focusCreativePageOnSelectedBlock() {
-        // 開啟背包時直接跳到目前 hotbar 方塊所在頁，降低大量方塊時的尋找成本。
+        // Open the inventory on the page containing the currently selected hotbar block.
         BlockType selected = hotbar[hotbarIndex];
         for (int i = 0; i < creativeBlocks.length; i++) {
             if (creativeBlocks[i] == selected) {
@@ -385,18 +393,16 @@ public final class Game {
     }
 
     private void applyLookFromMouse() {
-        // 根據滑鼠移動距離調整鏡頭角度
         float yawDelta = (float) input.mouseDeltaX() * GameConfig.MOUSE_SENSITIVITY;
         float pitchDelta = (float) -input.mouseDeltaY() * GameConfig.MOUSE_SENSITIVITY;
         camera.rotate(yawDelta, pitchDelta);
     }
 
     private void updateCameraFromPlayer(float deltaSeconds) {
-        // 先更新走路晃動效果
         updateWalkBob(deltaSeconds);
 
-        // 鏡頭位置跟著玩家眼睛高度移動，左右晃動沿相機 right 向量偏移，避免與玩家碰撞箱直接耦合。
-        // stepSmoothingOffset 讓踏上樓梯/半磚時鏡頭平滑上升而不是瞬移。
+        // Apply bobbing along the camera's right vector without moving the collision box.
+        // The step offset smooths camera height after the body steps upward.
         Vector3f right = camera.right(tmpCameraRight);
         camera.setPosition(
                 player.position().x + right.x * walkBobHorizontal,
@@ -405,24 +411,21 @@ public final class Game {
     }
 
     private void updateWalkBob(float deltaSeconds) {
-        // 沒有時間差時，不需要更新晃動
         if (deltaSeconds <= 0.0f) {
             walkBobVertical = 0.0f;
             walkBobHorizontal = 0.0f;
             return;
         }
 
-        // 未進入控制模式、正在飛行或不在地面時，晃動逐漸回到 0，避免鏡頭在狀態切換時突然跳動。
+        // Ease bobbing back to zero when walking stops or control mode changes.
         if (!cursorCaptured || player.isFlying() || !player.isOnGround()) {
             walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
             walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
             return;
         }
 
-        // 用玩家水平移動速度決定晃動強度
         float speedRatio = Math.min(player.horizontalSpeed() / Math.max(GameConfig.WALK_SPEED, 0.001f), 1.6f);
 
-        // 幾乎沒在移動時，晃動逐漸回到 0
         if (speedRatio < 0.06f) {
             walkBobVertical = approach(walkBobVertical, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
             walkBobHorizontal = approach(walkBobHorizontal, 0.0f, WALK_BOB_RESET_SPEED * deltaSeconds);
@@ -434,14 +437,12 @@ public final class Game {
             walkBobPhase -= (float) (Math.PI * 2.0);
         }
 
-        // 根據週期計算上下與左右的晃動量
         float amplitude = WALK_BOB_VERTICAL_BASE + WALK_BOB_VERTICAL_SCALE * speedRatio;
         walkBobVertical = (float) Math.sin(walkBobPhase * 2.0f) * amplitude;
         walkBobHorizontal = (float) Math.cos(walkBobPhase) * amplitude * WALK_BOB_HORIZONTAL_FACTOR;
     }
 
     private void updateTargetBlock() {
-        // 從鏡頭位置往前發射射線，找出玩家目前指到的方塊
         tmpRayOrigin.set(camera.position());
         camera.forward(tmpRayDirection);
         targetedBlock = world.raycast(tmpRayOrigin, tmpRayDirection, GameConfig.BLOCK_REACH);
@@ -451,7 +452,7 @@ public final class Game {
         breakCooldown -= deltaSeconds;
         placeCooldown -= deltaSeconds;
 
-        // 鎖定滑鼠的那一下點擊先忽略互動，等放開後才恢復；避免進入遊戲瞬間就挖掉準星下的方塊。
+        // Wait for both buttons to be released so recapturing the cursor cannot edit the world.
         if (suppressInteractionUntilRelease) {
             if (input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT) || input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT)) {
                 return;
@@ -459,7 +460,7 @@ public final class Game {
             suppressInteractionUntilRelease = false;
         }
 
-        // 新的一次點擊立即生效，不必等上一輪冷卻結束。
+        // A fresh press acts immediately; cooldowns only limit held-button repetition.
         if (input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
             breakCooldown = 0.0f;
         }
@@ -467,7 +468,7 @@ public final class Game {
             placeCooldown = 0.0f;
         }
 
-        // 和 Minecraft 一樣，按住左鍵會連續破壞方塊；基岩不可破壞。
+        // Held left-click repeats breaking, except for bedrock.
         if (targetedBlock != null && input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
             if (targetedBlock.block() != BlockType.BEDROCK) {
                 breakTargetedBlock();
@@ -476,7 +477,7 @@ public final class Game {
             breakCooldown = GameConfig.BREAK_COOLDOWN_SECONDS;
         }
 
-        // 右鍵優先互動；若目標不是可互動方塊，按住右鍵會以固定節奏連續放置。
+        // Right-click interaction takes priority over block placement.
         if (targetedBlock != null && input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
             if (!interactWithTargetedBlock()) {
                 int px = targetedBlock.x() + targetedBlock.normalX();
@@ -491,7 +492,6 @@ public final class Game {
     }
 
     private boolean interactWithTargetedBlock() {
-        // 可互動方塊優先消耗右鍵；只有不可互動方塊才讓右鍵變成放置。
         BlockType block = targetedBlock.block();
 
         if (block.isDoorBlock()) {
@@ -513,7 +513,8 @@ public final class Game {
     }
 
     private void toggleDoorBlock() {
-        // 門由上下兩格組成，開關前先確認另一半仍是同一扇門，避免修復不完整資料時誤改相鄰方塊。
+        // Validate both halves before toggling a door so malformed pairs cannot modify unrelated
+        // blocks.
         int x = targetedBlock.x();
         int y = targetedBlock.y();
         int z = targetedBlock.z();
@@ -538,7 +539,7 @@ public final class Game {
     }
 
     private void toggleTrapdoorBlock() {
-        // 活板門開關會改變碰撞盒，切換前要避免把玩家夾在新形狀內。
+        // Reject a trapdoor toggle if its new collision shape would overlap the player.
         int x = targetedBlock.x();
         int y = targetedBlock.y();
         int z = targetedBlock.z();
@@ -551,7 +552,7 @@ public final class Game {
         world.setBlock(x, y, z, next);
     }
 
-    // 破壞準星指向的方塊；門是雙格方塊，破壞任一半都要同步移除另一半。
+    // Remove the other door half only if it matches the targeted half's orientation and state.
     private void breakTargetedBlock() {
         BlockType block = targetedBlock.block();
         int x = targetedBlock.x();
@@ -573,7 +574,7 @@ public final class Game {
         }
     }
 
-    // 放置目前 hotbar 選到的方塊；方向型方塊會先轉成真正寫入世界的變體。
+    // Convert palette entries to placed variants before checking their actual collision shapes.
     private void placeSelectedBlock(int x, int y, int z) {
         BlockType selected = hotbar[hotbarIndex];
         int facing = selected == BlockType.LADDER ? ladderFacingFromTargetNormal() : facingFromCamera();
@@ -591,8 +592,9 @@ public final class Game {
         world.setBlock(x, y, z, placed);
     }
 
-    // 門需要同時佔用上下兩格，且上下碰撞盒都不能與玩家重疊。
-    // 若上半部寫入失敗，會回滾下半部，避免世界留下半扇門。
+    // Check space for both door halves before placing either one.
+    // If the upper write returns false, clear the new lower half to AIR; exceptions do not trigger
+    // this cleanup.
     private void placeDoorBlock(int x, int y, int z, BlockType bottom) {
         BlockType top = bottom.doorTopVariant();
         int topY = y + 1;
@@ -606,7 +608,7 @@ public final class Game {
         }
     }
 
-    // 只能放在空氣或水（含流動水）的位置，且實際放入的碰撞盒不能和玩家身體重疊。
+    // Placement can replace air or water, but the new collision shape must not overlap the player.
     private boolean canPlaceAt(int x, int y, int z, BlockType type) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return false;
@@ -616,7 +618,7 @@ public final class Game {
         return (current == BlockType.AIR || current.isWaterBlock()) && !player.intersectsBlock(x, y, z, type);
     }
 
-    // 依照玩家目前水平視角決定方向：0=N、1=E、2=S、3=W。
+    // Facing indices are shared with BlockType: 0 = north, 1 = east, 2 = south, 3 = west.
     private int facingFromCamera() {
         camera.forward(tmpRayDirection);
         float absX = Math.abs(tmpRayDirection.x);
@@ -628,7 +630,7 @@ public final class Game {
         return tmpRayDirection.z >= 0.0f ? 2 : 0;
     }
 
-    // 梯子貼在被點擊方塊的側面；若點到上下表面，就退回玩家視角方向。
+    // Attach ladders to the selected side face; top/bottom hits fall back to camera facing.
     private int ladderFacingFromTargetNormal() {
         if (targetedBlock.normalZ() > 0) {
             return 0;
@@ -645,7 +647,7 @@ public final class Game {
         return facingFromCamera();
     }
 
-    // 組出 F3 偵錯畫面的文字內容；未開啟時回傳 null 讓 HUD 跳過繪製。
+    // Return null when debug output is hidden so the HUD skips it.
     private String[] buildDebugLines() {
         if (!debugOverlayVisible) {
             return null;
@@ -658,7 +660,7 @@ public final class Game {
         int chunkX = Math.floorDiv(blockX, GameConfig.CHUNK_SIZE);
         int chunkZ = Math.floorDiv(blockZ, GameConfig.CHUNK_SIZE);
 
-        // 世界時間 0 對應清晨 6 點。
+        // World time zero represents 06:00.
         float dayHours = (6.0f + world.timeOfDay() * 24.0f) % 24.0f;
         int hour = (int) dayHours;
         int minute = (int) ((dayHours - hour) * 60.0f);
@@ -683,7 +685,6 @@ public final class Game {
     }
 
     private void updateDebugTitle(double now) {
-        // 每幀都累計一次，用來計算 FPS
         fpsFrames++;
 
         if (fpsTimer == 0.0) {
@@ -692,7 +693,7 @@ public final class Game {
 
         double elapsed = now - fpsTimer;
 
-        // 每秒更新一次視窗標題
+        // Throttle title updates to about once per second.
         if (elapsed >= 1.0) {
             int fps = (int) Math.round(fpsFrames / elapsed);
             lastFps = fps;
@@ -707,14 +708,14 @@ public final class Game {
 
             glfwSetWindowTitle(window.handle(), title);
 
-            // 重設 FPS 計算
             fpsFrames = 0;
             fpsTimer = now;
         }
     }
 
     private void safeSaveWorld() {
-        // 儲存世界時若發生錯誤，避免讓遊戲直接崩潰
+        // Log save failures without stopping the loop; World.save keeps changes pending after a
+        // failed write.
         try {
             world.save();
         } catch (Exception e) {
@@ -724,7 +725,6 @@ public final class Game {
     }
 
     private float approach(float current, float target, float delta) {
-        // 讓 current 逐步接近 target，但每次最多只改變 delta
         if (current < target) {
             return Math.min(current + delta, target);
         }

@@ -3,18 +3,17 @@ package com.minecraftin.clone.world;
 import com.minecraftin.clone.config.GameConfig;
 import com.minecraftin.clone.util.LongQueue;
 
-// 增量光照引擎：天空光與方塊光兩個通道，各 0 到 15。
-// 新增光源用 BFS 擴散，移除光源用「先拆除再從邊界重新擴散」的 removal BFS，
-// 只更新真正受影響的格子，並把被改到的 Chunk 標記為需要重建 mesh。
+// Maintain sky and block light as separate levels from 0 to 15.
+// Spread additions breadth-first; remove dependent light before spreading surviving sources back
+// into the cleared area.
 public final class LightEngine {
 
     public static final int MAX_LIGHT = 15;
 
-    // 兩個光照通道。
     private static final int CHANNEL_SKY = 0;
     private static final int CHANNEL_BLOCK = 1;
 
-    // 六個傳播方向；用平行陣列避免 BFS 熱路徑反覆解參照小型 int[]。
+    // Use parallel direction arrays in the propagation loop to avoid nested array lookups.
     private static final int[] DIRECTION_X = { 0, 0, -1, 1, 0, 0 };
     private static final int[] DIRECTION_Y = { 1, -1, 0, 0, 0, 0 };
     private static final int[] DIRECTION_Z = { 0, 0, 0, 0, -1, 1 };
@@ -23,7 +22,7 @@ public final class LightEngine {
 
     private final World world;
 
-    // BFS 佇列重複使用，避免每次更新都重新配置。
+    // Reuse propagation queues between updates.
     private final LongQueue spreadQueue = new LongQueue(4096);
     private final LongQueue removalQueue = new LongQueue(1024);
     private final LongQueue neighborSeedQueue = new LongQueue(1024);
@@ -34,13 +33,14 @@ public final class LightEngine {
         this.world = world;
     }
 
-    // 新 Chunk 載入（生成或讀檔）後計算初始光照：
-    // 直射天空光、本身的發光方塊，以及從已載入鄰居流入的光；同時把光擴散回鄰居。
+    // Initialize direct sky light and block emission, then exchange light with already loaded
+    // neighbors.
     public void onChunkLoaded(Chunk chunk) {
         int minX = chunk.worldMinX();
         int minZ = chunk.worldMinZ();
 
-        // 天空光直射：從最高處往下，被不透明方塊擋住後歸零，水與樹葉逐步衰減。
+        // Seed direct light from the top; opaque full cubes stop it, while water and leaves reduce
+        // it.
         for (int z = 0; z < GameConfig.CHUNK_SIZE; z++) {
             for (int x = 0; x < GameConfig.CHUNK_SIZE; x++) {
                 int level = MAX_LIGHT;
@@ -53,7 +53,8 @@ public final class LightEngine {
             }
         }
 
-        // 把可往外擴散的光排入佇列：天空光所有非零格、發光方塊。
+        // Initialize block emission and queue sky-light cells above level 1; lower levels cannot
+        // brighten neighbors.
         for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
             for (int z = 0; z < GameConfig.CHUNK_SIZE; z++) {
                 for (int x = 0; x < GameConfig.CHUNK_SIZE; x++) {
@@ -80,11 +81,10 @@ public final class LightEngine {
         }
         spread(CHANNEL_BLOCK);
 
-        // 從已載入鄰居的邊界把光引進來。
         seedFromNeighborBorders(chunk);
     }
 
-    // 方塊內容改變時的增量更新；World.setBlockInternal 在寫入後呼叫。
+    // World calls this after replacing the block so propagation sees the new material.
     public void onBlockChanged(int x, int y, int z, BlockType oldBlock, BlockType newBlock) {
         boolean opacityChanged = oldBlock.lightOpacity() != newBlock.lightOpacity();
         if (opacityChanged || oldBlock.lightEmission() != newBlock.lightEmission()) {
@@ -98,7 +98,8 @@ public final class LightEngine {
             spread(CHANNEL_BLOCK);
         }
 
-        // 水流強度、門朝向等變動沒有改變透光性，無須拆掉再重算整片光照。
+        // Changes such as water strength or door direction need no sky-light rebuild when opacity
+        // is unchanged.
         if (opacityChanged) {
             removeLight(CHANNEL_SKY, x, y, z);
             if (y == GameConfig.CHUNK_HEIGHT - 1) {
@@ -110,7 +111,7 @@ public final class LightEngine {
         }
     }
 
-    // 取得世界座標的天空光；未載入區塊視為全亮，避免渲染邊緣一片黑。
+    // Treat missing chunks as full sky light for rendering, without generating them.
     public int skyLightAt(int x, int y, int z) {
         if (y >= GameConfig.CHUNK_HEIGHT) {
             return MAX_LIGHT;
@@ -127,7 +128,7 @@ public final class LightEngine {
         return chunk.skyLight(World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ));
     }
 
-    // 取得世界座標的方塊光；未載入區塊視為無光。
+    // Treat missing chunks as having no block light.
     public int blockLightAt(int x, int y, int z) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return 0;
@@ -141,14 +142,15 @@ public final class LightEngine {
         return chunk.blockLight(World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ));
     }
 
-    // 把鄰居 Chunk 邊界上一圈的光當作種子，讓既有世界的光流入新 Chunk。
+    // Seed from loaded neighbor borders so existing light can enter the new chunk.
     private void seedFromNeighborBorders(Chunk chunk) {
         int minX = chunk.worldMinX();
         int minZ = chunk.worldMinZ();
         int maxX = minX + GameConfig.CHUNK_SIZE - 1;
         int maxZ = minZ + GameConfig.CHUNK_SIZE - 1;
 
-        // 先收集種子座標；spread() 會重新讀取當下亮度，所以同一份種子可供兩個通道使用。
+        // Copy seed coordinates for both channels; spread reads the current level when each
+        // coordinate is processed.
         neighborSeedQueue.clear();
         blockSeedQueue.clear();
         for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
@@ -195,7 +197,7 @@ public final class LightEngine {
         }
     }
 
-    // 擴散 BFS：佇列存座標，處理時重新讀取目前亮度，因此重複入列不會出錯。
+    // Read levels when dequeuing so repeated coordinates use the latest propagated value.
     private void spread(int channel) {
         while (!spreadQueue.isEmpty()) {
             long packed = spreadQueue.poll();
@@ -203,7 +205,8 @@ public final class LightEngine {
             int y = unpackY(packed);
             int z = unpackZ(packed);
 
-            // 亮度 1 以下不可能再讓任何鄰居變亮（衰減後歸零），直接略過。
+            // Levels 0 and 1 cannot brighten a neighbor because every applicable outgoing step
+            // loses at least one level.
             int level = getLight(channel, x, y, z);
             if (level <= 1) {
                 continue;
@@ -248,7 +251,8 @@ public final class LightEngine {
         }
     }
 
-    // 初始直射與增量傳播使用同一衰減規則，避免讀檔後水下亮度改變。
+    // Use the same attenuation for initial columns and later updates.
+    // Only full-strength sky light moving downward can avoid the minimum one-level loss.
     private static int propagatedLevel(int channel, int level, int opacity, boolean downward) {
         if (channel == CHANNEL_SKY && downward && level == MAX_LIGHT) {
             return level - opacity;
@@ -256,7 +260,8 @@ public final class LightEngine {
         return level - Math.max(1, opacity);
     }
 
-    // 移除 BFS：把依賴指定格的光全部歸零，並把外圍仍有效的光源排入 spreadQueue 等待重新擴散。
+    // Clear light that may depend on the removed cell, then spread surviving boundary sources back
+    // through the cleared region.
     private void removeLight(int channel, int x, int y, int z) {
         int old = getLight(channel, x, y, z);
         setLight(channel, x, y, z, 0);
@@ -285,6 +290,9 @@ public final class LightEngine {
                     continue;
                 }
 
+                // Full-strength sky light travels downward without fading through cells with zero
+                // light opacity.
+                // Its removal must also clear equal-level sky light directly below.
                 boolean dependsOnRemoved = neighborLevel < level
                         || (channel == CHANNEL_SKY && i == DIRECTION_DOWN
                                 && level == MAX_LIGHT && neighborLevel == MAX_LIGHT);
@@ -296,12 +304,13 @@ public final class LightEngine {
                     setLight(channel, nx, ny, nz, 0);
                     removalQueue.add(packWithLevel(nx, ny, nz, neighborLevel));
                 } else {
-                    // 這格的光來自其他來源，之後由它把光擴散回被清空的區域。
+                    // Queue surviving boundary light for re-propagation after removal.
                     spreadQueue.add(pack(nx, ny, nz));
                 }
             }
         }
-        // 較弱的實體光源也可能被 removal BFS 掃到；拆除完成後恢復自身發光再擴散。
+        // Restore weaker emitters cleared by the removal pass before propagating their own light
+        // again.
         while (!retainedSources.isEmpty()) {
             long source = retainedSources.poll();
             int sx = unpackX(source);
@@ -316,7 +325,8 @@ public final class LightEngine {
         return channel == CHANNEL_SKY ? skyLightAtInternal(x, y, z) : blockLightAt(x, y, z);
     }
 
-    // 內部讀取不把未載入區塊當成全亮，避免 BFS 誤判邊界有光。
+    // Internal propagation treats unloaded space as dark so missing chunks cannot become sky-light
+    // sources.
     private int skyLightAtInternal(int x, int y, int z) {
         if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
             return 0;
@@ -343,7 +353,8 @@ public final class LightEngine {
         writeLight(channel, chunk, World.localCoord(x, chunkX), y, World.localCoord(z, chunkZ), value);
     }
 
-    // 寫入光照並標記受影響 Chunk 的 mesh；邊界格子也會影響鄰居 mesh 的取樣結果。
+    // Invalidate affected meshes when light changes, including neighbor meshes that sample the
+    // boundary.
     private void writeLight(int channel, Chunk chunk, int localX, int y, int localZ, int value) {
         boolean changed = channel == CHANNEL_SKY
                 ? chunk.setSkyLight(localX, y, localZ, value)
@@ -357,8 +368,9 @@ public final class LightEngine {
         world.markNeighborMeshesDirty(chunk, localX, localZ);
     }
 
-    // 把座標壓進一個 long：x 與 z 各 24 bits（二補數含符號）、y 8 bits、亮度 4 bits。
-    // unpack 依賴位移做符號還原，座標範圍必須維持在 24-bit 世界座標內。
+    // Pack signed 24-bit X/Z, unsigned eight-bit Y, and a four-bit light level.
+    // X/Z must fit this range; CHUNK_HEIGHT must stay below 256 so out-of-range Y neighbors remain
+    // invalid.
     private static long pack(int x, int y, int z) {
         return packWithLevel(x, y, z, 0);
     }

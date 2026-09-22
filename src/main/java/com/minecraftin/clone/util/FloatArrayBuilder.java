@@ -2,20 +2,17 @@ package com.minecraftin.clone.util;
 
 import java.util.Arrays;
 
-// 用來動態累積 float 資料，類似專門給 float 使用的可變長度陣列。
-// 主要服務 mesh 產生流程，避免在熱路徑中頻繁建立 Float 包裝物件或 List。
+// Accumulate mesh data in a reusable primitive array without boxing float values.
 public final class FloatArrayBuilder {
 
     private float[] data;
 
     private int size;
 
-    // 建立物件時，可自行指定初始容量。
     public FloatArrayBuilder(int initialCapacity) {
         data = new float[Math.max(16, initialCapacity)];
     }
 
-    // 一次加入三個 float 值。
     public void add(float a, float b, float c) {
         ensure(size + 3);
         data[size++] = a;
@@ -23,7 +20,7 @@ public final class FloatArrayBuilder {
         data[size++] = c;
     }
 
-    // 一次加入八個 float 值；世界 mesh 頂點格式使用這個長度。
+    // Append one world vertex: position, UV, and three lighting components.
     public void add(float a, float b, float c, float d, float e, float f, float g, float h) {
         ensure(size + 8);
         data[size++] = a;
@@ -36,7 +33,7 @@ public final class FloatArrayBuilder {
         data[size++] = h;
     }
 
-    // 一次加入九個 float 值；HUD 頂點格式（位置 + 顏色 + UV）使用這個長度。
+    // Append one HUD vertex: position, RGBA color, and UV.
     public void add(float a, float b, float c, float d, float e, float f, float g, float h, float i) {
         ensure(size + 9);
         data[size++] = a;
@@ -58,12 +55,11 @@ public final class FloatArrayBuilder {
         return Arrays.copyOf(data, size);
     }
 
-    // 清空目前資料，但保留原本陣列空間，方便重複使用。
+    // Reset the length while retaining capacity for the next mesh.
     public void clear() {
         size = 0;
     }
 
-    // 確保陣列容量足夠放入指定數量的資料。
     private void ensure(int needed) {
         if (needed <= data.length) {
             return;
@@ -71,7 +67,7 @@ public final class FloatArrayBuilder {
 
         int newCap = data.length;
 
-        // 容量不足時，持續擴大為原本的兩倍，直到足夠為止。
+        // Double capacity to amortize growth while appending vertices.
         while (newCap < needed) {
             newCap *= 2;
         }

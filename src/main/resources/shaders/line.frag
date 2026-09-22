@@ -1,6 +1,6 @@
 #version 330 core
-// 純色片段著色器；選取框、太陽、月亮與雲層共用，顏色與透明度由 Java 端 uniform 控制。
 
+// Use Java-supplied color and alpha for selection outlines, sky bodies, and clouds.
 uniform vec3 uColor;
 uniform float uAlpha;
 out vec4 FragColor;

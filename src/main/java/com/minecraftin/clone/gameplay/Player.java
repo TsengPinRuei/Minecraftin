@@ -10,50 +10,51 @@ import org.joml.Vector3f;
 
 import static org.lwjgl.glfw.GLFW.*;
 
-// 維護玩家位置、速度與碰撞箱，並把輸入轉成地面移動或創造模式飛行。
+// Keep position at the center of the player's feet; eye height is applied only to the camera.
 public final class Player {
-    // 每次位移切成更小的步驟，避免高速度或低 FPS 時直接穿過一格方塊。
+    // Split movement into small collision probes to reduce tunneling at high speed.
     private static final float COLLISION_STEP = 0.04f;
 
-    // 碰撞箱取樣時的微小邊界，避免剛好貼齊方塊邊界時因浮點誤差卡牆。
+    // Exclude exact cell boundaries from candidate sampling to avoid floating-point edge artifacts.
     private static final float EPSILON = 0.001f;
 
-    // 玩家水平移動時可自動踏上的高度；讓樓梯與半磚有接近 Minecraft 的走上去手感。
+    // Maximum automatic step height, allowing slabs and stairs to be climbed without jumping.
     private static final float STEP_HEIGHT = 0.58f;
 
-    // 將踏階高度分段測試，避免一次抬太高穿過較薄的碰撞盒。
+    // Probe the upward path in increments so stepping is blocked by overhead geometry.
     private static final int STEP_ATTEMPTS = 8;
 
-    // 梯子沒有碰撞盒，因此用接觸範圍判斷玩家是否正在梯子上；爬升速度對齊 Minecraft 的 2.35 m/s。
+    // Ladders have no collision boxes; use a wider contact region to enter climbing mode.
     private static final float LADDER_TOUCH_MARGIN = 0.20f;
     private static final float LADDER_CLIMB_SPEED = 2.35f;
 
-    // 蹲下會降低碰撞箱與視角，並放慢水平移動；Minecraft 的潛行速度為步行的 0.3 倍。
+    // Crouching immediately reduces body height and horizontal target speed; the camera height
+    // eases separately.
     private static final float CROUCH_HEIGHT = 1.45f;
     private static final float CROUCH_EYE_HEIGHT = 1.25f;
     private static final float CROUCH_SPEED_MULTIPLIER = 0.3f;
 
-    // 蹲下/站起時眼睛高度的過渡速度（每秒公尺）；碰撞箱立即切換，只有視角平滑移動。
+    // Camera height transition speed in blocks per second.
     private static final float EYE_HEIGHT_TRANSITION_SPEED = 3.0f;
 
-    // 踏上樓梯/半磚時，視覺偏移歸零的速度（每秒公尺）；數值越大鏡頭追上實際位置越快。
+    // Decay the visual step offset in blocks per second without changing the collision position.
     private static final float STEP_SMOOTHING_SPEED = 6.0f;
 
-    // 水中移動不套用一般重力，而是用較慢的游泳速度；無輸入時像 Minecraft 一樣緩慢下沉。
+    // Swimming uses separate movement and vertical drag; idle swimmers slowly sink.
     private static final float WATER_SWIM_SPEED = 2.45f;
     private static final float WATER_VERTICAL_SPEED = 2.8f;
     private static final float WATER_SINK_SPEED = -0.55f;
     private static final float WATER_ACCEL = 12.0f;
     private static final float WATER_DRAG = 8.0f;
 
-    // 兩次按空白鍵的最大間隔，超過就不算雙擊
+    // Maximum interval between Space presses to toggle flight.
     private static final float DOUBLE_TAP_SECONDS = 0.28f;
 
     private final Vector3f position = new Vector3f();
 
     private final Vector3f velocity = new Vector3f();
 
-    // 暫存玩家想移動的方向，避免一直建立新物件
+    // Reuse movement vectors across frames.
     private final Vector3f tmpWish = new Vector3f();
 
     private final Vector3f tmpForward = new Vector3f();
@@ -68,13 +69,11 @@ public final class Player {
 
     private boolean crouching;
 
-    // 目前的眼睛高度；蹲下/站起時朝目標高度平滑移動，避免視角瞬間跳變。
     private float currentEyeHeight = GameConfig.PLAYER_EYE_HEIGHT;
 
-    // 踏階造成的視覺偏移：身體瞬間抬高時鏡頭先停在原高度（負值），再逐漸追上。
+    // A negative camera offset smooths an immediate upward step of the collision body.
     private float stepSmoothingOffset;
 
-    // 距離上次按下空白鍵已經過了多久
     private float timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
     public Vector3f position() {
@@ -93,17 +92,16 @@ public final class Player {
         return currentEyeHeight;
     }
 
-    // 踏階視覺偏移（負值或 0）；Game 把它加到鏡頭高度上，讓上樓梯的視角平滑而不影響碰撞。
+    // Game adds this nonpositive offset to eye height to smooth steps without affecting collisions.
     public float stepSmoothingOffset() {
         return stepSmoothingOffset;
     }
 
-    // 計算水平移動速度，只看 x 和 z，不看上下速度
     public float horizontalSpeed() {
         return (float) Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     }
 
-    // 直接設定角色位置，並重置移動狀態
+    // Teleport the feet position and reset velocity, flight, crouching, and camera smoothing.
     public void setPosition(float x, float y, float z) {
         position.set(x, y, z);
         velocity.zero();
@@ -115,42 +113,39 @@ public final class Player {
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
     }
 
-    // 每一幀更新角色狀態；呼叫前 Game 已經確保附近 Chunk 載入，碰撞查詢才不會邊移動邊生成遠處地形。
+    // Game preloads nearby chunks before movement; collision reads can otherwise generate missing
+    // chunks.
     public void update(InputState input, Camera camera, World world, float deltaSeconds) {
-        // 先嘗試把角色從方塊內推出來，避免出生或移動後卡進牆裡
+        // Try to recover from a spawn or loaded position that overlaps solid geometry.
         resolveIntersections(world);
 
-        // 眼睛高度朝目標平滑過渡，讓蹲下/站起的視角不會瞬間跳變。
         float targetEyeHeight = crouching ? CROUCH_EYE_HEIGHT : GameConfig.PLAYER_EYE_HEIGHT;
         currentEyeHeight = approach(currentEyeHeight, targetEyeHeight,
                 EYE_HEIGHT_TRANSITION_SPEED * deltaSeconds);
 
-        // 踏階視覺偏移逐漸歸零，讓鏡頭平滑追上身體的實際高度。
         stepSmoothingOffset = approach(stepSmoothingOffset, 0.0f, STEP_SMOOTHING_SPEED * deltaSeconds);
 
-        // 累加距離上次按空白鍵的時間
         timeSinceLastSpaceTap += deltaSeconds;
 
         boolean spacePressed = input.wasKeyPressed(GLFW_KEY_SPACE);
 
-        // 創造模式下，雙擊空白鍵可切換飛行；在水中也可以，與 Minecraft 一致。
+        // Double-tap Space to toggle creative flight, including while swimming.
         if (creativeMode && spacePressed) {
             if (timeSinceLastSpaceTap <= DOUBLE_TAP_SECONDS) {
                 flying = !flying;
                 timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
 
-                // 進入飛行時，取消落地狀態並清除上下速度
                 if (flying) {
                     onGround = false;
                     velocity.y = 0.0f;
                 }
             } else {
-                // 第一次按空白鍵，開始計時等待第二次點擊
                 timeSinceLastSpaceTap = 0.0f;
             }
         }
 
-        // 飛行模式和一般地面模式分開處理，因為飛行可使用相機完整 3D 方向，地面移動只取水平分量。
+        // Flight uses the full camera direction; ordinary movement uses a normalized horizontal
+        // direction.
         if (creativeMode && flying) {
             updateCrouchState(input, world, false);
             updateCreative(input, camera, world, deltaSeconds);
@@ -160,7 +155,8 @@ public final class Player {
         updateGrounded(input, camera, world, deltaSeconds, spacePressed);
     }
 
-    // 如果角色一開始就卡進方塊，往上嘗試移動直到脫離碰撞；常見於載入舊存檔或地形重新生成後。
+    // Try upward offsets up to three blocks to escape an overlap.
+    // Leave the position unchanged if no tested offset is clear.
     private void resolveIntersections(World world) {
         if (!collides(world, position.x, position.y, position.z)) {
             return;
@@ -168,7 +164,6 @@ public final class Player {
 
         float originalY = position.y;
 
-        // 最多往上嘗試 24 次，每次抬高 0.125
         for (int i = 1; i <= 24; i++) {
             float candidateY = originalY + i * 0.125f;
 
@@ -181,13 +176,11 @@ public final class Player {
         }
     }
 
-    // 飛行模式下的移動更新
     private void updateCreative(InputState input, Camera camera, World world, float deltaSeconds) {
         Vector3f wish = tmpWish.zero();
         Vector3f forward = camera.forward(tmpForward);
         Vector3f right = camera.right(tmpRight);
 
-        // 根據按鍵累加想移動的方向
         if (input.isKeyDown(GLFW_KEY_W)) {
             wish.add(forward);
         }
@@ -207,46 +200,43 @@ public final class Player {
             wish.add(0.0f, -1.0f, 0.0f);
         }
 
-        // 預設飛行速度；和 Minecraft 一樣，衝刺加速只在向前移動時生效。
+        // Apply the flight speed boost only while Left Ctrl and W are held.
         float targetSpeed = GameConfig.FLY_SPEED;
         if (input.isKeyDown(GLFW_KEY_LEFT_CONTROL) && input.isKeyDown(GLFW_KEY_W)) {
             targetSpeed *= GameConfig.SPRINT_MULTIPLIER;
         }
 
-        // 將方向向量正規化後乘上目標速度
+        // Normalize combined input so diagonal flight does not increase target speed.
         if (wish.lengthSquared() > 0.0001f) {
             wish.normalize(targetSpeed);
         } else {
             wish.zero();
         }
 
-        // 讓目前速度逐漸接近目標速度，避免瞬間改變太生硬
+        // Approach the target velocity gradually for smoother flight control.
         float accel = 28.0f;
         velocity.x = approach(velocity.x, wish.x, accel * deltaSeconds);
         velocity.y = approach(velocity.y, wish.y, accel * deltaSeconds);
         velocity.z = approach(velocity.z, wish.z, accel * deltaSeconds);
 
-        // 分三個軸移動，讓碰撞後只清掉撞到方向的速度，而不影響其他方向的滑動。
+        // Resolve one axis at a time so a blocked axis does not prevent sliding along the others.
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
         moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
 
-        // 飛行時不算站在地面
         onGround = false;
     }
 
-    // 一般走路、跳躍、重力模式下的移動更新
     private void updateGrounded(InputState input, Camera camera, World world, float deltaSeconds,
             boolean spacePressed) {
         Vector3f wish = tmpWish.zero();
 
-        // 取得相機前方方向，但只保留水平分量
         Vector3f forward = camera.forward(tmpForward);
         forward.y = 0.0f;
-        // pitch 已限制在正負 89.9 度內，水平分量不為零；低頭時也必須維持完整前進分量。
+        // Camera pitch stays below vertical, so normalize the horizontal projection even when it is
+        // very small.
         forward.normalize();
 
-        // 取得相機右方方向，但只保留水平分量
         Vector3f right = camera.right(tmpRight);
         right.y = 0.0f;
         if (right.lengthSquared() > 0.0001f) {
@@ -257,7 +247,6 @@ public final class Player {
         boolean inWater = !touchingLadder && isInWater(world);
         updateCrouchState(input, world, !touchingLadder && !inWater);
 
-        // 根據按鍵決定角色想前後左右移動的方向
         if (input.isKeyDown(GLFW_KEY_W)) {
             wish.add(forward);
         }
@@ -271,7 +260,7 @@ public final class Player {
             wish.sub(right);
         }
 
-        // 預設走路速度；和 Minecraft 一樣，衝刺只在向前移動（按住 W）時生效。
+        // Choose the walking or swimming speed, then apply crouch or forward-sprint modifiers.
         float targetSpeed = inWater ? WATER_SWIM_SPEED : GameConfig.WALK_SPEED;
         if (!inWater && crouching) {
             targetSpeed *= CROUCH_SPEED_MULTIPLIER;
@@ -280,10 +269,9 @@ public final class Player {
         }
 
         if (wish.lengthSquared() > 0.0001f) {
-            // 有移動輸入時，把方向轉成固定速度
             wish.normalize(targetSpeed);
 
-            // 在地上加速比較快，空中加速比較慢
+            // Use separate acceleration for water, supported movement, and airborne movement.
             float accel = inWater ? WATER_ACCEL : (onGround ? 34.0f : 10.0f);
             velocity.x = approach(velocity.x, wish.x, accel * deltaSeconds);
             velocity.z = approach(velocity.z, wish.z, accel * deltaSeconds);
@@ -292,14 +280,16 @@ public final class Player {
             velocity.x = approach(velocity.x, 0.0f, drag);
             velocity.z = approach(velocity.z, 0.0f, drag);
         } else if (onGround) {
-            // 沒有輸入而且在地上時，套用摩擦力讓角色慢慢停下來
+            // Apply ground friction only when movement input is released; airborne motion retains
+            // momentum.
             float friction = 20.0f * deltaSeconds;
             velocity.x = approach(velocity.x, 0.0f, friction);
             velocity.z = approach(velocity.z, 0.0f, friction);
         }
 
         if (touchingLadder) {
-            // 梯子不使用實心碰撞盒，因此用接觸判定進入爬梯狀態，再用 W/Space 與 S/Shift 控制上下。
+            // Use ladder contact instead of solid collision, with W/Space to climb and S/Shift to
+            // descend.
             float climbInput = 0.0f;
             if (input.isKeyDown(GLFW_KEY_W) || input.isKeyDown(GLFW_KEY_SPACE)) {
                 climbInput += 1.0f;
@@ -321,30 +311,29 @@ public final class Player {
             return;
         }
 
-        // 在地面按空白鍵時跳躍
         if (onGround && spacePressed) {
             velocity.y = GameConfig.JUMP_VELOCITY;
             onGround = false;
         }
 
-        // 套用重力
         velocity.y -= GameConfig.GRAVITY * deltaSeconds;
 
-        // 限制最大下落速度；Minecraft 的終端速度約為 78.4 m/s。
+        // Cap downward speed at 78.4 blocks per second.
         if (velocity.y < -78.4f) {
             velocity.y = -78.4f;
         }
 
-        // 依序處理各軸，讓碰撞行為接近 AABB 滑牆：某一軸被擋住時，其他軸仍可繼續前進。
+        // Resolve axes separately so blocked motion can slide along nearby surfaces.
         moveOnAxis(world, velocity.x * deltaSeconds, 0.0f, 0.0f);
 
-        // 每幀先重設落地狀態，只有向下移動時真的撞到方塊才重新標記為在地面。
+        // Clear the previous ground state before vertical movement; a downward collision restores
+        // it.
         onGround = false;
 
         moveOnAxis(world, 0.0f, velocity.y * deltaSeconds, 0.0f);
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
 
-        // 防止角色掉到地圖底部以下
+        // Keep the walking player above the bottom bedrock layer.
         if (position.y < 1.1f) {
             position.y = 1.1f;
             velocity.y = Math.max(0.0f, velocity.y);
@@ -352,7 +341,6 @@ public final class Player {
         }
     }
 
-    // 判斷角色碰撞箱是否和指定方塊種類的碰撞盒相交。
     public boolean intersectsBlock(int x, int y, int z, BlockType type) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minX = position.x - half;
@@ -370,7 +358,8 @@ public final class Player {
         return false;
     }
 
-    // 檢查玩家加上一點外擴範圍後是否碰到梯子的 render box；比只看玩家中心點更容易抓到貼邊爬梯。
+    // Expand the player's horizontal bounds when testing ladder render boxes to make edge contact
+    // usable.
     private boolean isTouchingLadder(World world) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minX = position.x - half - LADDER_TOUCH_MARGIN;
@@ -407,7 +396,10 @@ public final class Player {
         return false;
     }
 
-    // 蹲下狀態只在地面/非水中流程啟用；放開 Shift 時先確認完整身高不會撞到上方方塊。
+    // New crouch input is allowed in ordinary movement, including midair, but not on ladders or in
+    // water.
+    // Keep an existing crouch until standing height fits, even when crouch input is no longer
+    // allowed.
     private void updateCrouchState(InputState input, World world, boolean canCrouch) {
         if (canCrouch && input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) {
             crouching = true;
@@ -419,8 +411,8 @@ public final class Player {
         }
     }
 
-    // 水中移動使用自己的垂直輸入與阻力，不套用一般重力或跳躍流程。
-    // 沒有垂直輸入時緩慢下沉，按住 Space 才會上浮，符合 Minecraft 的游泳直覺。
+    // Swimming uses vertical input and drag instead of jumping and normal gravity.
+    // With no net vertical input, approach a slow sinking speed.
     private void updateSwimming(InputState input, World world, float deltaSeconds) {
         float verticalInput = 0.0f;
         if (input.isKeyDown(GLFW_KEY_SPACE)) {
@@ -439,7 +431,8 @@ public final class Player {
         moveOnAxis(world, 0.0f, 0.0f, velocity.z * deltaSeconds);
     }
 
-    // 用玩家碰撞箱涵蓋範圍判斷是否入水，而不是只看腳底或中心點，避免貼水面時狀態抖動。
+    // Detect water by occupied cells overlapping the body, with the foot sample raised slightly.
+    // This does not test a separate liquid surface height.
     private boolean isInWater(World world) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minWorldX = position.x - half + EPSILON;
@@ -469,16 +462,14 @@ public final class Player {
         return false;
     }
 
-    // 沿著單一軸移動，並在過程中逐步檢查碰撞；呼叫端保證同一時間只傳入一個非零軸。
+    // Move along one axis only; callers must not pass multiple nonzero components.
     private void moveOnAxis(World world, float dx, float dy, float dz) {
         float distance = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
 
-        // 位移太小就直接略過
         if (distance < 1e-6f) {
             return;
         }
 
-        // 把整段位移切成多小步，減少穿牆問題
         int steps = Math.max(1, (int) Math.ceil(distance / COLLISION_STEP));
         float stepX = dx / steps;
         float stepY = dy / steps;
@@ -489,23 +480,21 @@ public final class Player {
             float targetY = position.y + stepY;
             float targetZ = position.z + stepZ;
 
-            // 沒撞到就走到下一小步
             if (!collides(world, targetX, targetY, targetZ)) {
                 position.set(targetX, targetY, targetZ);
                 continue;
             }
 
-            // 水平移動撞到非完整方塊時嘗試踏階；垂直移動或飛行不做，避免干擾跳躍/飛行控制。
+            // Try stepping after a horizontal collision; flight skips this path and tryStepUp
+            // checks support.
             if (!flying && dy == 0.0f && tryStepUp(world, targetX, targetZ)) {
                 continue;
             }
 
-            // 撞到牆或方塊時，把對應方向速度清掉
             if (stepX != 0.0f) {
                 velocity.x = 0.0f;
             }
             if (stepY != 0.0f) {
-                // 往下撞到地面時，標記為站在地上
                 if (stepY < 0.0f) {
                     onGround = true;
                 }
@@ -519,7 +508,8 @@ public final class Player {
         }
     }
 
-    // 水平移動被半磚或樓梯擋住時，嘗試小幅抬高玩家，形成自然踏階。
+    // Step only when not rising and a downward probe finds support.
+    // Test upward clearance before moving sideways so the player cannot step upward in midair.
     private boolean tryStepUp(World world, float targetX, float targetZ) {
         if (velocity.y > 0.0f || !collides(world, position.x, position.y - COLLISION_STEP, position.z)) {
             return false;
@@ -530,7 +520,8 @@ public final class Player {
                 return false;
             }
             if (!collides(world, targetX, candidateY, targetZ)) {
-                // 身體瞬間抬高，但把高度差記成負的視覺偏移，鏡頭再逐漸追上來。
+                // Move the body immediately but retain a negative camera offset for a smooth visual
+                // rise.
                 stepSmoothingOffset = Math.max(-1.0f, stepSmoothingOffset - (candidateY - position.y));
                 position.set(targetX, candidateY, targetZ);
                 onGround = false;
@@ -540,12 +531,11 @@ public final class Player {
         return false;
     }
 
-    // 判斷角色碰撞箱在指定位置時，是否會碰到任何方塊碰撞盒。
     private boolean collides(World world, float x, float y, float z) {
         return collidesWithHeight(world, x, y, z, playerHeight());
     }
 
-    // height 可傳入蹲下或完整身高，讓一般碰撞與「能否站起來」共用同一套 AABB 測試。
+    // Use the requested height for both normal collisions and standing-up clearance checks.
     private boolean collidesWithHeight(World world, float x, float y, float z, float height) {
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minWorldX = x - half;
@@ -555,16 +545,18 @@ public final class Player {
         float maxWorldY = y + height;
         float maxWorldZ = z + half;
 
-        // 算出角色碰撞箱涵蓋到哪些方塊座標；EPSILON 讓「剛好貼邊」不被當成進入鄰格。
+        // Use a small inward offset when selecting candidate cells so touching a cell edge is not
+        // treated as entering it.
         int minX = fastFloor(minWorldX + EPSILON);
         int maxX = fastFloor(maxWorldX - EPSILON);
-        // 柵欄可高達 1.5 格，需檢查腳底所在格的下一格。
+        // Include the cell below the feet because fence posts extend above their own cell.
         int minY = fastFloor(minWorldY + EPSILON) - 1;
         int maxY = fastFloor(maxWorldY - EPSILON);
         int minZ = fastFloor(minWorldZ + EPSILON);
         int maxZ = fastFloor(maxWorldZ - EPSILON);
 
-        // 逐一檢查碰撞箱範圍內的所有方塊，只要有實心方塊就算碰撞
+        // Candidate cells only narrow the search; collision requires overlap with an actual block
+        // collision box.
         for (int by = minY; by <= maxY; by++) {
             for (int bz = minZ; bz <= maxZ; bz++) {
                 for (int bx = minX; bx <= maxX; bx++) {
@@ -587,7 +579,6 @@ public final class Player {
         return crouching ? CROUCH_HEIGHT : GameConfig.PLAYER_HEIGHT;
     }
 
-    // 讓 current 以固定步長慢慢接近 target
     private float approach(float current, float target, float delta) {
         if (current < target) {
             return Math.min(current + delta, target);
@@ -595,7 +586,7 @@ public final class Player {
         return Math.max(current - delta, target);
     }
 
-    // 比 Math.floor 更快的版本，專門把浮點數轉成較小的整數格子座標
+    // Correct integer truncation for negative coordinates to match mathematical floor.
     private int fastFloor(float value) {
         int i = (int) value;
         return value < i ? i - 1 : i;

@@ -2,7 +2,9 @@ package com.minecraftin.clone.world;
 
 import com.minecraftin.clone.config.GameConfig;
 
-// 在遊戲執行緒擷取含一格邊界的固定資料；背景 mesher 不再讀取可變的 World/Chunk。
+// Capture immutable block and light data on the game thread so workers never read mutable World or
+// Chunk state.
+// The one-cell X/Z border supplies face, corner-light, and ambient-occlusion samples.
 public final class ChunkSnapshot {
     private static final int WIDTH = GameConfig.CHUNK_SIZE + 2;
     private final short[] blocks = new short[WIDTH * WIDTH * GameConfig.CHUNK_HEIGHT];
@@ -25,6 +27,9 @@ public final class ChunkSnapshot {
                 int lz = World.localCoord(wz, cz);
                 for (int y = 0; y < GameConfig.CHUNK_HEIGHT; y++) {
                     int index = index(x, y, z);
+                    // Missing neighbors use AIR, zero block light, and full sky light without
+                    // generating terrain.
+                    // Loading those neighbors later invalidates the affected meshes.
                     if (chunk == null) {
                         snapshot.sky[index] = LightEngine.MAX_LIGHT;
                     } else {
@@ -38,6 +43,8 @@ public final class ChunkSnapshot {
         return snapshot;
     }
 
+    // Sampler X/Z coordinates are local to the center chunk and must stay in [-1, CHUNK_SIZE].
+    // Only Y is handled outside the world height; X/Z bounds are not checked here.
     public BlockType get(int x, int y, int z) {
         if (y < 0) {
             return BlockType.BEDROCK;

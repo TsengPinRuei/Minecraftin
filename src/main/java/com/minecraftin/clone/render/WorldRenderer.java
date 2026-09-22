@@ -35,30 +35,31 @@ import java.util.concurrent.Executors;
 
 import static org.lwjgl.opengl.GL33C.*;
 
-// 負責繪製整個世界，包括區塊內容與被瞄準方塊的外框。
-// 這裡也擁有所有與世界渲染相關的 OpenGL 資源，Game 結束時必須呼叫 close()。
+// Own world-rendering GPU resources and background mesh jobs.
+// Use this renderer on the context-owning thread and close it before destroying the window.
 public final class WorldRenderer implements AutoCloseable {
 
-    // 白天、夜晚與日落的天空顏色；實際背景色依時間在這些顏色之間漸變。
+    // Blend sky colors over the day/night cycle.
     private static final Vector3f DAY_SKY_COLOR = new Vector3f(0.56f, 0.74f, 0.95f);
     private static final Vector3f NIGHT_SKY_COLOR = new Vector3f(0.015f, 0.025f, 0.07f);
     private static final Vector3f SUNSET_SKY_COLOR = new Vector3f(0.98f, 0.52f, 0.30f);
 
-    // 夜晚的月光下限；天空光不會暗於這個倍率，與 Minecraft 的夜間亮度曲線類似。
+    // Keep a minimum sky-light multiplier at night so exposed terrain remains visible.
     private static final float MOONLIGHT_FLOOR = 0.13f;
 
-    // 霧效範圍綁定渲染距離，讓最遠一圈 Chunk 完全沒入霧中，像 Minecraft 一樣由霧中浮現而不是突然出現。
+    // Fade toward the render radius to soften distant chunk boundaries; fog is based on each
+    // fragment's distance.
     private static final float FOG_FAR = GameConfig.RENDER_DISTANCE_CHUNKS * GameConfig.CHUNK_SIZE;
     private static final float FOG_NEAR = FOG_FAR * 0.6f;
 
-    // 太陽與月亮：方形天體繞世界 X-Y 平面旋轉，是 Minecraft 天空的招牌造型。
+    // Move square sun and moon billboards around the camera in the X-Y plane.
     private static final float SKY_BODY_DISTANCE = 420.0f;
     private static final float SUN_HALF_SIZE = 36.0f;
     private static final float MOON_HALF_SIZE = 24.0f;
     private static final Vector3f SUN_COLOR = new Vector3f(1.0f, 0.97f, 0.82f);
     private static final Vector3f MOON_COLOR = new Vector3f(0.88f, 0.90f, 0.98f);
 
-    // 雲層：固定高度的平面白雲，按格子由噪聲決定形狀，緩慢向 +X 漂移。
+    // Generate flat cloud cells from seeded noise and drift the layer toward positive X.
     private static final float CLOUD_Y = 150.0f;
     private static final float CLOUD_CELL_SIZE = 12.0f;
     private static final int CLOUD_RADIUS_CELLS = 30;
@@ -66,19 +67,18 @@ public final class WorldRenderer implements AutoCloseable {
     private static final Vector3f CLOUD_COLOR = new Vector3f(1.0f, 1.0f, 1.0f);
     private static final float CLOUD_ALPHA = 0.72f;
 
-    // 選取方塊外框的顏色。
     private static final Vector3f SELECTION_COLOR = new Vector3f(0.03f, 0.03f, 0.03f);
 
-    // 選取框用實際幾何體加粗，避免部分 OpenGL 驅動忽略 glLineWidth。
+    // Use thin boxes for selection outlines so thickness does not depend on glLineWidth support.
     private static final float SELECTION_OUTLINE_PADDING = 0.003f;
     private static final float SELECTION_OUTLINE_THICKNESS = 0.0092f;
 
-    // 破壞方塊時噴出的碎屑數量與物理參數；創造模式仍保留 Minecraft 式的瞬間破壞回饋。
+    // Bound debris count and lifetime to keep block breaking from accumulating particles.
     private static final int BREAK_PARTICLES_PER_BLOCK = 28;
     private static final int MAX_BREAK_PARTICLES = 512;
     private static final float BREAK_PARTICLE_GRAVITY = 5.2f;
 
-    // Face.values() 會回傳新陣列；碎屑產生屬於互動熱路徑，因此預先快取可選面集合。
+    // Cache Face.values() because it returns a new array on each call.
     private static final Face[] FACES = Face.values();
 
     private final TextureAtlas atlas;
@@ -87,12 +87,12 @@ public final class WorldRenderer implements AutoCloseable {
 
     private final ShaderProgram lineShader;
 
-    // 儲存每個 Chunk 對應的不透明/半透明 mesh，避免每幀都重新建立。
+    // Cache separate opaque and translucent meshes for each chunk.
     private final Map<ChunkPos, ChunkMeshes> chunkMeshes = new HashMap<>();
 
     private final Set<ChunkPos> visibleChunks = new HashSet<>();
 
-    // 記錄目前畫面中可見的 Chunk 順序；透明 pass 會用距離排序。
+    // Cache visible chunk distances for the translucent pass.
     private final List<VisibleChunk> visibleChunkOrder = new ArrayList<>();
 
     private final Matrix4f projection = new Matrix4f();
@@ -101,30 +101,30 @@ public final class WorldRenderer implements AutoCloseable {
 
     private final Matrix4f model = new Matrix4f();
 
-    // 被選取方塊的外框 mesh。
     private final Mesh selectionMesh;
 
-    // 方塊破壞碎屑共用一個動態 mesh，每幀依目前粒子位置重建。
+    // Batch block debris into one dynamic mesh rebuilt after particle updates.
     private final Mesh breakParticleMesh;
     private final List<BreakParticle> breakParticles = new ArrayList<>();
     private final Random particleRandom = new Random();
     private boolean breakParticleMeshDirty;
 
-    // 太陽與月亮共用的 mesh，每幀依時間角度重建（頂點數極少）。
+    // Reuse one mesh for sun and moon, uploading each body's vertices before drawing it.
     private final Mesh skyBodyMesh;
 
-    // 雲層 mesh；只有相機跨過雲格或漂移超過一格時才重建。
+    // Rebuild clouds when the camera crosses a cell in drift-adjusted cloud coordinates.
     private final Mesh cloudMesh;
     private int cachedCloudCellX = Integer.MIN_VALUE;
     private int cachedCloudCellZ = Integer.MIN_VALUE;
     private float cloudDrift;
 
-    // 視錐剔除：只繪製鏡頭可見的 Chunk，但不影響 mesh 快取的保留範圍。
+    // Frustum culling affects drawing and build requests, but does not evict meshes still inside
+    // render distance.
     private final FrustumIntersection frustum = new FrustumIntersection();
     private final Matrix4f projViewMatrix = new Matrix4f();
 
-    // 非同步 meshing：工作執行緒建立頂點資料，主執行緒負責上傳 OpenGL。
-    // 每幀上傳數量設上限，避免初次載入時大量 glBufferData 集中在同一幀。
+    // Workers build CPU vertex arrays; the context-owning thread processes at most 16 completed
+    // results per frame.
     private static final int MAX_MESH_UPLOADS_PER_FRAME = 16;
     private final ExecutorService meshExecutor;
     private final int maxPendingMeshBuilds;
@@ -132,20 +132,18 @@ public final class WorldRenderer implements AutoCloseable {
     private final ConcurrentLinkedQueue<MeshBuildResult> completedMeshBuilds = new ConcurrentLinkedQueue<>();
     private final List<MeshBuildCandidate> meshBuildCandidates = new ArrayList<>();
 
-    // 工作執行緒回傳資料或原始例外；主執行緒負責上傳與錯誤處理。
+    // Return either CPU mesh data or the original worker failure for main-thread handling.
     private record MeshBuildResult(ChunkPos pos, ChunkMesher.MeshData data, Throwable failure) {
     }
 
-    // 這一幀需要重建 mesh 的候選 Chunk；提交前依距離排序，讓玩家附近的區塊優先完成。
+    // Sort build candidates by distance so nearby chunks are submitted first.
     private record MeshBuildCandidate(Chunk chunk, ChunkPos pos, float distanceSq) {
     }
 
-    // 目前的天空顏色與天空光倍率，由晝夜循環每幀更新。
     private final Vector3f skyColor = new Vector3f(DAY_SKY_COLOR);
     private float dayLight = 1.0f;
 
-    // 快取上一次被選到的方塊座標。
-    // 若目標沒變，就不需要重建外框資料。
+    // Cache both the target coordinates and block variant so shape changes rebuild the outline.
     private int lastSelectionX = Integer.MIN_VALUE;
     private int lastSelectionY = Integer.MIN_VALUE;
     private int lastSelectionZ = Integer.MIN_VALUE;
@@ -175,13 +173,14 @@ public final class WorldRenderer implements AutoCloseable {
         return atlas;
     }
 
-    // 推進方塊破壞碎屑的位置與生命週期；Game loop 每幀呼叫一次。
+    // Advance cloud drift and debris lifetimes using simulation time.
     public void update(float deltaSeconds) {
         if (deltaSeconds <= 0.0f) {
             return;
         }
 
-        // 雲層持續漂移；使用累積時間而不是世界時間，避免跨日重置時雲突然跳回。
+        // Use accumulated simulation time for cloud drift so the day/night wrap does not reset
+        // cloud positions.
         cloudDrift += CLOUD_DRIFT_SPEED * deltaSeconds;
 
         if (breakParticles.isEmpty()) {
@@ -207,7 +206,8 @@ public final class WorldRenderer implements AutoCloseable {
         breakParticleMeshDirty = true;
     }
 
-    // 產生使用被破壞方塊貼圖的小方塊碎屑；亮度取被破壞位置周圍最亮的一格。
+    // Freeze each particle's sky and block light from the brightest nearby samples when it is
+    // spawned.
     public void spawnBlockBreakEffect(World world, BlockType block, int x, int y, int z) {
         if (block == BlockType.AIR) {
             return;
@@ -302,7 +302,7 @@ public final class WorldRenderer implements AutoCloseable {
         projViewMatrix.set(projection).mul(view);
         frustum.set(projViewMatrix);
 
-        // 先畫天空（太陽月亮），讓之後的地形可以遮住它們；再畫世界、雲與選取外框。
+        // Draw sky bodies first without depth writes so terrain drawn afterward can cover them.
         renderSkyBodies(camera, world.timeOfDay());
         renderChunks(world, camera);
         renderBreakParticles(camera);
@@ -310,23 +310,21 @@ public final class WorldRenderer implements AutoCloseable {
         renderSelectionOutline(selection);
     }
 
-    // 依時間計算天空顏色與天空光倍率：白天亮藍、夜晚深藍，日出日落帶橘色。
     private void updateDayCycle(float timeOfDay) {
-        // 太陽仰角：0 是日出、0.25 是正午、0.5 是日落。
+        // Time zero is sunrise, one quarter is noon, and one half is sunset.
         float elevation = (float) Math.sin(timeOfDay * Math.PI * 2.0);
 
-        // 地平線附近用較窄的窗格做平滑過渡，形成數十秒的晨昏。
+        // Blend daylight near the horizon to create a short dawn/dusk transition.
         float daylight = clamp((elevation + 0.15f) / 0.30f, 0.0f, 1.0f);
         dayLight = MOONLIGHT_FLOOR + (1.0f - MOONLIGHT_FLOOR) * daylight;
 
         skyColor.set(NIGHT_SKY_COLOR).lerp(DAY_SKY_COLOR, daylight);
 
-        // 太陽貼近地平線時混入日落色。
         float sunsetStrength = clamp(1.0f - Math.abs(elevation) / 0.15f, 0.0f, 1.0f);
         skyColor.lerp(SUNSET_SKY_COLOR, sunsetStrength * 0.45f);
     }
 
-    // 繪製 Minecraft 式的方形太陽與月亮；不寫入深度，之後的地形會自然遮住它們。
+    // Draw sky bodies without depth writes so later terrain can occlude them.
     private void renderSkyBodies(Camera camera, float timeOfDay) {
         float angle = (float) (timeOfDay * Math.PI * 2.0);
         float sunX = (float) Math.cos(angle);
@@ -349,7 +347,6 @@ public final class WorldRenderer implements AutoCloseable {
             return;
         }
 
-        // 共用 mesh 的天體必須在每次上傳後立即繪製，才不會被下一個天體的資料覆蓋。
         lineShader.use();
         lineShader.setMat4("uProjection", projection);
         lineShader.setMat4("uView", view);
@@ -359,13 +356,15 @@ public final class WorldRenderer implements AutoCloseable {
         glDepthMask(false);
 
         if (sunVisible && moonVisible) {
-            // 兩者都可見時拆成兩個批次，讓太陽與月亮可以用不同顏色。
+            // Use separate draws when both bodies are visible because their uniform colors differ.
             float[] vertices = out.toArray();
             float[] sunVertices = new float[18];
             float[] moonVertices = new float[18];
             System.arraycopy(vertices, 0, sunVertices, 0, 18);
             System.arraycopy(vertices, 18, moonVertices, 0, 18);
 
+            // Draw each body immediately after uploading it; the next upload replaces this shared
+            // mesh.
             skyBodyMesh.update(sunVertices);
             lineShader.setVec3("uColor", SUN_COLOR);
             lineShader.setFloat("uAlpha", 1.0f);
@@ -384,14 +383,13 @@ public final class WorldRenderer implements AutoCloseable {
         glDepthMask(true);
     }
 
-    // 在指定方向產生一個面向相機的方形天體。
     private void addSkyBodyQuad(FloatArrayBuilder out, Vector3f cameraPosition, float dirX, float dirY,
             float halfSize) {
         float centerX = cameraPosition.x + dirX * SKY_BODY_DISTANCE;
         float centerY = cameraPosition.y + dirY * SKY_BODY_DISTANCE;
         float centerZ = cameraPosition.z;
 
-        // 太陽軌道在 X-Y 平面上，因此 Z 軸與軌道切線方向構成貼面的兩個軸。
+        // Use the orbit tangent and Z axis to form a billboard perpendicular to the sun direction.
         float tangentX = dirY * halfSize;
         float tangentY = -dirX * halfSize;
 
@@ -416,9 +414,8 @@ public final class WorldRenderer implements AutoCloseable {
         out.add(ax, ay, az);
     }
 
-    // 繪製平面雲層；雲格由噪聲決定，整層隨時間向 +X 漂移。
     private void renderClouds(World world, Camera camera) {
-        // 在「雲空間」（扣掉漂移量的座標系）建立 mesh，漂移由 model 矩陣處理。
+        // Build clouds in drift-adjusted coordinates and apply the drift through the model matrix.
         float cloudSpaceX = camera.position().x - cloudDrift;
         int cellX = (int) Math.floor(cloudSpaceX / CLOUD_CELL_SIZE);
         int cellZ = (int) Math.floor(camera.position().z / CLOUD_CELL_SIZE);
@@ -450,7 +447,8 @@ public final class WorldRenderer implements AutoCloseable {
                 int cellX = centerCellX + dx;
                 int cellZ = centerCellZ + dz;
 
-                // 噪聲門檻決定雲的覆蓋率與團狀分布。
+                // The noise threshold controls cloud coverage while preserving repeatable shapes
+                // for this seed.
                 if (Noise.fbm2(cellX * 0.17f, cellZ * 0.17f, 3, 2.0f, 0.5f, seed ^ 0x434C4F5544L) <= 0.12f) {
                     continue;
                 }
@@ -476,13 +474,12 @@ public final class WorldRenderer implements AutoCloseable {
         return Math.max(min, Math.min(max, value));
     }
 
-    // 繪製目前可見的所有 Chunk。
-    // Mesh 頂點資料由背景執行緒建構，主執行緒只負責上傳與繪製；
-    // 尚未完成的 Chunk 這一幀先不畫，會在之後的幀由霧中浮現。
+    // Build vertex data on workers and upload/draw it on the context-owning thread.
+    // New chunks wait for their first mesh; dirty chunks continue displaying their last uploaded
+    // mesh.
     private void renderChunks(World world, Camera camera) {
         Vector3f cameraPosition = camera.position();
 
-        // 先把背景執行緒完成的頂點資料上傳到 GPU。
         drainCompletedMeshBuilds(world, cameraPosition);
 
         worldShader.use();
@@ -497,7 +494,6 @@ public final class WorldRenderer implements AutoCloseable {
 
         atlas.bind(0);
 
-        // 根據相機位置找出目前所在的 Chunk。
         int centerChunkX = Math.floorDiv((int) Math.floor(cameraPosition.x), GameConfig.CHUNK_SIZE);
         int centerChunkZ = Math.floorDiv((int) Math.floor(cameraPosition.z), GameConfig.CHUNK_SIZE);
 
@@ -508,10 +504,10 @@ public final class WorldRenderer implements AutoCloseable {
         visibleChunkOrder.clear();
         meshBuildCandidates.clear();
 
-        // 掃描玩家周圍一定距離內的 Chunk。
         for (int dz = -viewDistance; dz <= viewDistance; dz++) {
             for (int dx = -viewDistance; dx <= viewDistance; dx++) {
-                // 用圓形範圍，而不是完整正方形範圍。
+                // Use a circular chunk radius to match loading and completed-result distance
+                // checks.
                 if (dx * dx + dz * dz > maxDistSq) {
                     continue;
                 }
@@ -519,16 +515,16 @@ public final class WorldRenderer implements AutoCloseable {
                 int chunkX = centerChunkX + dx;
                 int chunkZ = centerChunkZ + dz;
 
-                // 只渲染已載入的 Chunk。
                 Chunk chunk = world.getChunkIfLoaded(chunkX, chunkZ);
                 if (chunk == null) {
                     continue;
                 }
 
                 ChunkPos key = chunk.pos();
+                // Keep in-range chunks in the retention set even when the frustum skips their
+                // drawing and build requests.
                 visibleChunks.add(key);
 
-                // 視錐外的 Chunk 不建 mesh 也不繪製；保留在 visibleChunks 中避免快取被剪掉。
                 int worldMinX = chunkX * GameConfig.CHUNK_SIZE;
                 int worldMinZ = chunkZ * GameConfig.CHUNK_SIZE;
                 if (!frustum.testAab(worldMinX, 0.0f, worldMinZ,
@@ -542,27 +538,27 @@ public final class WorldRenderer implements AutoCloseable {
 
                 ChunkMeshes meshes = chunkMeshes.get(key);
 
-                // mesh 不存在或已過期時排入背景建構；已在建構中的不重複提交。
+                // Queue missing or dirty meshes only if the chunk has no pending build.
                 if ((meshes == null || chunk.isMeshDirty()) && !pendingMeshBuilds.contains(key)) {
                     meshBuildCandidates.add(new MeshBuildCandidate(chunk, key, distanceSq));
                 }
 
-                // 還沒有任何 mesh 的 Chunk 這一幀先跳過繪製。
+                // A chunk with no uploaded mesh remains hidden until a worker result is accepted.
                 if (meshes == null) {
                     continue;
                 }
 
-                // 把 Chunk 放到它在世界中的正確位置再繪製。
                 model.identity().translate(chunk.worldMinX(), 0.0f, chunk.worldMinZ());
                 worldShader.setMat4("uModel", model);
                 meshes.opaque.draw();
             }
         }
 
-        // 依距離排序後提交建構工作，讓玩家腳邊與互動中的 Chunk 優先完成。
+        // Submit nearer chunks first.
         submitMeshBuilds(world);
 
-        // 半透明材質後畫，並由遠到近排序；不寫入深度，避免玻璃/水先畫到深度後讓後面的透明面消失。
+        // Draw translucent chunks back-to-front without depth writes so earlier transparent
+        // geometry does not block later geometry.
         visibleChunkOrder.sort((a, b) -> Float.compare(b.distanceSq(), a.distanceSq()));
         glDepthMask(false);
         for (VisibleChunk visibleChunk : visibleChunkOrder) {
@@ -578,12 +574,14 @@ public final class WorldRenderer implements AutoCloseable {
         }
         glDepthMask(true);
 
-        // 把這一幀看不到的 Chunk mesh 釋放掉，減少顯示卡資源占用；World 仍保留 Chunk 方塊資料。
+        // Release meshes outside the retained render radius; off-screen meshes inside the radius
+        // remain cached.
+        // World keeps the corresponding block data.
         pruneChunkMeshes(visibleChunks);
     }
 
-    // 把這一幀收集到的建構需求依距離排序後丟給執行緒池。
-    // 提交前先清掉 dirty 標記：建構期間若再次被修改，旗標會重新立起，完成後自然觸發重建。
+    // Capture data and clear meshDirty before submitting work on the game thread.
+    // Later changes set meshDirty again, causing the stale result to be discarded and rebuilt.
     private void submitMeshBuilds(World world) {
         if (meshBuildCandidates.isEmpty()) {
             return;
@@ -595,6 +593,8 @@ public final class WorldRenderer implements AutoCloseable {
             Chunk chunk = candidate.chunk();
             ChunkPos key = candidate.pos();
 
+            // Keep completed results counted as pending until the main thread consumes them.
+            // This limit bounds retained snapshots and CPU mesh results as well as queued jobs.
             if (pendingMeshBuilds.size() >= maxPendingMeshBuilds) {
                 break;
             }
@@ -615,7 +615,8 @@ public final class WorldRenderer implements AutoCloseable {
         meshBuildCandidates.clear();
     }
 
-    // 把背景執行緒完成的頂點資料上傳到 GPU；上傳必須在持有 GL context 的主執行緒進行。
+    // Consume completed results and upload accepted data only on the thread holding the OpenGL
+    // context.
     private void drainCompletedMeshBuilds(World world, Vector3f cameraPosition) {
         int centerX = Math.floorDiv((int) Math.floor(cameraPosition.x), GameConfig.CHUNK_SIZE);
         int centerZ = Math.floorDiv((int) Math.floor(cameraPosition.z), GameConfig.CHUNK_SIZE);
@@ -631,7 +632,9 @@ public final class WorldRenderer implements AutoCloseable {
             Chunk chunk = world.getChunkIfLoaded(result.pos().x(), result.pos().z());
             long dx = (long) result.pos().x() - centerX;
             long dz = (long) result.pos().z() - centerZ;
-            // 舊快照或已離開渲染距離的結果不必上傳 GPU；dirty 留給下一輪重建。
+            // Discard results for changed, missing, or out-of-range chunks.
+            // A dirty flag or missing cached mesh triggers a future rebuild when the chunk is
+            // needed.
             if (chunk == null || chunk.isMeshDirty()
                     || dx * dx + dz * dz > GameConfig.RENDER_DISTANCE_CHUNKS * GameConfig.RENDER_DISTANCE_CHUNKS) {
                 continue;
@@ -651,7 +654,8 @@ public final class WorldRenderer implements AutoCloseable {
         }
     }
 
-    // 用 Chunk 中心到相機的水平距離排序透明 pass；這是便宜近似，不做每個透明面的精確排序。
+    // Sort by horizontal distance to chunk centers as an approximation; individual transparent
+    // faces are not sorted.
     private float chunkDistanceSq(ChunkPos pos, float cameraX, float cameraZ) {
         float chunkCenterX = pos.x() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
         float chunkCenterZ = pos.z() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
@@ -660,7 +664,7 @@ public final class WorldRenderer implements AutoCloseable {
         return dx * dx + dz * dz;
     }
 
-    // 刪除不在目前可見範圍內的 Chunk mesh。
+    // Evict meshes outside the in-range retention set, including chunks no longer loaded.
     private void pruneChunkMeshes(Set<ChunkPos> visibleChunks) {
         Iterator<Map.Entry<ChunkPos, ChunkMeshes>> iterator = chunkMeshes.entrySet().iterator();
 
@@ -677,7 +681,6 @@ public final class WorldRenderer implements AutoCloseable {
     }
 
     private void renderSelectionOutline(RaycastHit hit) {
-        // 如果目前沒有瞄準任何方塊，就清掉快取後直接結束。
         if (hit == null) {
             lastSelectionX = Integer.MIN_VALUE;
             lastSelectionY = Integer.MIN_VALUE;
@@ -685,7 +688,8 @@ public final class WorldRenderer implements AutoCloseable {
             return;
         }
 
-        // 只有在瞄準的方塊改變時，才重新建立外框資料。
+        // Rebuild when coordinates or block variant change, including door state changes at the
+        // same position.
         if (hit.x() != lastSelectionX || hit.y() != lastSelectionY || hit.z() != lastSelectionZ || hit.block() != lastSelectionType) {
             float[] vertices = buildSelectionOutline(hit);
             selectionMesh.update(vertices);
@@ -708,7 +712,7 @@ public final class WorldRenderer implements AutoCloseable {
         selectionMesh.draw();
     }
 
-    // 繪製方塊破壞碎屑；共用世界 shader，讓碎屑也有霧效、面亮度與 atlas 貼圖。
+    // Reuse the world shader so debris shares atlas textures, face shading, and fog.
     private void renderBreakParticles(Camera camera) {
         if (breakParticleMeshDirty) {
             updateBreakParticleMesh();
@@ -805,19 +809,19 @@ public final class WorldRenderer implements AutoCloseable {
             float maxZ = hit.z() + bounds.maxZ() + SELECTION_OUTLINE_PADDING;
             float half = SELECTION_OUTLINE_THICKNESS * 0.5f;
 
-            // X 軸方向邊。
+            // Edges parallel to X.
             addEdgeBox(out, minX - half, minY - half, minZ - half, maxX + half, minY + half, minZ + half);
             addEdgeBox(out, minX - half, minY - half, maxZ - half, maxX + half, minY + half, maxZ + half);
             addEdgeBox(out, minX - half, maxY - half, minZ - half, maxX + half, maxY + half, minZ + half);
             addEdgeBox(out, minX - half, maxY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
 
-            // Y 軸方向邊。
+            // Edges parallel to Y.
             addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, maxY + half, minZ + half);
             addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, maxY + half, minZ + half);
             addEdgeBox(out, minX - half, minY - half, maxZ - half, minX + half, maxY + half, maxZ + half);
             addEdgeBox(out, maxX - half, minY - half, maxZ - half, maxX + half, maxY + half, maxZ + half);
 
-            // Z 軸方向邊。
+            // Edges parallel to Z.
             addEdgeBox(out, minX - half, minY - half, minZ - half, minX + half, minY + half, maxZ + half);
             addEdgeBox(out, maxX - half, minY - half, minZ - half, maxX + half, minY + half, maxZ + half);
             addEdgeBox(out, minX - half, maxY - half, minZ - half, minX + half, maxY + half, maxZ + half);
@@ -827,7 +831,7 @@ public final class WorldRenderer implements AutoCloseable {
         return out.toArray();
     }
 
-    // 用一個細長長方體代表線段，組成不依賴 glLineWidth 的粗選取框。
+    // Build the outline from thin boxes instead of relying on driver-specific line width.
     private void addEdgeBox(FloatArrayBuilder out, float minX, float minY, float minZ, float maxX, float maxY,
             float maxZ) {
         addQuad(out, maxX, minY, minZ, minX, minY, minZ, minX, maxY, minZ, maxX, maxY, minZ);
@@ -855,7 +859,7 @@ public final class WorldRenderer implements AutoCloseable {
         out.add(x, y, z);
     }
 
-    // 釋放所有渲染資源。
+    // Interrupt CPU mesh workers, then release GPU resources while the context is still current.
     @Override
     public void close() {
         meshExecutor.shutdownNow();
@@ -876,7 +880,6 @@ public final class WorldRenderer implements AutoCloseable {
         }
     }
 
-    // 可見 Chunk 與它到相機的距離快取，避免透明排序時重複計算同一個距離。
     private record VisibleChunk(ChunkPos pos, float distanceSq) {
     }
 
@@ -917,7 +920,6 @@ public final class WorldRenderer implements AutoCloseable {
         }
     }
 
-    // 同一個 Chunk 的不透明與半透明 mesh 綁在一起管理，避免剪裁時只釋放其中一個。
     private static final class ChunkMeshes implements AutoCloseable {
         private final Mesh opaque;
         private final Mesh translucent;
@@ -929,8 +931,8 @@ public final class WorldRenderer implements AutoCloseable {
 
         @Override
         public void close() {
+            // try-with-resources attempts both closes even if one fails.
             try (opaque; translucent) {
-                // try-with-resources 會在其中一個 close 失敗時繼續釋放另一個。
             }
         }
     }

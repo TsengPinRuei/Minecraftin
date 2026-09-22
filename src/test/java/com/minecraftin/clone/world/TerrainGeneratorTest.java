@@ -7,7 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 final class TerrainGeneratorTest {
     @Test
     void generatedTerrainMatchesOriginalIncludingTreesAndNegativeCoordinates() {
-        // 修改前取得的方塊陣列校驗值；保護既有 seed 的地形與樹冠。
+        // Each row is {chunkX, chunkZ, expected Arrays.hashCode(rawBlocks)} for seed 20260219 and
+        // sea level 62.
+        // Keep these terrain and tree baselines unless a generation change is intentional.
         int[][] cases = {{0, 0, -233657283}, {-3, 2, -498815393}, {40, -30, -2003365409},
                 {-16, -6, 469392088}, {-14, -6, 2130032968}};
         TerrainGenerator generator = new TerrainGenerator(20260219L, 62);

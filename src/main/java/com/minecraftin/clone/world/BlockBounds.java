@@ -1,11 +1,11 @@
 package com.minecraftin.clone.world;
 
-// 表示一個方塊內的局部 AABB，座標範圍通常是 0..1，但像柵欄可略高於 1。
-// 同一種方塊可由多個 BlockBounds 組成，例如樓梯、柵欄或薄片狀門板。
+// Block-local axis-aligned bounds, usually within [0, 1]; fence posts extend to Y = 1.5.
+// A block can contain several boxes, as with stairs and fences.
 public record BlockBounds(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
 
-    // 將局部碰撞盒平移到世界座標後，檢查是否與玩家或其他世界座標 AABB 相交。
-    // 邊界使用半開區間判斷，剛好貼齊時不算相交，避免貼牆或站在方塊上方被誤判卡住。
+    // Translate to world coordinates and require overlap on all three axes.
+    // Touching faces alone do not count as a collision.
     public boolean intersectsWorldBox(int blockX, int blockY, int blockZ,
             float minWorldX, float minWorldY, float minWorldZ,
             float maxWorldX, float maxWorldY, float maxWorldZ) {

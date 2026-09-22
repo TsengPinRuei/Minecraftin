@@ -29,6 +29,7 @@ final class InputStateTest {
         assertFalse(input.wasMousePressed(0));
     }
 
+    // Invoke callbacks directly so input behavior can be tested without creating a GLFW window.
     private static <T> T callback(InputState input, String name, Class<T> type) throws Exception {
         var field = InputState.class.getDeclaredField(name);
         field.setAccessible(true);

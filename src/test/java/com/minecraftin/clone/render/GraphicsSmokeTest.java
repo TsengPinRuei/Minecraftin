@@ -15,7 +15,7 @@ import java.util.Arrays;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL33C.*;
 
-// 由 graphicsSmokeTest 啟動，需桌面與 OpenGL context；不混入無視窗的 JUnit test 工作。
+// Run through graphicsSmokeTest with a desktop OpenGL context; ordinary JUnit tests stay headless.
 public final class GraphicsSmokeTest {
     private GraphicsSmokeTest() {
     }
@@ -85,7 +85,7 @@ public final class GraphicsSmokeTest {
                 }
                 window.swapBuffers();
             }
-            // 確認背景工作確實產生並上傳網格，而非只驗證空畫面。
+            // Verify that at least one background chunk result reached the GPU mesh cache.
             var meshes = WorldRenderer.class.getDeclaredField("chunkMeshes");
             meshes.setAccessible(true);
             int uploaded = ((java.util.Map<?, ?>) meshes.get(renderer)).size();
@@ -108,6 +108,7 @@ public final class GraphicsSmokeTest {
                     int index = (y * width + x) * 4;
                     int color = 0xFF000000 | (pixels.get(index) & 255) << 16
                             | (pixels.get(index + 1) & 255) << 8 | (pixels.get(index + 2) & 255);
+                    // OpenGL rows start at the bottom; BufferedImage rows start at the top.
                     image.setRGB(x, height - y - 1, color);
                 }
             }

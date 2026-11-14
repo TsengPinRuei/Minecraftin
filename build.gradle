@@ -31,8 +31,8 @@ if (lwjglNatives == null) {
 }
 
 ext {
-    lwjglVersion = '3.3.3'
-    jomlVersion = '1.10.5'
+    lwjglVersion = '3.4.3'
+    jomlVersion = '1.10.9'
 }
 
 def defaultJvmArgs = ['-Xms1g', '-Xmx2g']
@@ -51,7 +51,7 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-opengl::${lwjglNatives}"
     implementation "org.joml:joml:${jomlVersion}"
 
-    testImplementation platform('org.junit:junit-bom:5.14.4')
+    testImplementation platform('org.junit:junit-bom:6.1.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }

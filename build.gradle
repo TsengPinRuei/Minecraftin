@@ -31,7 +31,7 @@ if (lwjglNatives == null) {
 }
 
 ext {
-    lwjglVersion = '3.3.3'
+    lwjglVersion = '3.4.3'
     jomlVersion = '1.10.5'
 }
 

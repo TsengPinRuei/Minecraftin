@@ -6,6 +6,9 @@ in vec3 vLight;
 in vec3 vWorldPos;
 
 uniform sampler2D uAtlas;
+// Opaque/cutout geometry writes depth, so surviving texels must have binary coverage.
+// Glass and water keep their original alpha in the separate translucent pass.
+uniform bool uOpaquePass;
 uniform vec3 uFogColor;
 uniform vec3 uCameraPos;
 uniform float uFogNear;
@@ -19,8 +22,15 @@ out vec4 FragColor;
 void main() {
     vec4 texel = texture(uAtlas, vUv);
 
-    // Discard transparent cutout texels, such as ladder and torch gaps, before writing depth.
-    if (texel.a < 0.05) {
+    // Ordered coverage keeps thin cutouts visible after mipmapping. Each surviving sample is
+    // opaque, so drawing a rear wall later cannot leave sky-colored, depth-writing alpha edges.
+    // A fixed screen-space pattern avoids temporal noise and needs no multisample framebuffer.
+    if (uOpaquePass) {
+        const int bayer[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+        ivec2 pixel = ivec2(gl_FragCoord.xy) & ivec2(3);
+        float coverageThreshold = (float(bayer[pixel.y * 4 + pixel.x]) + 0.5) / 16.0;
+        if (texel.a <= coverageThreshold) discard;
+    } else if (texel.a < 0.05) {
         discard;
     }
 
@@ -40,5 +50,5 @@ void main() {
     float fogFactor = clamp((distanceToCamera - uFogNear) / max(0.001, (uFogFar - uFogNear)), 0.0, 1.0);
     vec3 finalColor = mix(litColor, uFogColor, fogFactor);
 
-    FragColor = vec4(finalColor, texel.a);
+    FragColor = vec4(finalColor, uOpaquePass ? 1.0 : texel.a);
 }

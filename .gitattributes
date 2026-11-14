@@ -1,0 +1,2 @@
+# Preserve the upstream Windows wrapper line endings in the working tree.
+gradlew.bat text eol=crlf whitespace=cr-at-eol

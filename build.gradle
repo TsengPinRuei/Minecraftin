@@ -51,7 +51,8 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-opengl::${lwjglNatives}"
     implementation "org.joml:joml:${jomlVersion}"
 
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation platform('org.junit:junit-bom:5.14.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -78,4 +79,58 @@ tasks.register('graphicsSmokeTest', JavaExec) {
     if (nativePlatform == 'macos') {
         jvmArgs '-XstartOnFirstThread'
     }
+}
+
+// Keep third-party attribution beside the binaries in every application package.
+distributions {
+    main {
+        contents {
+            from('LICENSE', 'THIRD-PARTY-NOTICES.md')
+            from('licenses') {
+                into 'licenses'
+            }
+        }
+    }
+}
+
+// Inspect the generated install tree and both archive formats, including contents.
+tasks.register('verifyDistributionNotices') {
+    group = 'verification'
+    description = 'Verify that every application distribution includes complete license notices.'
+    dependsOn installDist, distZip, distTar
+    doLast {
+        def expected = ['LICENSE', 'THIRD-PARTY-NOTICES.md',
+                'licenses/lwjgl-LICENSE.md', 'licenses/libffi-LICENSE.txt',
+                'licenses/liburing-LICENSE.txt', 'licenses/glfw-LICENSE.txt',
+                'licenses/khronos-LICENSE.txt', 'licenses/joml-LICENSE.txt']
+        expected.each { path ->
+            if (!file(path).isFile() || file(path).length() == 0) {
+                throw new GradleException("Missing source notice: ${path}")
+            }
+        }
+        def installed = tasks.named('installDist').get().destinationDir
+        expected.each { path ->
+            def packaged = new File(installed, path)
+            if (!packaged.isFile() || packaged.text != file(path).text) {
+                throw new GradleException("Missing or changed installDist notice: ${path}")
+            }
+        }
+        [zipTree(tasks.named('distZip').get().archiveFile),
+         tarTree(tasks.named('distTar').get().archiveFile)].each { archive ->
+            expected.each { path ->
+                def entries = archive.matching { include "*/${path}" }.files
+                if (entries.size() != 1 || entries.first().text != file(path).text) {
+                    throw new GradleException("Missing or changed archive notice: ${path}")
+                }
+            }
+        }
+    }
+}
+
+// Measure retained data and save latency along an isolated, bounded 8,064-block route.
+tasks.register('resourceBudgetProbe', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.minecraftin.clone.game.ResourceBudgetProbe'
+    maxHeapSize = '2g'
 }

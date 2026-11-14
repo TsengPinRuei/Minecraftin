@@ -36,6 +36,7 @@ public final class LightEngine {
     // Initialize direct sky light and block emission, then exchange light with already loaded
     // neighbors.
     public void onChunkLoaded(Chunk chunk) {
+        WorldBounds.requireChunk(chunk.chunkX(), chunk.chunkZ());
         int minX = chunk.worldMinX();
         int minZ = chunk.worldMinZ();
 
@@ -86,6 +87,9 @@ public final class LightEngine {
 
     // World calls this after replacing the block so propagation sees the new material.
     public void onBlockChanged(int x, int y, int z, BlockType oldBlock, BlockType newBlock) {
+        if (!WorldBounds.containsCell(x, y, z)) {
+            throw new IllegalArgumentException("Light update outside supported world bounds");
+        }
         boolean opacityChanged = oldBlock.lightOpacity() != newBlock.lightOpacity();
         if (opacityChanged || oldBlock.lightEmission() != newBlock.lightEmission()) {
             removeLight(CHANNEL_BLOCK, x, y, z);
@@ -193,7 +197,10 @@ public final class LightEngine {
 
     private void enqueueNeighbors(int x, int y, int z) {
         for (int i = 0; i < DIRECTION_COUNT; i++) {
-            spreadQueue.add(pack(x + DIRECTION_X[i], y + DIRECTION_Y[i], z + DIRECTION_Z[i]));
+            int nx = x + DIRECTION_X[i];
+            int ny = y + DIRECTION_Y[i];
+            int nz = z + DIRECTION_Z[i];
+            if (WorldBounds.containsCell(nx, ny, nz)) spreadQueue.add(pack(nx, ny, nz));
         }
     }
 
@@ -376,6 +383,9 @@ public final class LightEngine {
     }
 
     private static long packWithLevel(int x, int y, int z, int level) {
+        if (!WorldBounds.containsCell(x, y, z) || level < 0 || level > MAX_LIGHT) {
+            throw new IllegalArgumentException("Light queue entry outside supported world bounds");
+        }
         return ((long) (x & 0xFFFFFF) << 36)
                 | ((long) (z & 0xFFFFFF) << 12)
                 | ((long) (y & 0xFF) << 4)

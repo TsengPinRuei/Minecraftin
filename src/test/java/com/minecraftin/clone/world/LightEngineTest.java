@@ -1,6 +1,7 @@
 package com.minecraftin.clone.world;
 
 import com.minecraftin.clone.config.GameConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,6 +24,11 @@ final class LightEngineTest {
     private int x;
     private int z;
     private int airY;
+
+    @AfterEach
+    void closeSession() {
+        if (world != null) world.close();
+    }
 
     @BeforeEach
     void setUp() {

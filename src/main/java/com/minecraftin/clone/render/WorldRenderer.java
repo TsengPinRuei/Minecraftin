@@ -81,6 +81,31 @@ public final class WorldRenderer implements AutoCloseable {
     // Cache Face.values() because it returns a new array on each call.
     private static final Face[] FACES = Face.values();
 
+    // Derive a conservative chunk box from every supported render shape, including overhangs.
+    static final BlockBounds CHUNK_RENDER_BOUNDS = chunkRenderBounds();
+
+    private static BlockBounds chunkRenderBounds() {
+        float minX = 0, minY = 0, minZ = 0, maxX = 1, maxY = 1, maxZ = 1;
+        for (BlockType block : BlockType.values()) {
+            for (BlockBounds bounds : block.renderBoxes()) {
+                minX = Math.min(minX, bounds.minX());
+                minY = Math.min(minY, bounds.minY());
+                minZ = Math.min(minZ, bounds.minZ());
+                maxX = Math.max(maxX, bounds.maxX());
+                maxY = Math.max(maxY, bounds.maxY());
+                maxZ = Math.max(maxZ, bounds.maxZ());
+            }
+        }
+        return new BlockBounds(minX, minY, minZ, GameConfig.CHUNK_SIZE - 1 + maxX,
+                GameConfig.CHUNK_HEIGHT - 1 + maxY, GameConfig.CHUNK_SIZE - 1 + maxZ);
+    }
+
+    static boolean chunkVisible(FrustumIntersection frustum, int worldMinX, int worldMinZ) {
+        BlockBounds bounds = CHUNK_RENDER_BOUNDS;
+        return frustum.testAab(worldMinX + bounds.minX(), bounds.minY(), worldMinZ + bounds.minZ(),
+                worldMinX + bounds.maxX(), bounds.maxY(), worldMinZ + bounds.maxZ());
+    }
+
     private final TextureAtlas atlas;
 
     private final ShaderProgram worldShader;
@@ -92,8 +117,15 @@ public final class WorldRenderer implements AutoCloseable {
 
     private final Set<ChunkPos> visibleChunks = new HashSet<>();
 
-    // Cache visible chunk distances for the translucent pass.
-    private final List<VisibleChunk> visibleChunkOrder = new ArrayList<>();
+    private final List<ChunkPos> visibleChunkOrder = new ArrayList<>();
+
+    // Retain transparent faces only for cached chunks, bounded by the existing render radius.
+    // Rebuild one sorted GPU batch when the camera, visible geometry, or debris changes.
+    private final Mesh translucentMesh;
+    private final List<TransparentFace> translucentFaces = new ArrayList<>();
+    private final List<TransparentFace> particleTranslucentFaces = new ArrayList<>();
+    private final Matrix4f cachedTransparencyProjectionView = new Matrix4f();
+    private boolean transparencyDirty = true;
 
     private final Matrix4f projection = new Matrix4f();
 
@@ -158,6 +190,7 @@ public final class WorldRenderer implements AutoCloseable {
             lineShader = resources.add(new ShaderProgram("/shaders/line.vert", "/shaders/line.frag"));
             selectionMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3));
             breakParticleMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3, 2, 3));
+            translucentMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3, 2, 3));
             skyBodyMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3));
             cloudMesh = resources.add(new Mesh(new float[0], GL_TRIANGLES, 3));
             meshExecutor = Executors.newFixedThreadPool(workers, runnable -> {
@@ -255,7 +288,7 @@ public final class WorldRenderer implements AutoCloseable {
             float size = 0.070f + particleRandom.nextFloat() * 0.055f;
             float lifetime = 0.42f + particleRandom.nextFloat() * 0.28f;
             breakParticles.add(new BreakParticle(px, py, pz, vx, vy, vz, size, lifetime, u0, v0, u1, v1,
-                    skyLight, blockLight));
+                    skyLight, blockLight, block.isTranslucent()));
         }
 
         breakParticleMeshDirty = true;
@@ -306,7 +339,11 @@ public final class WorldRenderer implements AutoCloseable {
         renderSkyBodies(camera, world.timeOfDay());
         renderChunks(world, camera);
         renderBreakParticles(camera);
-        renderClouds(world, camera);
+        // All legal world geometry and its short-lived debris remain below the cloud plane.
+        // From below the plane clouds are behind the world; from above they are in front.
+        if (cloudsBehindWorld(camera.position().y)) renderClouds(world, camera);
+        renderTranslucent(camera);
+        if (!cloudsBehindWorld(camera.position().y)) renderClouds(world, camera);
         renderSelectionOutline(selection);
     }
 
@@ -492,6 +529,7 @@ public final class WorldRenderer implements AutoCloseable {
         worldShader.setFloat("uDayLight", dayLight);
         worldShader.setInt("uAtlas", 0);
 
+        worldShader.setInt("uOpaquePass", 1);
         atlas.bind(0);
 
         int centerChunkX = Math.floorDiv((int) Math.floor(cameraPosition.x), GameConfig.CHUNK_SIZE);
@@ -527,14 +565,12 @@ public final class WorldRenderer implements AutoCloseable {
 
                 int worldMinX = chunkX * GameConfig.CHUNK_SIZE;
                 int worldMinZ = chunkZ * GameConfig.CHUNK_SIZE;
-                if (!frustum.testAab(worldMinX, 0.0f, worldMinZ,
-                        worldMinX + GameConfig.CHUNK_SIZE, GameConfig.CHUNK_HEIGHT,
-                        worldMinZ + GameConfig.CHUNK_SIZE)) {
+                if (!chunkVisible(frustum, worldMinX, worldMinZ)) {
                     continue;
                 }
 
                 float distanceSq = chunkDistanceSq(key, cameraPosition.x, cameraPosition.z);
-                visibleChunkOrder.add(new VisibleChunk(key, distanceSq));
+                visibleChunkOrder.add(key);
 
                 ChunkMeshes meshes = chunkMeshes.get(key);
 
@@ -556,23 +592,6 @@ public final class WorldRenderer implements AutoCloseable {
 
         // Submit nearer chunks first.
         submitMeshBuilds(world);
-
-        // Draw translucent chunks back-to-front without depth writes so earlier transparent
-        // geometry does not block later geometry.
-        visibleChunkOrder.sort((a, b) -> Float.compare(b.distanceSq(), a.distanceSq()));
-        glDepthMask(false);
-        for (VisibleChunk visibleChunk : visibleChunkOrder) {
-            ChunkPos key = visibleChunk.pos();
-            ChunkMeshes meshes = chunkMeshes.get(key);
-            if (meshes == null) {
-                continue;
-            }
-
-            model.identity().translate(key.x() * GameConfig.CHUNK_SIZE, 0.0f, key.z() * GameConfig.CHUNK_SIZE);
-            worldShader.setMat4("uModel", model);
-            meshes.translucent.draw();
-        }
-        glDepthMask(true);
 
         // Release meshes outside the retained render radius; off-screen meshes inside the radius
         // remain cached.
@@ -639,23 +658,24 @@ public final class WorldRenderer implements AutoCloseable {
                     || dx * dx + dz * dz > GameConfig.RENDER_DISTANCE_CHUNKS * GameConfig.RENDER_DISTANCE_CHUNKS) {
                 continue;
             }
+            transparencyDirty = true;
             ChunkMeshes meshes = chunkMeshes.get(result.pos());
             if (meshes == null) {
                 try (ResourceScope resources = new ResourceScope()) {
                     Mesh opaque = resources.add(new Mesh(result.data().opaqueVertices(), GL_TRIANGLES, 3, 2, 3));
-                    Mesh translucent = resources.add(new Mesh(result.data().translucentVertices(), GL_TRIANGLES, 3, 2, 3));
-                    chunkMeshes.put(result.pos(), new ChunkMeshes(opaque, translucent));
+                    chunkMeshes.put(result.pos(), new ChunkMeshes(opaque,
+                            transparentFaces(result.data().translucentVertices(), chunk.worldMinX(), chunk.worldMinZ())));
                     resources.release();
                 }
             } else {
                 meshes.opaque.update(result.data().opaqueVertices());
-                meshes.translucent.update(result.data().translucentVertices());
+                meshes.translucent = transparentFaces(result.data().translucentVertices(),
+                        chunk.worldMinX(), chunk.worldMinZ());
             }
         }
     }
 
-    // Sort by horizontal distance to chunk centers as an approximation; individual transparent
-    // faces are not sorted.
+    // Prioritize chunk builds by horizontal distance to their centers.
     private float chunkDistanceSq(ChunkPos pos, float cameraX, float cameraZ) {
         float chunkCenterX = pos.x() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
         float chunkCenterZ = pos.z() * GameConfig.CHUNK_SIZE + GameConfig.CHUNK_SIZE * 0.5f;
@@ -722,6 +742,15 @@ public final class WorldRenderer implements AutoCloseable {
             return;
         }
 
+        useWorldShader(camera);
+
+        worldShader.setInt("uOpaquePass", 1);
+        model.identity();
+        worldShader.setMat4("uModel", model);
+        breakParticleMesh.draw();
+    }
+
+    private void useWorldShader(Camera camera) {
         worldShader.use();
         worldShader.setMat4("uProjection", projection);
         worldShader.setMat4("uView", view);
@@ -732,25 +761,90 @@ public final class WorldRenderer implements AutoCloseable {
         worldShader.setFloat("uDayLight", dayLight);
         worldShader.setInt("uAtlas", 0);
         atlas.bind(0);
-
-        model.identity();
-        worldShader.setMat4("uModel", model);
-        breakParticleMesh.draw();
     }
 
     private void updateBreakParticleMesh() {
-        if (breakParticles.isEmpty()) {
-            breakParticleMesh.update(new float[0]);
-            breakParticleMeshDirty = false;
-            return;
+        FloatArrayBuilder opaque = new FloatArrayBuilder(breakParticles.size() * 36 * ChunkMesher.STRIDE_FLOATS);
+        FloatArrayBuilder translucent = new FloatArrayBuilder(1024);
+        for (BreakParticle particle : breakParticles) {
+            addParticleCube(particle.translucent ? translucent : opaque, particle);
+        }
+        breakParticleMesh.update(opaque.toArray());
+        particleTranslucentFaces.clear();
+        particleTranslucentFaces.addAll(transparentFaces(translucent.toArray(), 0, 0));
+        breakParticleMeshDirty = false;
+        transparencyDirty = true;
+    }
+
+    static boolean cloudsBehindWorld(float cameraY) {
+        return cameraY <= CLOUD_Y;
+    }
+
+    private void renderTranslucent(Camera camera) {
+        if (transparencyDirty || !projViewMatrix.equals(cachedTransparencyProjectionView)) {
+            translucentFaces.clear();
+            for (ChunkPos pos : visibleChunkOrder) {
+                ChunkMeshes meshes = chunkMeshes.get(pos);
+                if (meshes != null) translucentFaces.addAll(meshes.translucent);
+            }
+            translucentFaces.addAll(particleTranslucentFaces);
+            for (TransparentFace face : translucentFaces) face.updateDepth(view);
+            translucentFaces.sort((a, b) -> Float.compare(b.depth, a.depth));
+            FloatArrayBuilder vertices = new FloatArrayBuilder(translucentFaces.size() * 48);
+            for (TransparentFace face : translucentFaces) face.appendTo(vertices);
+            translucentMesh.update(vertices.toArray());
+            cachedTransparencyProjectionView.set(projViewMatrix);
+            transparencyDirty = false;
+        }
+        useWorldShader(camera);
+        worldShader.setInt("uOpaquePass", 0);
+        model.identity();
+        worldShader.setMat4("uModel", model);
+        glDepthMask(false);
+        translucentMesh.draw();
+        glDepthMask(true);
+    }
+
+    private static List<TransparentFace> transparentFaces(float[] vertices, int offsetX, int offsetZ) {
+        // Each mesher/particle face is a pair of triangles (six vertices, stride eight).
+        for (int i = 0; i < vertices.length; i += ChunkMesher.STRIDE_FLOATS) {
+            vertices[i] += offsetX;
+            vertices[i + 2] += offsetZ;
+        }
+        List<TransparentFace> faces = new ArrayList<>(vertices.length / 48);
+        for (int offset = 0; offset < vertices.length; offset += 48) {
+            faces.add(new TransparentFace(vertices, offset));
+        }
+        return faces;
+    }
+
+    private static final class TransparentFace {
+        private final float[] vertices;
+        private final int offset;
+        private final float centerX;
+        private final float centerY;
+        private final float centerZ;
+        private float depth;
+
+        private TransparentFace(float[] vertices, int offset) {
+            this.vertices = vertices;
+            this.offset = offset;
+            // Vertices zero and two are opposite corners in both mesh emitters.
+            centerX = (vertices[offset] + vertices[offset + 16]) * 0.5f;
+            centerY = (vertices[offset + 1] + vertices[offset + 17]) * 0.5f;
+            centerZ = (vertices[offset + 2] + vertices[offset + 18]) * 0.5f;
         }
 
-        FloatArrayBuilder out = new FloatArrayBuilder(breakParticles.size() * 6 * 6 * ChunkMesher.STRIDE_FLOATS);
-        for (BreakParticle particle : breakParticles) {
-            addParticleCube(out, particle);
+        private void updateDepth(Matrix4f view) {
+            depth = -(view.m02() * centerX + view.m12() * centerY + view.m22() * centerZ + view.m32());
         }
-        breakParticleMesh.update(out.toArray());
-        breakParticleMeshDirty = false;
+
+        private void appendTo(FloatArrayBuilder out) {
+            for (int i = offset; i < offset + 48; i += 8) {
+                out.add(vertices[i], vertices[i + 1], vertices[i + 2], vertices[i + 3], vertices[i + 4],
+                        vertices[i + 5], vertices[i + 6], vertices[i + 7]);
+            }
+        }
     }
 
     private void addParticleCube(FloatArrayBuilder out, BreakParticle particle) {
@@ -871,6 +965,7 @@ public final class WorldRenderer implements AutoCloseable {
             resources.add(lineShader);
             resources.add(selectionMesh);
             resources.add(breakParticleMesh);
+            resources.add(translucentMesh);
             resources.add(skyBodyMesh);
             resources.add(cloudMesh);
             for (ChunkMeshes meshes : chunkMeshes.values()) {
@@ -878,9 +973,6 @@ public final class WorldRenderer implements AutoCloseable {
             }
             chunkMeshes.clear();
         }
-    }
-
-    private record VisibleChunk(ChunkPos pos, float distanceSq) {
     }
 
     private static final class BreakParticle {
@@ -898,11 +990,12 @@ public final class WorldRenderer implements AutoCloseable {
         private final float v1;
         private final float skyLight;
         private final float blockLight;
+        private final boolean translucent;
         private float life;
 
         private BreakParticle(float x, float y, float z, float velocityX, float velocityY, float velocityZ,
                 float size, float lifetime, float u0, float v0, float u1, float v1,
-                float skyLight, float blockLight) {
+                float skyLight, float blockLight, boolean translucent) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -917,23 +1010,22 @@ public final class WorldRenderer implements AutoCloseable {
             this.v1 = v1;
             this.skyLight = skyLight;
             this.blockLight = blockLight;
+            this.translucent = translucent;
         }
     }
 
     private static final class ChunkMeshes implements AutoCloseable {
         private final Mesh opaque;
-        private final Mesh translucent;
+        private List<TransparentFace> translucent;
 
-        private ChunkMeshes(Mesh opaque, Mesh translucent) {
+        private ChunkMeshes(Mesh opaque, List<TransparentFace> translucent) {
             this.opaque = opaque;
             this.translucent = translucent;
         }
 
         @Override
         public void close() {
-            // try-with-resources attempts both closes even if one fails.
-            try (opaque; translucent) {
-            }
+            opaque.close();
         }
     }
 }

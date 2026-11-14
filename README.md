@@ -69,7 +69,7 @@ These are implemented parts of the project that can be described in a portfolio.
 | Lighting | Breadth-first propagation (BFS) spreads sky/block light levels from 0–15. Smooth per-vertex lighting and AO sample neighbors; changes at chunk corners also invalidate diagonal meshes. | [LightEngine.java](src/main/java/com/minecraftin/clone/world/LightEngine.java), [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [World.java](src/main/java/com/minecraftin/clone/world/World.java) |
 | Water simulation | A scheduled queue advances water every 0.25 seconds, with a per-tick work limit. Flow queries do not generate missing terrain; boundary updates resume when neighboring chunks load. | [World.java](src/main/java/com/minecraftin/clone/world/World.java) |
 | Background mesh building | A mesh is the triangle data sent to the GPU. Workers build meshes from independent block/light snapshots; nearby work is prioritized, pending jobs are bounded, and outdated results are discarded. GPU uploads stay on the main thread and are capped at 16 results per frame. | [ChunkSnapshot.java](src/main/java/com/minecraftin/clone/world/ChunkSnapshot.java), [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
-| Rendering workload | Internal faces are omitted. Frustum culling skips chunks outside the camera view. Opaque and translucent geometry use separate passes; translucent chunks are drawn far to near. GPU meshes outside render distance are released. | [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
+| Rendering workload | Internal faces are omitted. Frustum culling skips chunks outside the camera view. Opaque/cutout geometry writes depth first; visible translucent faces and particles share a far-to-near pass, with clouds ordered according to the camera side of their plane. GPU meshes outside render distance are released. | [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
 | Textures and UI | Code generates 16 × 16-pixel texture tiles in one atlas shared by world blocks and HUD icons. Custom glyphs, inventory paging, shape-specific thumbnails, and window/framebuffer coordinate handling support the UI. | [TextureAtlas.java](src/main/java/com/minecraftin/clone/engine/TextureAtlas.java), [HudRenderer.java](src/main/java/com/minecraftin/clone/render/HudRenderer.java), [InputState.java](src/main/java/com/minecraftin/clone/engine/InputState.java) |
 | Save reliability | A versioned binary format validates headers, dimensions, block IDs, positions, time, and water state before applying loaded data. Failed writes keep the old save and pending changes. | [World.java](src/main/java/com/minecraftin/clone/world/World.java), [WorldPersistenceTest.java](src/test/java/com/minecraftin/clone/world/WorldPersistenceTest.java) |
 | Resource ownership | Scoped cleanup closes resources in reverse order, including after initialization failures; additional cleanup failures are retained. Mesh workers and GPU resources are closed when rendering ends. | [ResourceScope.java](src/main/java/com/minecraftin/clone/engine/ResourceScope.java), [WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java), [ResourceScopeTest.java](src/test/java/com/minecraftin/clone/engine/ResourceScopeTest.java) |
@@ -92,7 +92,7 @@ The rendering techniques above are implemented; this repository does not provide
 - Allow internet access for the first download of Gradle and dependencies. You do not need a Minecraft installation, account, API key, database, or separate Gradle installation.
 - As a starting guideline, allow 4 GB system RAM, preferably 8 GB, and roughly 1 GB disk space for build tools. These are not benchmarked minimums; caches and explored worlds can grow. The game JVM starts with a 1 GB heap and allows up to 2 GB by default.
 
-The wrapper uses Gradle `8.10.2`, and source code targets Java `release 17`. With this unchanged build, use a JDK in the **17–23** range; Java 24 or later is outside this Gradle version's supported runtime range. [Gradle 8.10.2 compatibility](https://docs.gradle.org/8.10.2/userguide/compatibility.html).
+The wrapper pins Gradle `8.14.7` and its official distribution SHA-256; source code still targets Java `release 17`. Use **JDK 17 or 21** for the tested project workflow. [Gradle 8.14.7 compatibility](https://docs.gradle.org/8.14.7/userguide/compatibility.html). macOS ARM64 is the primary desktop platform; other platforms are not yet fully verified.
 
 ### 2. Get the whole project
 
@@ -133,7 +133,7 @@ javac -version
 .\gradlew.bat run
 ```
 
-Run one line at a time. The Java commands should show your chosen compatible JDK; the wrapper should show Gradle `8.10.2` and a compatible JVM. If a version check fails, follow [Troubleshooting](#troubleshooting) before continuing.
+Run one line at a time. The Java commands should show your chosen compatible JDK; the wrapper should show Gradle `8.14.7` and a compatible JVM. If a version check fails, follow [Troubleshooting](#troubleshooting) before continuing.
 
 ### 4. Recognize a successful launch
 
@@ -238,7 +238,11 @@ The default file is `saves/world.dat`. With `gradlew run`, it is inside the proj
 
 Every 20 seconds of game update time, pending block/position changes are checked. When needed, the game writes a snapshot of **all loaded chunks**. Normal exit also saves world time and the current player position. Force-quitting may lose changes since the last successful save.
 
-Writes go through a temporary file before an atomic replacement (replacing the old file in one filesystem operation). A failure keeps the previous save and pending changes. There is no rotating backup history. Check for `World save failed` in the terminal even if Gradle eventually prints `BUILD SUCCESSFUL`.
+A canonical sidecar lock (`world.dat.lock`) gives one running session ownership before loading. A second writable session is refused, including path aliases. The sidecar can remain after exit; its presence alone does not mean the world is locked. Do not delete or replace it while the game is running.
+
+Writes go through a temporary file before an atomic replacement. A failure keeps the previous save and pending changes, and a persistent `SAVE FAILED` overlay appears even with F3 off. Press **R** to retry. If closing the window fails to save, the game stays open: **R** retries and exits, **Esc** returns to play, and **D**, then **Y** explicitly discards unsaved changes and exits. **Esc** backs out of the discard confirmation. World simulation stops while that exit prompt is open. There is no rotating backup history; terminal errors contain technical details.
+
+Saved positions under a low ceiling restore crouching when standing does not fit. Flight still resets. Supported block X/Z coordinates are **−8,192 through 8,191**, with player centers inset by their collision radius. Flight feet Y is limited to **−8,192 through 8,190.2** (the block world remains Y=0–127). Movement stops at the boundary; invalid or out-of-range saves are rejected without overwriting or silently trimming them. Keep the original file and use its matching earlier version if it exceeds these bounds.
 
 Version 4 reads save versions 1–3 and upgrades them on the next successful save. Keep a backup before using a newer game version; older readers may not understand the upgraded file. This is Minecraftin's own binary format, not an import format for official Minecraft worlds.
 
@@ -296,7 +300,7 @@ Most settings live in [GameConfig.java](src/main/java/com/minecraftin/clone/conf
 
 The same file also controls the window title, camera clipping distances, walk/fly/sprint/jump/gravity values, and player collision/eye dimensions. Crouching, swimming, ladder, and stepping constants are in [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java); water update limits are in [World.java](src/main/java/com/minecraftin/clone/world/World.java).
 
-Build settings are in [build.gradle](build.gradle): Java application entry point `com.minecraftin.clone.MinecraftClone`, LWJGL `3.3.3`, JOML `1.10.5`, JUnit `5.10.2`, and game JVM heap options `-Xms1g -Xmx2g`. macOS launches automatically add `-XstartOnFirstThread`. No game-specific environment variables or online services are required; `JAVA_HOME` and `GRADLE_USER_HOME` are optional Java/build-tool settings.
+Build settings are in [build.gradle](build.gradle): Java application entry point `com.minecraftin.clone.MinecraftClone`, LWJGL `3.3.3`, JOML `1.10.5`, JUnit `5.14.4`, and game JVM heap options `-Xms1g -Xmx2g`. macOS launches automatically add `-XstartOnFirstThread`. No game-specific environment variables or online services are required; `JAVA_HOME` and `GRADLE_USER_HOME` are optional Java/build-tool settings.
 
 <a id="development"></a>
 ## Development, Tests, and Packaging
@@ -312,6 +316,8 @@ Use the row matching your goal; you do not need to run every command to play.
 | Run the desktop graphics check | `./gradlew graphicsSmokeTest` | `.\gradlew.bat graphicsSmokeTest` |
 | Compile, test, and create distributions | `./gradlew build` | `.\gradlew.bat build` |
 | Create a local runnable layout | `./gradlew installDist` | `.\gradlew.bat installDist` |
+| Check notices in install/ZIP/TAR | `./gradlew verifyDistributionNotices` | `.\gradlew.bat verifyDistributionNotices` |
+| Measure isolated exploration resources | `./gradlew resourceBudgetProbe` | `.\gradlew.bat resourceBudgetProbe` |
 | Remove generated build output | `./gradlew clean` | `.\gradlew.bat clean` |
 
 A finished build task should report `BUILD SUCCESSFUL`; `UP-TO-DATE` means Gradle reused current output. To force a fresh logic-test run, use `./gradlew test --rerun-tasks` or `.\gradlew.bat test --rerun-tasks`. `clean` removes `build/`, including installed distributions, reports, and screenshots; it does not remove the root `saves/` folder.
@@ -337,9 +343,19 @@ The graphics check is a short smoke test, not a complete manual gameplay test or
 
 **Verification snapshot — 2026-09-12:** macOS ARM64, JDK `21.0.10`: a fresh `test graphicsSmokeTest --rerun-tasks` run passed all 45 JUnit tests (0 failures, errors, or skips) and the OpenGL smoke test; both screenshots were inspected. `build installDist` also completed successfully. Windows and Linux commands/build configuration were reviewed but were not executed in this verification. Re-run the checks after code changes.
 
+The 2026-11-14 review fixes, decisions, current verification and remaining platform limits are recorded in [the review resolution log](docs/review-fixes-20261114.md). CI records the source commit, runtime and test reports for JDK 17/21 on Linux and macOS; a configured job is not evidence of a completed remote run. Desktop graphics remain a separate check.
+
+**Desktop follow-up — 2026-11-15:** the packaged macOS ARM64 application passed normal close/save/reopen and save-failure retry/cancel/confirmed-discard checks in a temporary world. All three runs exited normally with code 0; saved chunk data and the previous save on discard were preserved. Details and screenshots are in the [review resolution log](docs/review-fixes-20261114.md).
+
+### Resource budget
+
+F3 shows sampled heap use, retained block/light array payload, last saved file size and the last save attempt duration. The advisory prototype budget warns at **2,048 chunks**, **75% of maximum heap**, or **1,000 ms per save attempt**. The warning remains visible with F3 off. These are conservative operating targets, not an enforced cache limit or a guarantee against running out of memory. Stop exploring, save and exit when warned; back up the world before starting a new one. Restarting the same world reloads its retained chunks and does not reduce its size.
+
+Each chunk's three data arrays alone occupy 128 KiB; 2,048 chunks account for 256 MiB before objects, queues, snapshots and meshes. `resourceBudgetProbe` measures a reproducible 8,064-block route in a temporary world and checks that all 64 placed blocks survive reload; results are written to `build/reports/resource-budget/exploration.csv`. It is a bounded measurement, not a long-duration stress test.
+
 ### Run a packaged copy
 
-First run `installDist` from the command table. Keep both `bin/` and `lib/` inside `build/install/minecraftin-clone/`; the launcher needs the libraries. A compatible Java installation is still required.
+First run `installDist` from the command table. Keep `bin/`, `lib/`, `LICENSE`, `THIRD-PARTY-NOTICES.md`, and `licenses/` together inside `build/install/minecraftin-clone/`; the launcher needs the libraries. A compatible Java installation is still required.
 
 To keep using the project-root save, stay in the project root and run:
 
@@ -411,7 +427,7 @@ These boundaries describe the current implementation, not a committed roadmap.
 - **UI prototypes:** chests have no item storage; the creative palette assigns unlimited blocks to hotbar slots. There is no full inventory/stack system, hotbar persistence, or in-game language selector; UI labels are English.
 - **One local world path:** no world-selection screen, in-game seed/settings/keybinding menu, pause menu, multiplayer, account system, or cloud save.
 - **Simplified block behavior:** trapdoor opening direction and fence shape are fixed; no connected-fence logic, upside-down/merged slabs, or full Minecraft block-state rules. Crouching does not provide ledge protection.
-- **Rendering and memory limits:** transparency is sorted by chunk, not by every face. GPU meshes are pruned, but loaded block data remains in memory and is saved together; extended exploration can increase RAM use and save size. Terrain generation still happens on the main thread; background work handles mesh construction.
+- **Rendering and memory limits:** translucent faces are sorted by view depth; intersecting transparent geometry can still have ordinary alpha-sorting artifacts. Minified cutout textures use a fixed screen-space coverage pattern, which can be visible when magnified. GPU meshes are pruned, but loaded block data remains in memory and is saved together; extended exploration can increase RAM use and save size. Terrain generation still happens on the main thread; background work handles mesh construction.
 - **Other missing systems:** no audio, weather, redstone, portals/dimensions, or official Minecraft world import. Themed building blocks do not imply those systems exist.
 
 <a id="troubleshooting"></a>
@@ -420,7 +436,7 @@ These boundaries describe the current implementation, not a committed roadmap.
 | Symptom | What to do |
 | --- | --- |
 | `java` or `javac` not found; `JAVA_HOME` invalid | Install a full JDK 21 or 17, reopen the terminal, and repeat the version checks. If using `JAVA_HOME`, point it to the JDK folder, not its `bin` folder or the Java executable. Check the JVM reported by the wrapper too. |
-| Unsupported Java/class-file version | Use the compatible JDK range described in Quick Start. A newer JDK is not automatically supported by Gradle 8.10.2. |
+| Unsupported Java/class-file version | Use the compatible JDK range described in Quick Start. Use JDK 17 or 21 for the verified workflow. |
 | `gradlew` not found / current folder is not a Gradle build | Enter the extracted folder containing `build.gradle`. On PowerShell use `.\gradlew.bat`, including the leading `.\`. |
 | `./gradlew: Permission denied` | On macOS/Linux run `chmod +x gradlew`, then retry `./gradlew run`. |
 | Wrapper JAR missing | Extract or clone the complete repository again; keep `gradle/wrapper/gradle-wrapper.jar`. |
@@ -452,3 +468,7 @@ $env:GRADLE_USER_HOME = "$PWD\.gradle-home"
 ```
 
 The PowerShell setting lasts for that terminal session. A local cache may download dependencies again. **`--no-daemon` can still start a single-use Gradle process and use local sockets.** It cannot bypass a sandbox or network restriction. If the error mentions `java.net.SocketException: Operation not permitted`, run from a permitted local terminal or correct the environment restriction.
+
+## License
+
+Original project code and generated assets are licensed under the [MIT License](LICENSE), copyright 2026 TsengPinRuei. Third-party components retain their own terms; [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [licenses/](licenses/) are included in every distribution.

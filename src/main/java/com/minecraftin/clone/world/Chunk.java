@@ -29,6 +29,7 @@ public final class Chunk {
     private boolean modified;
 
     public Chunk(int chunkX, int chunkZ) {
+        WorldBounds.requireChunk(chunkX, chunkZ);
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
         this.pos = new ChunkPos(chunkX, chunkZ);

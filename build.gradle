@@ -32,7 +32,7 @@ if (lwjglNatives == null) {
 
 ext {
     lwjglVersion = '3.3.3'
-    jomlVersion = '1.10.5'
+    jomlVersion = '1.10.9'
 }
 
 def defaultJvmArgs = ['-Xms1g', '-Xmx2g']

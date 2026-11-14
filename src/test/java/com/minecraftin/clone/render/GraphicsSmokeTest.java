@@ -32,7 +32,7 @@ public final class GraphicsSmokeTest {
             glfwSetWindowSize(window.handle(), 800, 600);
             window.pollEvents();
 
-            World world = new World(temporary.resolve("world.dat"), 123);
+            World world = resources.add(new World(temporary.resolve("world.dat"), 123));
             world.initialize();
             world.ensureChunksAround(0, 0, 1);
             for (int z = -1; z <= 1; z++) {
@@ -85,6 +85,23 @@ public final class GraphicsSmokeTest {
                 }
                 window.swapBuffers();
             }
+            glfwSetWindowSize(window.handle(), 400, 800);
+            for (int page = 0; page < HudRenderer.creativeTotalPages(palette.length); page++) {
+                for (int settle = 0; settle < 3; settle++) {
+                    window.pollEvents();
+                    renderer.render(world, camera, window.width(), window.height(), null);
+                    hud.render(hotbar, 1, true, true, palette, page,
+                            HudRenderer.creativeTotalPages(palette.length), false, null,
+                            window.width(), window.height());
+                    if (settle == 2) capture(output.resolve("inventory-narrow-page-" + page + ".png"),
+                            window.width(), window.height());
+                    window.swapBuffers();
+                }
+            }
+            System.out.println("Narrow HUD: logical " + window.windowWidth() + "x" + window.windowHeight()
+                    + ", framebuffer " + window.width() + "x" + window.height());
+            CutoutRegressionFixture.run(true);
+            TransparencyRegressionFixture.run();
             // Verify that at least one background chunk result reached the GPU mesh cache.
             var meshes = WorldRenderer.class.getDeclaredField("chunkMeshes");
             meshes.setAccessible(true);
@@ -94,6 +111,7 @@ public final class GraphicsSmokeTest {
                     + ", uploaded chunks=" + uploaded);
         } finally {
             Files.deleteIfExists(temporary.resolve("world.dat"));
+            Files.deleteIfExists(temporary.resolve("world.dat.lock"));
             Files.deleteIfExists(temporary);
         }
     }

@@ -11,9 +11,14 @@ import com.minecraftin.clone.render.WorldRenderer;
 import com.minecraftin.clone.world.BlockType;
 import com.minecraftin.clone.world.RaycastHit;
 import com.minecraftin.clone.world.World;
+import com.minecraftin.clone.world.WorldBounds;
 import org.joml.Vector3f;
 
 import java.nio.file.Paths;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL33C.*;
@@ -49,7 +54,7 @@ public final class Game {
     private final InputState input = new InputState();
     private final Camera camera = new Camera();
     private final Player player = new Player();
-    private final World world = new World(Paths.get(GameConfig.WORLD_FILE), GameConfig.DEFAULT_WORLD_SEED);
+    private final World world;
 
     // Reuse vectors across frames to avoid temporary allocations.
     private final Vector3f tmpCameraRight = new Vector3f();
@@ -82,6 +87,12 @@ public final class Game {
     private float breakCooldown;
     private float placeCooldown;
     private float autosaveTimer;
+    private final SaveController saves = new SaveController();
+    private boolean recaptureAfterSavePrompt;
+    private long sampledHeapUsed;
+    private long sampledHeapMax = Runtime.getRuntime().maxMemory();
+    private long savedFileBytes;
+
     private int loadedCenterX = Integer.MIN_VALUE;
     private int loadedCenterZ = Integer.MIN_VALUE;
 
@@ -102,17 +113,27 @@ public final class Game {
     private float walkBobVertical;
     private float walkBobHorizontal;
 
+    public Game() {
+        this(new World(Paths.get(GameConfig.WORLD_FILE), GameConfig.DEFAULT_WORLD_SEED));
+    }
+
+    Game(World world) {
+        this.world = java.util.Objects.requireNonNull(world);
+    }
+
     public void run() {
         try (ResourceScope resources = new ResourceScope()) {
             // Register the window before create() so partial initialization can be cleaned up.
             // Register GPU resources later so they close before the window destroys its context.
             resources.add(window);
+            Throwable primaryFailure = null;
             try {
                 window.create();
                 input.attach(window.handle());
 
                 initGraphicsState();
 
+                resources.add(world);
                 world.initialize();
                 worldInitialized = true;
 
@@ -126,7 +147,7 @@ public final class Game {
                     world.defaultSpawn(spawn);
                 }
 
-                player.setPosition(spawn.x, spawn.y, spawn.z);
+                player.restorePosition(world, spawn.x, spawn.y, spawn.z);
                 playerSpawnInitialized = true;
                 camera.setRotation(-90.0f, -15.0f);
                 updateCameraFromPlayer(0.0f);
@@ -134,20 +155,31 @@ public final class Game {
                 window.captureCursor(false);
                 input.resetMouseTracking();
 
+                sampleResources();
                 loop();
+            } catch (RuntimeException | Error failure) {
+                primaryFailure = failure;
+                throw failure;
             } finally {
-                // Record the player's exit position for the next session; autosave does not refresh
-                // this position.
-                if (worldInitialized && playerSpawnInitialized) {
-                    world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
-                }
-
-                // Attempt a final save even when no blocks are dirty, so world time is also
-                // persisted.
-                if (worldInitialized) {
-                    safeSaveWorld();
-                }
+                saveOnUnexpectedExit(primaryFailure);
             }
+        }
+    }
+
+    private void saveOnUnexpectedExit(Throwable primaryFailure) {
+        // Normal exits have already saved or explicitly discarded. During another failure,
+        // preserve the original error and attach any final-save error as suppressed evidence.
+        if (!worldInitialized || saves.exitReady()) return;
+        try {
+            if (playerSpawnInitialized) {
+                world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
+            }
+            if (!safeSaveWorld(false)) {
+                throw new IllegalStateException("Final world save failed", saves.failure());
+            }
+        } catch (RuntimeException | Error saveFailure) {
+            if (primaryFailure != null) primaryFailure.addSuppressed(saveFailure);
+            else throw saveFailure;
         }
     }
 
@@ -165,7 +197,7 @@ public final class Game {
     private void loop() {
         double lastTime = glfwGetTime();
 
-        while (!window.shouldClose()) {
+        while (!saves.exitReady()) {
             double now = glfwGetTime();
 
             // Cap the simulation step to limit collision movement after a stalled frame.
@@ -174,7 +206,13 @@ public final class Game {
             lastTime = now;
 
             window.pollEvents();
+            if (window.shouldClose()) {
+                glfwSetWindowShouldClose(window.handle(), false);
+                if (!saves.exitPromptOpen()) requestExit();
+            }
+            if (saves.exitReady()) break;
             handleInputState();
+            if (saves.exitReady()) break;
 
             // Load one extra ring for neighbor sampling and interactions near the render boundary.
             int playerChunkX = Math.floorDiv((int) Math.floor(player.position().x), GameConfig.CHUNK_SIZE);
@@ -197,14 +235,16 @@ public final class Game {
             }
 
             // World time and water keep advancing while the cursor is released or a panel is open.
-            world.update(delta);
-            worldRenderer.update(delta);
+            if (!saves.exitPromptOpen()) {
+                world.update(delta);
+                worldRenderer.update(delta);
+            }
 
             hotbarLabelTimer = Math.max(0.0f, hotbarLabelTimer - delta);
 
             worldRenderer.render(world, camera, window.width(), window.height(), targetedBlock);
             hudRenderer.render(hotbar, hotbarIndex, hotbarLabelTimer > 0.0f, creativeInventoryOpen, creativeBlocks,
-                    creativeInventoryPage, creativeTotalPages, chestOpen, buildDebugLines(), window.width(), window.height());
+                    creativeInventoryPage, creativeTotalPages, chestOpen, buildOverlayLines(), window.width(), window.height());
 
             updateDebugTitle(now);
 
@@ -213,11 +253,11 @@ public final class Game {
 
             // Autosave is triggered by modified blocks or respawn state; a successful save writes
             // all loaded chunks.
-            // Shutdown attempts to save the exit position, but safeSaveWorld only logs failures.
+            // A failed autosave remains visible until a later save succeeds.
             autosaveTimer += delta;
-            if (autosaveTimer >= 20.0f) {
+            if (autosaveTimer >= 20.0f && !saves.exitPromptOpen()) {
                 if (world.hasPendingSave()) {
-                    safeSaveWorld();
+                    safeSaveWorld(false);
                 }
                 autosaveTimer = 0.0f;
             }
@@ -225,6 +265,16 @@ public final class Game {
     }
 
     private void handleInputState() {
+        if (saves.exitPromptOpen()) {
+            handleSavePrompt();
+            return;
+        }
+        if (saves.hasFailure() && input.wasKeyPressed(GLFW_KEY_R)) {
+            safeSaveWorld(false);
+        }
+        if (input.wasFocusLost() || !cursorCaptured) {
+            player.resetControlSequence();
+        }
         // Allow the debug overlay to toggle even while a panel is open.
         if (input.wasKeyPressed(GLFW_KEY_F3)) {
             debugOverlayVisible = !debugOverlayVisible;
@@ -257,17 +307,12 @@ public final class Game {
         }
 
         if (input.wasKeyPressed(GLFW_KEY_ESCAPE) && cursorCaptured) {
-            cursorCaptured = false;
-            window.captureCursor(false);
-            input.resetMouseTracking();
+            setCursorCaptured(false);
         }
 
         // The click that captures the cursor must not also break the targeted block.
         if (!cursorCaptured && input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
-            cursorCaptured = true;
-            suppressInteractionUntilRelease = true;
-            window.captureCursor(true);
-            input.resetMouseTracking();
+            setCursorCaptured(true);
         }
 
         handleHotbarKeySelection();
@@ -278,6 +323,16 @@ public final class Game {
             hotbarIndex = Math.floorMod(hotbarIndex + direction, hotbar.length);
             hotbarLabelTimer = HOTBAR_LABEL_SECONDS;
         }
+    }
+
+    private void setCursorCaptured(boolean captured) {
+        player.resetControlSequence();
+        cursorCaptured = captured;
+        if (captured) {
+            suppressInteractionUntilRelease = true;
+        }
+        window.captureCursor(captured);
+        input.resetMouseTracking();
     }
 
     private void handleHotbarKeySelection() {
@@ -329,9 +384,7 @@ public final class Game {
         // Restore the prior cursor capture state when this panel closes.
         recaptureCursorAfterInventory = cursorCaptured;
         creativeInventoryOpen = true;
-        cursorCaptured = false;
-        window.captureCursor(false);
-        input.resetMouseTracking();
+        setCursorCaptured(false);
         focusCreativePageOnSelectedBlock();
     }
 
@@ -342,10 +395,7 @@ public final class Game {
 
         creativeInventoryOpen = false;
         if (recaptureIfNeeded && recaptureCursorAfterInventory) {
-            cursorCaptured = true;
-            suppressInteractionUntilRelease = true;
-            window.captureCursor(true);
-            input.resetMouseTracking();
+            setCursorCaptured(true);
         }
         recaptureCursorAfterInventory = false;
     }
@@ -356,9 +406,7 @@ public final class Game {
         closeCreativeInventory(false);
         recaptureCursorAfterChest = cursorCaptured;
         chestOpen = true;
-        cursorCaptured = false;
-        window.captureCursor(false);
-        input.resetMouseTracking();
+        setCursorCaptured(false);
     }
 
     private void closeChest(boolean recaptureIfNeeded) {
@@ -368,10 +416,7 @@ public final class Game {
 
         chestOpen = false;
         if (recaptureIfNeeded && recaptureCursorAfterChest) {
-            cursorCaptured = true;
-            suppressInteractionUntilRelease = true;
-            window.captureCursor(true);
-            input.resetMouseTracking();
+            setCursorCaptured(true);
         }
         recaptureCursorAfterChest = false;
     }
@@ -458,6 +503,8 @@ public final class Game {
                 return;
             }
             suppressInteractionUntilRelease = false;
+            // Discard this whole frame, including a press and release delivered together.
+            return;
         }
 
         // A fresh press acts immediately; cooldowns only limit held-button repetition.
@@ -469,7 +516,9 @@ public final class Game {
         }
 
         // Held left-click repeats breaking, except for bedrock.
-        if (targetedBlock != null && input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT) && breakCooldown <= 0.0f) {
+        if (targetedBlock != null
+                && (input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) || input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT))
+                && breakCooldown <= 0.0f) {
             if (targetedBlock.block() != BlockType.BEDROCK) {
                 breakTargetedBlock();
                 updateTargetBlock();
@@ -478,7 +527,9 @@ public final class Game {
         }
 
         // Right-click interaction takes priority over block placement.
-        if (targetedBlock != null && input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT) && placeCooldown <= 0.0f) {
+        if (targetedBlock != null
+                && (input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT) || input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT))
+                && placeCooldown <= 0.0f) {
             if (!interactWithTargetedBlock()) {
                 int px = targetedBlock.x() + targetedBlock.normalX();
                 int py = targetedBlock.y() + targetedBlock.normalY();
@@ -610,7 +661,7 @@ public final class Game {
 
     // Placement can replace air or water, but the new collision shape must not overlap the player.
     private boolean canPlaceAt(int x, int y, int z, BlockType type) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
+        if (!WorldBounds.containsCell(x, y, z)) {
             return false;
         }
 
@@ -674,13 +725,13 @@ public final class Game {
 
         return new String[] {
                 "Minecraftin " + lastFps + " fps",
-                String.format("XYZ: %.2f / %.2f / %.2f", position.x, position.y, position.z),
+                String.format(Locale.ROOT, "XYZ: %.2f / %.2f / %.2f", position.x, position.y, position.z),
                 "Block: " + blockX + " " + blockY + " " + blockZ,
                 "Chunk: " + chunkX + " " + chunkZ + " loaded: " + world.chunkCount(),
                 "Facing: " + facing,
                 "Light: " + world.skyLightAt(blockX, blockY, blockZ) + " sky, "
                         + world.blockLightAt(blockX, blockY, blockZ) + " block",
-                String.format("Time: %02d:%02d", hour, minute),
+                String.format(Locale.ROOT, "Time: %02d:%02d", hour, minute),
         };
     }
 
@@ -695,6 +746,7 @@ public final class Game {
 
         // Throttle title updates to about once per second.
         if (elapsed >= 1.0) {
+            sampleResources();
             int fps = (int) Math.round(fpsFrames / elapsed);
             lastFps = fps;
             BlockType selected = hotbar[hotbarIndex];
@@ -713,15 +765,80 @@ public final class Game {
         }
     }
 
-    private void safeSaveWorld() {
-        // Log save failures without stopping the loop; World.save keeps changes pending after a
-        // failed write.
-        try {
-            world.save();
-        } catch (Exception e) {
-            System.err.println("World save failed: " + e.getMessage());
-            e.printStackTrace(System.err);
+    private void requestExit() {
+        world.setRespawnPosition(player.position().x, player.position().y, player.position().z);
+        if (!safeSaveWorld(true)) {
+            recaptureAfterSavePrompt = cursorCaptured;
+            closeCreativeInventory(false);
+            closeChest(false);
+            setCursorCaptured(false);
         }
+    }
+
+    private void handleSavePrompt() {
+        if (input.wasKeyPressed(GLFW_KEY_ESCAPE)) {
+            saves.cancel();
+            if (!saves.exitPromptOpen()) setCursorCaptured(recaptureAfterSavePrompt);
+        } else if (saves.exitState() == SaveController.ExitState.CONFIRM_DISCARD) {
+            if (input.wasKeyPressed(GLFW_KEY_Y)) saves.confirmDiscard();
+        } else if (input.wasKeyPressed(GLFW_KEY_R)) {
+            safeSaveWorld(true);
+        } else if (input.wasKeyPressed(GLFW_KEY_D)) {
+            saves.requestDiscard();
+        }
+    }
+
+    private boolean safeSaveWorld(boolean exiting) {
+        boolean saved = saves.attempt(world::save, exiting);
+        if (!saved) {
+            System.err.println("World save failed: " + saves.failure().getMessage());
+            saves.failure().printStackTrace(System.err);
+        }
+        sampleResources();
+        return saved;
+    }
+
+    private void sampleResources() {
+        Runtime runtime = Runtime.getRuntime();
+        sampledHeapUsed = runtime.totalMemory() - runtime.freeMemory();
+        sampledHeapMax = runtime.maxMemory();
+        try {
+            var path = Paths.get(GameConfig.WORLD_FILE);
+            savedFileBytes = Files.exists(path) ? Files.size(path) : 0;
+        } catch (java.io.IOException ignored) {
+            // A size read is telemetry only; it must not change a successful save result.
+        }
+    }
+
+    private String[] buildOverlayLines() {
+        List<String> lines = new ArrayList<>();
+        if (saves.hasFailure()) {
+            lines.add("SAVE FAILED - CHANGES ARE NOT SAVED");
+            if (saves.exitState() == SaveController.ExitState.CONFIRM_DISCARD) {
+                lines.add("DISCARD UNSAVED CHANGES AND EXIT?");
+                lines.add("Y: CONFIRM DISCARD   ESC: BACK");
+            } else if (saves.exitPromptOpen()) {
+                lines.add("R: RETRY SAVE AND EXIT   ESC: RETURN TO GAME");
+                lines.add("D: REVIEW DISCARD AND EXIT");
+            } else {
+                lines.add("R: RETRY SAVE. CHECK DISK SPACE AND PERMISSIONS.");
+            }
+        }
+        if (ResourceBudget.exceeded(world.chunkCount(), sampledHeapUsed, sampledHeapMax, saves.lastSaveMillis())) {
+            lines.add("RESOURCE BUDGET REACHED - STOP EXPLORING");
+            lines.add("SAVE AND EXIT; BACK UP BEFORE STARTING A NEW WORLD");
+        }
+        String[] debug = buildDebugLines();
+        if (debug != null) {
+            java.util.Collections.addAll(lines, debug);
+            lines.add(String.format(Locale.ROOT, "Heap: %d / %d MiB (warning at 75%%)",
+                    sampledHeapUsed / 1048576, sampledHeapMax / 1048576));
+            lines.add(String.format(Locale.ROOT, "Chunk arrays: %d MiB; budget: %d chunks",
+                    ResourceBudget.chunkPayloadBytes(world.chunkCount()) / 1048576, ResourceBudget.CHUNK_WARNING));
+            lines.add(String.format(Locale.ROOT, "Save: %.1f MiB / %.0f ms (budget: 1000 ms)",
+                    savedFileBytes / 1048576.0, saves.lastSaveMillis()));
+        }
+        return lines.isEmpty() ? null : lines.toArray(String[]::new);
     }
 
     private float approach(float current, float target, float delta) {

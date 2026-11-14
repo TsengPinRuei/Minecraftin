@@ -9,7 +9,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -17,10 +20,12 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 // Own mutable world state on the game thread, coordinating generation, lighting, water, targeting,
 // and persistence.
-public final class World {
+public final class World implements AutoCloseable {
 
     // The binary save magic is the ASCII sequence MCLN.
     private static final int SAVE_MAGIC = 0x4D434C4E;
@@ -69,7 +74,19 @@ public final class World {
     // Reuse a bounded batch array so each water tick does not allocate a new one.
     private final long[] waterTickBatch = new long[WATER_MAX_CELLS_PER_TICK];
 
-    private final Path worldFile;
+    // Do not open a second channel for a same-JVM session: closing such a channel can release
+    // this process's native locks on some platforms, even after tryLock rejects overlap.
+    private static final Set<Path> OPEN_LOCK_PATHS = ConcurrentHashMap.newKeySet();
+
+    private Path worldFile;
+    private boolean registeredSessionPath;
+    private Path sessionLockPath;
+
+    // Lock a stable sidecar for the whole loaded session, not the atomically replaced save inode.
+    private FileChannel sessionLockChannel;
+    private FileLock sessionLock;
+    private boolean initialized;
+    private boolean closed;
 
     private long seed;
 
@@ -92,20 +109,96 @@ public final class World {
     // Create a new world only when the save is missing; propagate other load failures to avoid
     // overwriting existing data.
     public void initialize() {
+        if (initialized || closed) {
+            throw new IllegalStateException("World session is already initialized or closed");
+        }
         try {
-            Path parent = worldFile.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
+            Path target = worldFile.toAbsolutePath().normalize();
+            Files.createDirectories(target.getParent());
+            // Resolve existing file symlinks as well as aliases of the parent directory. Reject
+            // dangling save symlinks instead of replacing the link with a new, unrelated world.
+            worldFile = Files.exists(target) || Files.isSymbolicLink(target)
+                    ? target.toRealPath()
+                    : target.getParent().toRealPath().resolve(target.getFileName());
+            Path lockFile = worldFile.resolveSibling(worldFile.getFileName() + ".lock");
+            try {
+                Files.createFile(lockFile);
+            } catch (FileAlreadyExistsException e) {
+                // The stable sidecar remains after a session exits; existence is not ownership.
+            }
+            // Canonicalize the existing sidecar too, including case aliases on case-insensitive
+            // filesystems when the world itself has not been saved yet.
+            sessionLockPath = lockFile.toRealPath();
+            if (!OPEN_LOCK_PATHS.add(sessionLockPath)) {
+                throw new IllegalStateException("World is already open in another session: " + worldFile);
+            }
+            registeredSessionPath = true;
+            sessionLockChannel = FileChannel.open(sessionLockPath, StandardOpenOption.WRITE);
+            try {
+                sessionLock = sessionLockChannel.tryLock();
+            } catch (OverlappingFileLockException e) {
+                throw new IllegalStateException("World is already open in another session: " + worldFile, e);
+            }
+            if (sessionLock == null) {
+                throw new IllegalStateException("World is already open in another session: " + worldFile);
+            }
+
+            if (!load()) {
+                chunks.clear();
+                terrainGenerator = new TerrainGenerator(seed, 62);
+                clearSavedRespawnPosition();
+                timeOfDay = DEFAULT_TIME_OF_DAY;
+            }
+            initialized = true;
+        } catch (IOException e) {
+            IllegalStateException failure = new IllegalStateException("Failed to open world session: " + worldFile, e);
+            closeAfterFailedInitialization(failure);
+            throw failure;
+        } catch (RuntimeException | Error e) {
+            closeAfterFailedInitialization(e);
+            throw e;
+        }
+    }
+
+    private void closeAfterFailedInitialization(Throwable failure) {
+        try {
+            close();
+        } catch (RuntimeException e) {
+            failure.addSuppressed(e);
+        }
+    }
+
+    // Closing releases ownership only; callers must finish their final save before closing.
+    // Keep the sidecar on disk: deleting it could let another process lock a different inode.
+    @Override
+    public void close() {
+        closed = true;
+        IOException failure = null;
+        try {
+            if (sessionLock != null) {
+                sessionLock.release();
             }
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to create save directory", e);
+            failure = e;
+        } finally {
+            sessionLock = null;
+            try {
+                if (sessionLockChannel != null) {
+                    sessionLockChannel.close();
+                }
+            } catch (IOException e) {
+                if (failure == null) failure = e;
+                else failure.addSuppressed(e);
+            } finally {
+                sessionLockChannel = null;
+                if (registeredSessionPath) {
+                    OPEN_LOCK_PATHS.remove(sessionLockPath);
+                    registeredSessionPath = false;
+                }
+            }
         }
-
-        if (!load()) {
-            chunks.clear();
-            terrainGenerator = new TerrainGenerator(seed, 62);
-            clearSavedRespawnPosition();
-            timeOfDay = DEFAULT_TIME_OF_DAY;
+        if (failure != null) {
+            throw new IllegalStateException("Failed to close world session: " + worldFile, failure);
         }
     }
 
@@ -156,6 +249,7 @@ public final class World {
     }
 
     public void setRespawnPosition(float x, float y, float z) {
+        WorldBounds.requirePlayerPosition(x, y, z);
         if (hasSavedRespawnPosition
                 && Float.compare(savedRespawnPosition.x, x) == 0
                 && Float.compare(savedRespawnPosition.y, y) == 0
@@ -177,23 +271,32 @@ public final class World {
     }
 
     public void ensureChunksAround(int centerChunkX, int centerChunkZ, int radius) {
+        WorldBounds.requireChunk(centerChunkX, centerChunkZ);
+        if (radius < 0 || radius > WorldBounds.MAX_CHUNK - WorldBounds.MIN_CHUNK) {
+            throw new IllegalArgumentException("Invalid chunk radius: " + radius);
+        }
         int radiusSq = radius * radius;
-        for (int dz = -radius; dz <= radius; dz++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                if (dx * dx + dz * dz > radiusSq) {
-                    continue;
-                }
-                getOrCreateChunk(centerChunkX + dx, centerChunkZ + dz);
+        int minX = Math.max(WorldBounds.MIN_CHUNK, centerChunkX - radius);
+        int maxX = Math.min(WorldBounds.MAX_CHUNK, centerChunkX + radius);
+        int minZ = Math.max(WorldBounds.MIN_CHUNK, centerChunkZ - radius);
+        int maxZ = Math.min(WorldBounds.MAX_CHUNK, centerChunkZ + radius);
+        for (int z = minZ; z <= maxZ; z++) {
+            for (int x = minX; x <= maxX; x++) {
+                int dx = x - centerChunkX;
+                int dz = z - centerChunkZ;
+                if (dx * dx + dz * dz <= radiusSq) getOrCreateChunk(x, z);
             }
         }
     }
 
     public Chunk getChunkIfLoaded(int chunkX, int chunkZ) {
+        if (!WorldBounds.containsChunk(chunkX, chunkZ)) return null;
         return chunks.get(new ChunkPos(chunkX, chunkZ));
     }
 
     // Generate missing terrain and add it to the world; this lookup can change world state.
     public Chunk getOrCreateChunk(int chunkX, int chunkZ) {
+        WorldBounds.requireChunk(chunkX, chunkZ);
         ChunkPos key = new ChunkPos(chunkX, chunkZ);
         Chunk existing = chunks.get(key);
         if (existing != null) {
@@ -222,6 +325,7 @@ public final class World {
     // Below the world return BEDROCK, above it return AIR; valid-height reads generate missing
     // chunks.
     public BlockType getBlock(int worldX, int y, int worldZ) {
+        WorldBounds.requireBlock(worldX, worldZ);
         if (y < 0) {
             return BlockType.BEDROCK;
         }
@@ -241,6 +345,7 @@ public final class World {
     // Read without generating chunks; missing chunks return AIR.
     // Lighting and water must use loaded state so simulation queries cannot create terrain.
     public BlockType peekBlock(int worldX, int y, int worldZ) {
+        if (!WorldBounds.containsBlock(worldX, worldZ)) return BlockType.AIR;
         if (y < 0) {
             return BlockType.BEDROCK;
         }
@@ -268,7 +373,7 @@ public final class World {
     // Water simulation passes false to avoid generating terrain while writing across unloaded
     // boundaries.
     private boolean setBlockInternal(int worldX, int y, int worldZ, BlockType type, boolean createMissingChunk) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT) {
+        if (!WorldBounds.containsCell(worldX, y, worldZ)) {
             return false;
         }
 
@@ -449,7 +554,7 @@ public final class World {
     }
 
     private void scheduleWaterCell(int x, int y, int z) {
-        if (y < 0 || y >= GameConfig.CHUNK_HEIGHT || !peekBlock(x, y, z).isWaterBlock()) {
+        if (!WorldBounds.containsCell(x, y, z) || !peekBlock(x, y, z).isWaterBlock()) {
             return;
         }
         scheduledWaterCells.add(packWaterCell(x, y, z));
@@ -458,6 +563,9 @@ public final class World {
     // Pack signed 26-bit X/Z and unsigned 12-bit Y; version 4 saves store this exact format.
     // Coordinates outside those ranges cannot be represented without truncation.
     private static long packWaterCell(int x, int y, int z) {
+        if (!WorldBounds.containsCell(x, y, z)) {
+            throw new IllegalArgumentException("Water cell outside supported world bounds");
+        }
         return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
 
@@ -527,6 +635,7 @@ public final class World {
     }
 
     public int topSolidY(int worldX, int worldZ) {
+        WorldBounds.requireBlock(worldX, worldZ);
         int chunkX = chunkCoord(worldX);
         int chunkZ = chunkCoord(worldZ);
         int localX = localCoord(worldX, chunkX);
@@ -752,7 +861,8 @@ public final class World {
     // Step through candidate cells, then intersect actual render boxes so gaps in partial blocks do
     // not block the ray.
     public RaycastHit raycast(Vector3f origin, Vector3f direction, float maxDistance) {
-        if (!origin.isFinite() || !direction.isFinite() || !Float.isFinite(maxDistance) || maxDistance < 0) {
+        if (!WorldBounds.containsPosition(origin.x, origin.y, origin.z) || !direction.isFinite()
+                || !Float.isFinite(maxDistance) || maxDistance < 0 || maxDistance > WorldBounds.MAX_RAY_DISTANCE) {
             return null;
         }
         double length = Math.sqrt((double) direction.x * direction.x
@@ -772,23 +882,27 @@ public final class World {
         int stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
         int stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
 
-        float invDx = dx == 0.0f ? Float.POSITIVE_INFINITY : Math.abs(1.0f / dx);
-        float invDy = dy == 0.0f ? Float.POSITIVE_INFINITY : Math.abs(1.0f / dy);
-        float invDz = dz == 0.0f ? Float.POSITIVE_INFINITY : Math.abs(1.0f / dz);
+        double invDx = dx == 0.0f ? Double.POSITIVE_INFINITY : Math.abs(1.0 / dx);
+        double invDy = dy == 0.0f ? Double.POSITIVE_INFINITY : Math.abs(1.0 / dy);
+        double invDz = dz == 0.0f ? Double.POSITIVE_INFINITY : Math.abs(1.0 / dz);
 
-        float tx = dx == 0.0f ? Float.POSITIVE_INFINITY
-                : (dx > 0 ? (x + 1 - origin.x) * invDx : (origin.x - x) * invDx);
-        float ty = dy == 0.0f ? Float.POSITIVE_INFINITY
-                : (dy > 0 ? (y + 1 - origin.y) * invDy : (origin.y - y) * invDy);
-        float tz = dz == 0.0f ? Float.POSITIVE_INFINITY
-                : (dz > 0 ? (z + 1 - origin.z) * invDz : (origin.z - z) * invDz);
+        double tx = dx == 0.0f ? Double.POSITIVE_INFINITY
+                : (dx > 0 ? (x + 1.0 - origin.x) * invDx : (origin.x - x) * invDx);
+        double ty = dy == 0.0f ? Double.POSITIVE_INFINITY
+                : (dy > 0 ? (y + 1.0 - origin.y) * invDy : (origin.y - y) * invDy);
+        double tz = dz == 0.0f ? Double.POSITIVE_INFINITY
+                : (dz > 0 ? (z + 1.0 - origin.z) * invDz : (origin.z - z) * invDz);
 
-        float traveled = 0.0f;
+        double traveled = 0.0;
+        // Each axis crosses at most distance*abs(direction) cell boundaries, plus the start cell.
+        // The hard iteration bound also protects the loop if future arithmetic stops advancing.
+        int remainingSteps = (int) Math.ceil(maxDistance * ((double) Math.abs(dx) + Math.abs(dy) + Math.abs(dz))) + 4;
 
-        // Traverse the voxel grid; air and all water states are ignored by the shape intersection.
-        while (traveled <= maxDistance) {
+        // Stop at the finite world boundary, without generating any out-of-range chunks.
+        while (remainingSteps-- > 0 && traveled <= maxDistance && WorldBounds.containsBlock(x, z)
+                && y >= WorldBounds.MIN_Y && y <= WorldBounds.MAX_Y) {
             BlockType block = getBlock(x, y, z);
-            float segmentEnd = Math.min(maxDistance, Math.min(tx, Math.min(ty, tz)));
+            float segmentEnd = (float) Math.min(maxDistance, Math.min(tx, Math.min(ty, tz)));
             RaycastHit hit = intersectBlock(x, y, z, block, origin, dx, dy, dz, segmentEnd);
             // Also test the cell below because fence render boxes extend above their own cell.
             if (y > 0 && y <= GameConfig.CHUNK_HEIGHT) {
@@ -884,7 +998,10 @@ public final class World {
     // Write and force a temporary file before atomic replacement; clear dirty flags only after
     // replacement succeeds.
     public void save() {
-        Path target = worldFile.toAbsolutePath();
+        if (!initialized || closed || sessionLock == null || !sessionLock.isValid()) {
+            throw new IllegalStateException("Saving requires an open world session: " + worldFile);
+        }
+        Path target = worldFile;
         Path temporary = null;
         try {
             Files.createDirectories(target.getParent());
@@ -958,8 +1075,8 @@ public final class World {
             Vector3f loadedPosition = new Vector3f();
             if (loadedRespawn) {
                 loadedPosition.set(in.readFloat(), in.readFloat(), in.readFloat());
-                if (!loadedPosition.isFinite()) {
-                    throw new IOException("Invalid respawn position");
+                if (!WorldBounds.containsPlayerPosition(loadedPosition.x, loadedPosition.y, loadedPosition.z)) {
+                    throw new IOException("Respawn position outside supported world bounds: " + loadedPosition);
                 }
             }
             float loadedTime = version >= 3 ? in.readFloat() : DEFAULT_TIME_OF_DAY;
@@ -978,6 +1095,9 @@ public final class World {
             for (int i = 0; i < count; i++) {
                 int chunkX = in.readInt();
                 int chunkZ = in.readInt();
+                if (!WorldBounds.containsChunk(chunkX, chunkZ)) {
+                    throw new IOException("Chunk outside supported world bounds: " + chunkX + ", " + chunkZ);
+                }
                 int length = in.readInt();
                 if (length != blockCount) {
                     throw new IOException("Invalid chunk size: " + length);
@@ -1009,8 +1129,8 @@ public final class World {
                 }
                 for (int i = 0; i < waterCount; i++) {
                     long cell = in.readLong();
-                    if (unpackWaterY(cell) >= GameConfig.CHUNK_HEIGHT) {
-                        throw new IOException("Invalid water cell height");
+                    if (!WorldBounds.containsCell(unpackWaterX(cell), unpackWaterY(cell), unpackWaterZ(cell))) {
+                        throw new IOException("Water cell outside supported world bounds");
                     }
                     loadedWater.add(cell);
                 }

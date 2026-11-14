@@ -69,7 +69,7 @@ Minecraftin 是以 Java、LWJGL 與 OpenGL 製作的獨立單人方塊沙盒遊�
 | 光照系統 | 以廣度優先搜尋（BFS）向周圍傳播 0–15 級天空光／方塊光。頂點平滑光照與 AO 會取樣鄰格；區塊角落變更時，連對角區塊模型也會標記重建。 | [LightEngine.java](src/main/java/com/minecraftin/clone/world/LightEngine.java)、[ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java)、[World.java](src/main/java/com/minecraftin/clone/world/World.java) |
 | 水流模擬 | 排程佇列每 0.25 秒推進一次水流，並限制每次更新的工作量。水流查詢不會自行生成缺少的地形；相鄰區塊載入後會繼續處理邊界水流。 | [World.java](src/main/java/com/minecraftin/clone/world/World.java) |
 | 背景建立區塊模型 | Mesh 是交給顯示卡的三角形資料。背景執行緒使用獨立的方塊／光照快照建立 mesh；優先處理近處區塊、限制待處理工作數量、丟棄過期結果。GPU 上傳留在主執行緒，每幀最多處理 16 筆結果。 | [ChunkSnapshot.java](src/main/java/com/minecraftin/clone/world/ChunkSnapshot.java)、[ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java)、[WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
-| 控制繪圖工作量 | 省略方塊內部不可見的面；視錐剔除會跳過相機看不到的區塊。不透明與半透明模型分開繪製，半透明區塊由遠至近排序；超出渲染距離的 GPU 模型會釋放。 | [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java)、[WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
+| 控制繪圖工作量 | 省略方塊內部不可見的面；視錐剔除會跳過相機看不到的區塊。不透明／cutout 模型先寫入深度，半透明面與碎片共用由遠至近排序，雲依相機所在平面側安排順序；超出渲染距離的 GPU 模型會釋放。 | [ChunkMesher.java](src/main/java/com/minecraftin/clone/world/ChunkMesher.java)、[WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java) |
 | 貼圖與操作介面 | 程式生成 16 × 16 像素的小貼圖，集中在同一張貼圖集，供世界與 HUD 縮圖共用。另實作像素字型、背包分頁、不同形狀縮圖，以及視窗／framebuffer 座標處理。 | [TextureAtlas.java](src/main/java/com/minecraftin/clone/engine/TextureAtlas.java)、[HudRenderer.java](src/main/java/com/minecraftin/clone/render/HudRenderer.java)、[InputState.java](src/main/java/com/minecraftin/clone/engine/InputState.java) |
 | 存檔可靠性 | 自訂二進位格式與版本管理；讀取時先檢查檔頭、尺寸、方塊 ID、座標、時間與水流資料，通過後才套用。寫入失敗時保留舊檔與待存變更。 | [World.java](src/main/java/com/minecraftin/clone/world/World.java)、[WorldPersistenceTest.java](src/test/java/com/minecraftin/clone/world/WorldPersistenceTest.java) |
 | 資源生命週期 | 依建立順序的反向釋放資源，初始化失敗時也會清理；清理過程的其他錯誤會一併保留。結束渲染時關閉模型工作執行緒與 GPU 資源。 | [ResourceScope.java](src/main/java/com/minecraftin/clone/engine/ResourceScope.java)、[WorldRenderer.java](src/main/java/com/minecraftin/clone/render/WorldRenderer.java)、[ResourceScopeTest.java](src/test/java/com/minecraftin/clone/engine/ResourceScopeTest.java) |
@@ -92,7 +92,7 @@ Minecraftin 是以 Java、LWJGL 與 OpenGL 製作的獨立單人方塊沙盒遊�
 - 第一次下載 Gradle 與依賴時需要網路。不需要安裝 Minecraft、登入帳號、申請 API key、設定資料庫或另裝 Gradle。
 - 可先以 4 GB 系統記憶體、建議 8 GB，以及約 1 GB 工具所需磁碟空間作為準備方向。這不是實測的最低需求；快取與探索過的世界都可能增長。遊戲預設 JVM heap 起始為 1 GB、上限為 2 GB。
 
-Wrapper 使用 Gradle `8.10.2`，原始碼以 Java `release 17` 編譯。在不修改建置設定的情況下，請使用 **JDK 17–23**；Java 24 以上不在這版 Gradle 支援的執行環境範圍內。[Gradle 8.10.2 相容性說明](https://docs.gradle.org/8.10.2/userguide/compatibility.html)。
+Wrapper 固定 Gradle `8.14.7` 與官方 distribution SHA-256；原始碼仍以 Java `release 17` 編譯。已驗證的專案流程請使用 **JDK 17 或 21**。[Gradle 8.14.7 相容性說明](https://docs.gradle.org/8.14.7/userguide/compatibility.html)。macOS ARM64 為主要桌面平台；其他平台尚未完成全面驗證。
 
 ### 2. 取得完整專案
 
@@ -133,7 +133,7 @@ javac -version
 .\gradlew.bat run
 ```
 
-請逐行執行。Java 指令應顯示所選的相容 JDK；wrapper 應顯示 Gradle `8.10.2` 與相容 JVM。若版本檢查失敗，先依[疑難排解](#troubleshooting)處理，再繼續。
+請逐行執行。Java 指令應顯示所選的相容 JDK；wrapper 應顯示 Gradle `8.14.7` 與相容 JVM。若版本檢查失敗，先依[疑難排解](#troubleshooting)處理，再繼續。
 
 ### 4. 確認啟動成功
 
@@ -238,7 +238,11 @@ javac -version
 
 遊戲每累積 20 秒更新時間，就檢查是否有待儲存的方塊／位置變更。有需要時會寫入**所有已載入區塊**的快照；正常離開時也會儲存世界時間與當下玩家位置。強制結束可能失去上次成功存檔之後的變更。
 
-寫入時先使用暫存檔，再以原子替換更新舊檔，也就是用一次檔案系統操作完成替換。失敗時保留舊檔與待存變更，但沒有自動保留多份歷史備份的功能。即使 Gradle 最後顯示 `BUILD SUCCESSFUL`，仍應留意終端機有沒有 `World save failed`。
+讀取前先以 canonical 路徑的旁置鎖檔（`world.dat.lock`）取得整個工作階段的獨占所有權。第二個可寫實例會被拒絕，路徑別名也不能繞過。鎖檔可在退出後保留；檔案存在不代表仍被鎖定。遊戲執行中請勿刪除或替換鎖檔。
+
+寫入時先使用暫存檔，再以原子替換更新舊檔。失敗時保留舊檔與待存變更，且即使 F3 關閉也會持續顯示 `SAVE FAILED`；按 **R** 可重試。關閉視窗時若存檔失敗，遊戲會保持開啟：**R** 重試存檔並退出、**Esc** 返回遊戲、**D** 後再按 **Y** 才會明確放棄未存變更並退出。放棄確認畫面按 **Esc** 可返回。退出提示開啟期間世界模擬暫停。沒有自動保留多份歷史備份；詳細錯誤仍記錄於終端機。
+
+若存檔位置位於低天花板下且站姿放不下，重載會在原位恢復蹲姿；飛行仍重設。支援的方塊 X/Z 範圍為 **−8,192 至 8,191**，玩家中心依碰撞半徑向內保留距離。飛行腳部 Y 限制為 **−8,192 至 8,190.2**（方塊世界仍為 Y=0–127）。移動會停在邊界；無效或超界存檔會明確拒絕，不覆寫也不默默裁切。若舊檔超過範圍，請保留原檔並使用相符的舊版。
 
 第 4 版格式可讀取第 1–3 版，並於下次成功存檔時升級。使用新版遊戲前請先備份；舊版讀取程式可能無法理解升級後的格式。這是 Minecraftin 自訂的二進位格式，不是官方 Minecraft 世界的匯入格式。
 
@@ -296,7 +300,7 @@ Write-Output $worldBackupPath
 
 同一個檔案也控制視窗標題、相機裁切距離、走路／飛行／衝刺／跳躍／重力，以及角色碰撞與眼睛高度。蹲下、游泳、梯子與踏階常數位於 [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java)；水流更新上限位於 [World.java](src/main/java/com/minecraftin/clone/world/World.java)。
 
-建置設定位於 [build.gradle](build.gradle)：Java 程式入口 `com.minecraftin.clone.MinecraftClone`、LWJGL `3.3.3`、JOML `1.10.5`、JUnit `5.10.2`，以及遊戲 JVM 記憶體參數 `-Xms1g -Xmx2g`。macOS 會自動加入 `-XstartOnFirstThread`。遊戲本身不要求專用環境變數或線上服務；`JAVA_HOME`、`GRADLE_USER_HOME` 是可選的 Java／建置工具設定。
+建置設定位於 [build.gradle](build.gradle)：Java 程式入口 `com.minecraftin.clone.MinecraftClone`、LWJGL `3.3.3`、JOML `1.10.5`、JUnit `5.14.4`，以及遊戲 JVM 記憶體參數 `-Xms1g -Xmx2g`。macOS 會自動加入 `-XstartOnFirstThread`。遊戲本身不要求專用環境變數或線上服務；`JAVA_HOME`、`GRADLE_USER_HOME` 是可選的 Java／建置工具設定。
 
 <a id="development"></a>
 ## 開發、測試與打包
@@ -312,6 +316,8 @@ Write-Output $worldBackupPath
 | 執行桌面圖形檢查 | `./gradlew graphicsSmokeTest` | `.\gradlew.bat graphicsSmokeTest` |
 | 編譯、測試並建立發行壓縮檔 | `./gradlew build` | `.\gradlew.bat build` |
 | 建立本機可執行資料夾 | `./gradlew installDist` | `.\gradlew.bat installDist` |
+| 檢查 install／ZIP／TAR 授權告知 | `./gradlew verifyDistributionNotices` | `.\gradlew.bat verifyDistributionNotices` |
+| 量測隔離世界探索資源 | `./gradlew resourceBudgetProbe` | `.\gradlew.bat resourceBudgetProbe` |
 | 移除生成的建置成果 | `./gradlew clean` | `.\gradlew.bat clean` |
 
 完成的建置工作應顯示 `BUILD SUCCESSFUL`；`UP-TO-DATE` 表示 Gradle 重用目前有效的成果。若要強制重新跑邏輯測試，可用 `./gradlew test --rerun-tasks` 或 `.\gradlew.bat test --rerun-tasks`。`clean` 會刪除 `build/`，包含本機發行資料夾、報告與截圖，但不會刪除根目錄下的 `saves/`。
@@ -337,9 +343,19 @@ Write-Output $worldBackupPath
 
 **驗證紀錄 — 2026-09-12：** 在 macOS ARM64、JDK `21.0.10` 上，以 `test graphicsSmokeTest --rerun-tasks` 重新執行，45 項 JUnit 測試全部通過，失敗、錯誤、略過皆為 0；OpenGL 冒煙測試也通過，且已檢視兩張截圖。`build installDist` 同樣成功。本次已核對 Windows／Linux 指令與建置設定，但未在這兩個系統實際執行；程式變更後應重新驗證。
 
+2026-11-14 審查修正、決策、目前驗證與平台限制記錄於[審查處理紀錄](docs/review-fixes-20261114.md)。CI 會記錄 Linux／macOS、JDK 17／21 的來源 commit、環境與測試報告；設定完成不等於遠端已實際執行。桌面圖形仍獨立驗證。
+
+**桌面補驗 — 2026-11-15：** 已用 macOS ARM64 正式發行包與臨時世界，完成正常關閉／存檔／重開，以及存檔失敗時重試、取消與確認放棄的實際操作。三輪皆以退出碼0正常結束；區塊資料保持一致，放棄時保留前次成功存檔。詳情與截圖見[審查處理紀錄](docs/review-fixes-20261114.md)。
+
+### 資源預算
+
+F3 會顯示取樣 heap 用量、常駐方塊／光照陣列容量、上次存檔大小與最近一次存檔嘗試耗時。原型的建議預算為 **2,048 個區塊**、**最大 heap 的 75%** 或**單次存檔 1,000 ms**；任一達到便提示，F3 關閉也可見。這些是保守操作目標，不是強制快取上限，也不能保證不會耗盡記憶體。看到提示時應停止探索、存檔退出，再備份世界後建立新世界。重開同一世界仍會載入原有區塊，不會減少資料量。
+
+每個區塊僅三個資料陣列就占 128 KiB；2,048 個區塊為 256 MiB，尚未含物件、queue、snapshot 與模型。`resourceBudgetProbe` 在臨時世界量測固定 8,064 格路線，並確認 64 個放置方塊皆可重載；結果位於 `build/reports/resource-budget/exploration.csv`。這是有界量測，並非長時間壓力測試。
+
 ### 啟動打包後的版本
 
-先執行表格中的 `installDist`。`build/install/minecraftin-clone/` 裡的 `bin/` 與 `lib/` 必須一起保留，啟動檔需要裡面的函式庫；電腦仍須安裝相容的 Java。
+先執行表格中的 `installDist`。`build/install/minecraftin-clone/` 裡的 `bin/`、`lib/`、`LICENSE`、`THIRD-PARTY-NOTICES.md` 與 `licenses/` 必須一起保留，啟動檔需要裡面的函式庫；電腦仍須安裝相容的 Java。
 
 若要沿用專案根目錄的存檔，請留在專案根目錄執行：
 
@@ -411,7 +427,7 @@ Windows PowerShell：
 - **介面雛形：** 箱子無儲物資料；創造背包是把無限方塊指定到快捷欄。沒有完整背包／堆疊系統、快捷欄存檔或遊戲內語言切換，UI 文字為英文。
 - **單一本機世界路徑：** 沒有世界選擇畫面、遊戲內種子／設定／按鍵修改選單、暫停選單、多人連線、帳號或雲端存檔。
 - **簡化的方塊行為：** 活板門開啟方向與柵欄形狀固定；沒有柵欄自動連接、上半磚／半磚合併或完整 Minecraft 方塊狀態規則。蹲下不提供懸崖邊緣防墜。
-- **渲染與記憶體限制：** 半透明物件以區塊排序，未逐面排序。GPU 模型會清理，但已載入方塊仍留在記憶體並一起存檔；長距離探索會增加記憶體與存檔大小。地形生成仍在主執行緒，背景執行緒負責的是模型建立。
+- **渲染與記憶體限制：** 半透明面依視角深度排序；相交的透明幾何仍可能有一般 alpha 排序瑕疵。縮小 cutout 材質採固定螢幕覆蓋點陣，刻意放大時可見此圖樣。GPU 模型會清理，但已載入方塊仍留在記憶體並一起存檔；長距離探索會增加記憶體與存檔大小。地形生成仍在主執行緒，背景執行緒負責的是模型建立。
 - **其他尚無系統：** 沒有音效、天氣、紅石、傳送門／維度，或官方 Minecraft 世界匯入。主題建材不代表對應系統已存在。
 
 <a id="troubleshooting"></a>
@@ -420,7 +436,7 @@ Windows PowerShell：
 | 狀況 | 處理方式 |
 | --- | --- |
 | 找不到 `java`／`javac`，或 `JAVA_HOME` 無效 | 安裝完整 JDK 21 或 17，重新開啟終端機並再做版本檢查。若設定 `JAVA_HOME`，應指向 JDK 資料夾，不是 `bin` 或 Java 執行檔，也要確認 wrapper 顯示的 JVM。 |
-| Java／class-file 版本不支援 | 使用啟動章節列出的相容 JDK 範圍。較新的 JDK 不代表一定支援 Gradle 8.10.2。 |
+| Java／class-file 版本不支援 | 使用啟動章節列出的相容 JDK 範圍。已驗證的專案流程請使用 JDK 17 或 21。 |
 | 找不到 `gradlew`，或目前資料夾不是 Gradle 專案 | 進入解壓後包含 `build.gradle` 的資料夾。PowerShell 使用 `.\gradlew.bat`，開頭的 `.\` 不可省略。 |
 | `./gradlew: Permission denied` | macOS／Linux 執行 `chmod +x gradlew`，再試 `./gradlew run`。 |
 | 缺少 wrapper JAR | 重新完整解壓縮或 clone 專案，保留 `gradle/wrapper/gradle-wrapper.jar`。 |
@@ -452,3 +468,7 @@ $env:GRADLE_USER_HOME = "$PWD\.gradle-home"
 ```
 
 PowerShell 的設定會持續到該終端機工作階段結束；改用本機快取可能需要重新下載依賴。**`--no-daemon` 仍可能建立單次使用的 Gradle 程序並使用本機 socket**，無法繞過沙盒或網路限制。若錯誤包含 `java.net.SocketException: Operation not permitted`，請改用允許執行的本機終端機，或先排除環境限制。
+
+## 授權
+
+專案原創程式與程序生成素材採用 [MIT License](LICENSE)，著作權人為 2026 TsengPinRuei。第三方元件保留各自條款；每份發行包都包含 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)、[licenses/](licenses/) 與專案 LICENSE，請一起保留。

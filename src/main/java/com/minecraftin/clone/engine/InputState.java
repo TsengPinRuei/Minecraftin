@@ -31,6 +31,8 @@ public final class InputState {
 
     private double scrollDeltaY;
 
+    private boolean focusLost;
+
     private final GLFWKeyCallbackI keyCallback = (window, key, scancode, action, mods) -> {
         if (key < 0 || key >= keys.length) {
             return;
@@ -79,6 +81,7 @@ public final class InputState {
             Arrays.fill(keys, false);
             Arrays.fill(mouseDown, false);
             endFrame();
+            focusLost = true;
         }
         // Reset on focus changes so the next cursor position cannot cause a camera jump.
         resetMouseTracking();
@@ -90,6 +93,10 @@ public final class InputState {
         glfwSetMouseButtonCallback(windowHandle, mouseCallback);
         glfwSetScrollCallback(windowHandle, scrollCallback);
         glfwSetWindowFocusCallback(windowHandle, focusCallback);
+    }
+
+    public boolean wasFocusLost() {
+        return focusLost;
     }
 
     public boolean isKeyDown(int keyCode) {
@@ -136,6 +143,7 @@ public final class InputState {
 
     // Clear transient input only after all consumers have processed the frame.
     public void endFrame() {
+        focusLost = false;
         Arrays.fill(keysPressed, false);
         Arrays.fill(mousePressed, false);
         scrollDeltaY = 0.0;

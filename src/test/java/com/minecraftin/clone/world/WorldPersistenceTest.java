@@ -1,6 +1,7 @@
 package com.minecraftin.clone.world;
 
 import org.joml.Vector3f;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -9,6 +10,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,10 +19,23 @@ final class WorldPersistenceTest {
     @TempDir
     Path tempDir;
 
+    private final List<World> sessions = new ArrayList<>();
+
+    private World world(Path file, long seed) {
+        World world = new World(file, seed);
+        sessions.add(world);
+        return world;
+    }
+
+    @AfterEach
+    void closeSessions() {
+        sessions.forEach(World::close);
+    }
+
     @Test
     void roundTripPreservesBlocksSeedPositionAndTime() {
         Path file = tempDir.resolve("world.dat");
-        World original = new World(file, 123);
+        World original = world(file, 123);
         original.initialize();
         original.setBlock(-1, 120, -17, BlockType.GLASS);
         original.setRespawnPosition(-0.5f, 121, -16.5f);
@@ -27,7 +43,8 @@ final class WorldPersistenceTest {
         original.save();
         assertFalse(original.hasPendingSave());
 
-        World loaded = new World(file, 456);
+        original.close();
+        World loaded = world(file, 456);
         loaded.initialize();
         assertEquals(123, loaded.seed());
         assertEquals(BlockType.GLASS, loaded.getBlock(-1, 120, -17));
@@ -43,7 +60,7 @@ final class WorldPersistenceTest {
         Path file = tempDir.resolve("world.dat");
         byte[] corrupt = {1, 2, 3};
         Files.write(file, corrupt);
-        World world = new World(file, 123);
+        World world = world(file, 123);
         assertThrows(IllegalStateException.class, world::initialize);
         assertArrayEquals(corrupt, Files.readAllBytes(file));
         assertEquals(0, world.chunkCount());
@@ -58,7 +75,7 @@ final class WorldPersistenceTest {
             out.writeLong(123);
             out.writeInt(-1);
         }
-        assertThrows(IllegalStateException.class, () -> new World(file, 123).initialize());
+        assertThrows(IllegalStateException.class, () -> world(file, 123).initialize());
     }
 
     @ParameterizedTest
@@ -88,7 +105,7 @@ final class WorldPersistenceTest {
             out.writeInt(chunk.rawBlocks().length);
             for (short block : chunk.rawBlocks()) out.writeShort(block);
         }
-        World loaded = new World(file, 123);
+        World loaded = world(file, 123);
         loaded.initialize();
         assertEquals(789, loaded.seed());
         assertEquals(BlockType.TORCH, loaded.getBlock(-1, 120, 8));
@@ -102,7 +119,7 @@ final class WorldPersistenceTest {
     @Test
     void failedSaveKeepsChangesPendingAndCleansTemporaryFiles() throws Exception {
         Path file = tempDir.resolve("world.dat");
-        World world = new World(file, 123);
+        World world = world(file, 123);
         world.initialize();
         world.setBlock(8, 120, 8, BlockType.GLASS);
         // Use a nonempty directory as the target to force replacement failure without relying on
@@ -113,7 +130,7 @@ final class WorldPersistenceTest {
         assertTrue(world.hasPendingSave());
         assertEquals("existing data", Files.readString(file.resolve("keep.txt")));
         try (var files = Files.list(tempDir)) {
-            assertEquals(1, files.count());
+            assertEquals(0, files.filter(path -> path.getFileName().toString().endsWith(".tmp")).count());
         }
     }
 }

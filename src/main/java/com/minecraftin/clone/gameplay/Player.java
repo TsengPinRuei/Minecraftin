@@ -6,6 +6,7 @@ import com.minecraftin.clone.engine.InputState;
 import com.minecraftin.clone.world.BlockBounds;
 import com.minecraftin.clone.world.BlockType;
 import com.minecraftin.clone.world.World;
+import com.minecraftin.clone.world.WorldBounds;
 import org.joml.Vector3f;
 
 import static org.lwjgl.glfw.GLFW.*;
@@ -103,6 +104,7 @@ public final class Player {
 
     // Teleport the feet position and reset velocity, flight, crouching, and camera smoothing.
     public void setPosition(float x, float y, float z) {
+        WorldBounds.requirePlayerPosition(x, y, z);
         position.set(x, y, z);
         velocity.zero();
         onGround = false;
@@ -113,9 +115,31 @@ public final class Player {
         timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
     }
 
+    // Restore a valid low-ceiling position before ordinary overlap recovery can move the body.
+    public void restorePosition(World world, float x, float y, float z) {
+        setPosition(x, y, z);
+        if (collidesWithHeight(world, x, y, z, GameConfig.PLAYER_HEIGHT)
+                && !collidesWithHeight(world, x, y, z, CROUCH_HEIGHT)) {
+            crouching = true;
+            currentEyeHeight = CROUCH_EYE_HEIGHT;
+        }
+        resolveIntersections(world);
+    }
+
+    // A gesture belongs to one continuous period of gameplay control.
+    public void resetControlSequence() {
+        timeSinceLastSpaceTap = Float.POSITIVE_INFINITY;
+    }
+
     // Game preloads nearby chunks before movement; collision reads can otherwise generate missing
     // chunks.
     public void update(InputState input, Camera camera, World world, float deltaSeconds) {
+        // position() is mutable; validate again before any integer conversion or collision loop.
+        WorldBounds.requirePlayerPosition(position.x, position.y, position.z);
+        if (!Float.isFinite(deltaSeconds) || deltaSeconds < 0) {
+            throw new IllegalArgumentException("Invalid player timestep: " + deltaSeconds);
+        }
+        deltaSeconds = Math.min(deltaSeconds, 0.05f);
         // Try to recover from a spawn or loaded position that overlaps solid geometry.
         resolveIntersections(world);
 
@@ -379,7 +403,8 @@ public final class Player {
         for (int by = blockMinY; by <= blockMaxY; by++) {
             for (int bz = blockMinZ; bz <= blockMaxZ; bz++) {
                 for (int bx = blockMinX; bx <= blockMaxX; bx++) {
-                    BlockType block = world.getBlock(bx, by, bz);
+                    BlockType block = WorldBounds.containsBlock(bx, bz)
+                            ? world.getBlock(bx, by, bz) : BlockType.BEDROCK;
                     if (!block.isLadderBlock()) {
                         continue;
                     }
@@ -452,7 +477,7 @@ public final class Player {
         for (int by = minY; by <= maxY; by++) {
             for (int bz = minZ; bz <= maxZ; bz++) {
                 for (int bx = minX; bx <= maxX; bx++) {
-                    if (world.getBlock(bx, by, bz).isWaterBlock()) {
+                    if (WorldBounds.containsBlock(bx, bz) && world.getBlock(bx, by, bz).isWaterBlock()) {
                         return true;
                     }
                 }
@@ -537,6 +562,7 @@ public final class Player {
 
     // Use the requested height for both normal collisions and standing-up clearance checks.
     private boolean collidesWithHeight(World world, float x, float y, float z, float height) {
+        if (!WorldBounds.containsPlayerPosition(x, y, z)) return true;
         float half = GameConfig.PLAYER_WIDTH * 0.5f;
         float minWorldX = x - half;
         float minWorldY = y;
@@ -560,7 +586,8 @@ public final class Player {
         for (int by = minY; by <= maxY; by++) {
             for (int bz = minZ; bz <= maxZ; bz++) {
                 for (int bx = minX; bx <= maxX; bx++) {
-                    BlockType block = world.getBlock(bx, by, bz);
+                    BlockType block = WorldBounds.containsBlock(bx, bz)
+                            ? world.getBlock(bx, by, bz) : BlockType.BEDROCK;
                     for (BlockBounds bounds : block.collisionBoxes()) {
                         if (bounds.intersectsWorldBox(bx, by, bz,
                                 minWorldX, minWorldY, minWorldZ,

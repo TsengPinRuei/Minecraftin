@@ -1,6 +1,7 @@
 package com.minecraftin.clone.world;
 
 import com.minecraftin.clone.config.GameConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,6 +27,11 @@ final class WaterFlowTest {
     private int x;
     private int z;
     private int floorY;
+
+    @AfterEach
+    void closeSession() {
+        if (world != null) world.close();
+    }
 
     @BeforeEach
     void setUp() {
@@ -69,29 +75,31 @@ final class WaterFlowTest {
 
     @Test
     void waterResumesWhenNeighborChunkLoads() {
-        World borderWorld = new World(tempDir.resolve("border.dat"), 20260219L);
-        borderWorld.initialize();
-        int borderX = GameConfig.CHUNK_SIZE - 1;
-        int waterY = GameConfig.CHUNK_HEIGHT - 2;
-        borderWorld.setBlock(borderX, waterY - 1, 8, BlockType.STONE);
-        borderWorld.setBlock(borderX - 1, waterY, 8, BlockType.STONE);
-        borderWorld.setBlock(borderX, waterY, 7, BlockType.STONE);
-        borderWorld.setBlock(borderX, waterY, 9, BlockType.STONE);
-        borderWorld.setBlock(borderX, waterY, 8, BlockType.WATER);
-        for (int i = 0; i < 8; i++) {
-            borderWorld.update(0.25f);
-        }
-        assertNull(borderWorld.getChunkIfLoaded(1, 0));
+        try (World borderWorld = new World(tempDir.resolve("border.dat"), 20260219L)) {
+            borderWorld.initialize();
+            int borderX = GameConfig.CHUNK_SIZE - 1;
+            int waterY = GameConfig.CHUNK_HEIGHT - 2;
+            borderWorld.setBlock(borderX, waterY - 1, 8, BlockType.STONE);
+            borderWorld.setBlock(borderX - 1, waterY, 8, BlockType.STONE);
+            borderWorld.setBlock(borderX, waterY, 7, BlockType.STONE);
+            borderWorld.setBlock(borderX, waterY, 9, BlockType.STONE);
+            borderWorld.setBlock(borderX, waterY, 8, BlockType.WATER);
+            for (int i = 0; i < 8; i++) {
+                borderWorld.update(0.25f);
+            }
+            assertNull(borderWorld.getChunkIfLoaded(1, 0));
 
-        borderWorld.getOrCreateChunk(1, 0);
-        borderWorld.update(0.25f);
-        assertEquals(7, borderWorld.getBlock(borderX + 1, waterY, 8).waterStrength());
+            borderWorld.getOrCreateChunk(1, 0);
+            borderWorld.update(0.25f);
+            assertEquals(7, borderWorld.getBlock(borderX + 1, waterY, 8).waterStrength());
+        }
     }
 
     @Test
     void sourceSavedBeforeFirstTickStillSpreadsAfterReload() {
         world.setBlock(x, floorY + 1, z, BlockType.WATER);
         world.save();
+        world.close();
         world = new World(tempDir.resolve("world.dat"), 20260219L);
         world.initialize();
         tick(3);
@@ -104,6 +112,7 @@ final class WaterFlowTest {
         tick(10);
         world.setBlock(x, floorY + 1, z, BlockType.STONE);
         world.save();
+        world.close();
         world = new World(tempDir.resolve("world.dat"), 20260219L);
         world.initialize();
         tick(20);

@@ -8,7 +8,9 @@ import com.minecraftin.clone.util.FloatArrayBuilder;
 import com.minecraftin.clone.world.BlockType;
 import com.minecraftin.clone.world.Face;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -238,20 +240,22 @@ public final class HudRenderer implements AutoCloseable {
         double ndcY = 1.0 - (mouseY / (double) windowHeight) * 2.0;
 
         float aspect = (float) windowWidth / (float) windowHeight;
-        float slotWidth = squareSlotWidth(CREATIVE_SLOT_HEIGHT, aspect);
-        float startX = creativeGridStartX(aspect);
+        GridLayout layout = creativeLayout(aspect);
+        float slotHeight = layout.slotHeight();
+        float slotWidth = layout.slotWidth();
+        float startX = layout.startX();
         float cellWidth = slotWidth + CREATIVE_GAP;
-        float cellHeight = CREATIVE_SLOT_HEIGHT + CREATIVE_GAP;
+        float cellHeight = slotHeight + CREATIVE_GAP;
 
         for (int row = 0; row < CREATIVE_ROWS; row++) {
-            float slotY = CREATIVE_GRID_TOP - row * cellHeight - CREATIVE_SLOT_HEIGHT;
-            if (ndcY < slotY || ndcY > slotY + CREATIVE_SLOT_HEIGHT) {
+            float slotY = CREATIVE_GRID_TOP - row * cellHeight - slotHeight;
+            if (ndcY <= slotY || ndcY > slotY + slotHeight) {
                 continue;
             }
 
             for (int col = 0; col < CREATIVE_COLUMNS; col++) {
                 float slotX = startX + col * cellWidth;
-                if (ndcX < slotX || ndcX > slotX + slotWidth) {
+                if (ndcX < slotX || ndcX >= slotX + slotWidth) {
                     continue;
                 }
 
@@ -301,36 +305,37 @@ public final class HudRenderer implements AutoCloseable {
         }
 
         float aspect = Math.max(0.1f, viewportAspect);
-        float slotWidth = squareSlotWidth(HOTBAR_SLOT_HEIGHT, aspect);
         int slots = hotbar.length;
+        float slotHeight = fittedSlotHeight(HOTBAR_SLOT_HEIGHT, slots, aspect, 0.03f);
+        float slotWidth = squareSlotWidth(slotHeight, aspect);
         float totalWidth = slots * slotWidth;
         float startX = -totalWidth * 0.5f;
         float y = HOTBAR_Y;
-        float lineY = 0.006f;
+        float lineY = 0.006f * slotHeight / HOTBAR_SLOT_HEIGHT;
         float lineX = lineY / aspect;
 
         addRect(hotbarVertices, startX - lineX * 2.0f, y - lineY * 2.0f,
-                totalWidth + lineX * 4.0f, HOTBAR_SLOT_HEIGHT + lineY * 4.0f, HOTBAR_BORDER);
+                totalWidth + lineX * 4.0f, slotHeight + lineY * 4.0f, HOTBAR_BORDER);
         addRect(hotbarVertices, startX - lineX, y - lineY,
-                totalWidth + lineX * 2.0f, HOTBAR_SLOT_HEIGHT + lineY * 2.0f, HOTBAR_BG);
+                totalWidth + lineX * 2.0f, slotHeight + lineY * 2.0f, HOTBAR_BG);
 
         for (int i = 0; i < slots; i++) {
             float slotX = startX + i * slotWidth;
-            addFrame(hotbarVertices, slotX, y, slotWidth, HOTBAR_SLOT_HEIGHT, lineX, lineY, HOTBAR_BORDER);
-            addHotbarIcon(hotbarVertices, hotbar[i], slotX, y, slotWidth, aspect);
+            addFrame(hotbarVertices, slotX, y, slotWidth, slotHeight, lineX, lineY, HOTBAR_BORDER);
+            addHotbarIcon(hotbarVertices, hotbar[i], slotX, y, slotWidth, slotHeight, aspect);
         }
 
         if (selectedIndex >= 0 && selectedIndex < slots) {
             float selX = startX + selectedIndex * slotWidth;
             addFrame(hotbarVertices, selX - lineX * 2.0f, y - lineY * 2.0f,
-                    slotWidth + lineX * 4.0f, HOTBAR_SLOT_HEIGHT + lineY * 4.0f,
+                    slotWidth + lineX * 4.0f, slotHeight + lineY * 4.0f,
                     lineX * 2.0f, lineY * 2.0f, HOTBAR_SELECTION);
         }
 
         // Game controls label visibility and clears it when the selection timer expires.
         if (showHotbarLabel && selectedIndex >= 0 && selectedIndex < hotbar.length) {
             String label = hotbar[selectedIndex].displayName();
-            addCenteredText(hotbarVertices, label, HOTBAR_Y + HOTBAR_SLOT_HEIGHT + HOTBAR_LABEL_MARGIN,
+            addCenteredText(hotbarVertices, label, HOTBAR_Y + slotHeight + HOTBAR_LABEL_MARGIN,
                     TEXT_COLOR, true);
         }
 
@@ -338,13 +343,13 @@ public final class HudRenderer implements AutoCloseable {
     }
 
     private void addHotbarIcon(FloatArrayBuilder out, BlockType block, float x, float y, float slotWidth,
-            float aspect) {
-        float cubeHeight = HOTBAR_SLOT_HEIGHT * 0.44f;
+            float slotHeight, float aspect) {
+        float cubeHeight = slotHeight * 0.44f;
         float cubeWidth = cubeHeight / Math.max(0.5f, aspect);
         float depthX = cubeWidth * 0.30f;
         float depthY = cubeHeight * 0.22f;
         float cubeX = x + (slotWidth - (cubeWidth + depthX)) * 0.5f;
-        float cubeY = y + (HOTBAR_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
+        float cubeY = y + (slotHeight - (cubeHeight + depthY)) * 0.5f;
 
         addBlockIcon(out, block, cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY);
     }
@@ -360,9 +365,10 @@ public final class HudRenderer implements AutoCloseable {
     // Draw empty chest slots only; no container item data or slot interaction is implemented.
     private void addChestPanel(FloatArrayBuilder out, float viewportAspect) {
         float aspect = Math.max(0.1f, viewportAspect);
-        float slotWidth = squareSlotWidth(CHEST_SLOT_HEIGHT, aspect);
+        float slotHeight = fittedSlotHeight(CHEST_SLOT_HEIGHT, CHEST_COLUMNS, aspect, CHEST_PANEL_PAD_X);
+        float slotWidth = squareSlotWidth(slotHeight, aspect);
         float gridWidth = CHEST_COLUMNS * slotWidth + (CHEST_COLUMNS - 1) * CHEST_GAP;
-        float gridHeight = CHEST_ROWS * CHEST_SLOT_HEIGHT + (CHEST_ROWS - 1) * CHEST_GAP;
+        float gridHeight = CHEST_ROWS * slotHeight + (CHEST_ROWS - 1) * CHEST_GAP;
         float startX = -gridWidth * 0.5f;
         float gridBottom = CHEST_GRID_TOP - gridHeight;
         float panelX = startX - CHEST_PANEL_PAD_X;
@@ -381,8 +387,8 @@ public final class HudRenderer implements AutoCloseable {
         for (int row = 0; row < CHEST_ROWS; row++) {
             for (int col = 0; col < CHEST_COLUMNS; col++) {
                 float x = startX + col * (slotWidth + CHEST_GAP);
-                float y = CHEST_GRID_TOP - row * (CHEST_SLOT_HEIGHT + CHEST_GAP) - CHEST_SLOT_HEIGHT;
-                addSlot(out, x, y, slotWidth, CHEST_SLOT_HEIGHT, false, aspect);
+                float y = CHEST_GRID_TOP - row * (slotHeight + CHEST_GAP) - slotHeight;
+                addSlot(out, x, y, slotWidth, slotHeight, false, aspect);
             }
         }
     }
@@ -392,10 +398,12 @@ public final class HudRenderer implements AutoCloseable {
     private void addCreativeInventoryPanel(FloatArrayBuilder out, BlockType[] hotbar, int selectedIndex,
             BlockType[] creativeBlocks, int page, int totalPages, float viewportAspect) {
         float aspect = Math.max(0.1f, viewportAspect);
-        float slotWidth = squareSlotWidth(CREATIVE_SLOT_HEIGHT, aspect);
-        float gridWidth = creativeGridWidth(aspect);
-        float gridHeight = CREATIVE_ROWS * CREATIVE_SLOT_HEIGHT + (CREATIVE_ROWS - 1) * CREATIVE_GAP;
-        float startX = creativeGridStartX(aspect);
+        GridLayout layout = creativeLayout(aspect);
+        float slotHeight = layout.slotHeight();
+        float slotWidth = layout.slotWidth();
+        float gridWidth = layout.width();
+        float gridHeight = layout.height();
+        float startX = layout.startX();
         float gridBottom = CREATIVE_GRID_TOP - gridHeight;
         float panelX = startX - CREATIVE_PANEL_PAD_X;
         float panelY = gridBottom - CREATIVE_PANEL_PAD_BOTTOM;
@@ -412,29 +420,29 @@ public final class HudRenderer implements AutoCloseable {
 
         BlockType selected = selectedIndex >= 0 && selectedIndex < hotbar.length ? hotbar[selectedIndex] : null;
         float cellWidth = slotWidth + CREATIVE_GAP;
-        float cellHeight = CREATIVE_SLOT_HEIGHT + CREATIVE_GAP;
+        float cellHeight = slotHeight + CREATIVE_GAP;
         int firstBlock = Math.max(0, page) * CREATIVE_SLOTS_PER_PAGE;
 
         for (int row = 0; row < CREATIVE_ROWS; row++) {
             for (int col = 0; col < CREATIVE_COLUMNS; col++) {
                 int blockIndex = firstBlock + row * CREATIVE_COLUMNS + col;
                 float x = startX + col * cellWidth;
-                float y = CREATIVE_GRID_TOP - row * cellHeight - CREATIVE_SLOT_HEIGHT;
+                float y = CREATIVE_GRID_TOP - row * cellHeight - slotHeight;
                 boolean hasBlock = blockIndex < creativeBlocks.length;
                 boolean selectedBlock = hasBlock && creativeBlocks[blockIndex] == selected;
 
-                addSlot(out, x, y, slotWidth, CREATIVE_SLOT_HEIGHT, selectedBlock, aspect);
+                addSlot(out, x, y, slotWidth, slotHeight, selectedBlock, aspect);
 
                 if (!hasBlock) {
                     continue;
                 }
 
-                float cubeHeight = CREATIVE_SLOT_HEIGHT * 0.46f;
+                float cubeHeight = slotHeight * 0.46f;
                 float cubeWidth = cubeHeight / Math.max(0.5f, aspect);
                 float depthX = cubeWidth * 0.30f;
                 float depthY = cubeHeight * 0.22f;
                 float cubeX = x + (slotWidth - (cubeWidth + depthX)) * 0.5f;
-                float cubeY = y + (CREATIVE_SLOT_HEIGHT - (cubeHeight + depthY)) * 0.5f;
+                float cubeY = y + (slotHeight - (cubeHeight + depthY)) * 0.5f;
 
                 addBlockIcon(out, creativeBlocks[blockIndex], cubeX, cubeY, cubeWidth, cubeHeight, depthX, depthY);
             }
@@ -447,13 +455,22 @@ public final class HudRenderer implements AutoCloseable {
         addCenteredText(out, pageLabel, pageY, TITLE_COLOR, false);
     }
 
-    private static float creativeGridWidth(float aspect) {
-        return CREATIVE_COLUMNS * squareSlotWidth(CREATIVE_SLOT_HEIGHT, aspect)
-                + (CREATIVE_COLUMNS - 1) * CREATIVE_GAP;
+    // The same dimensions drive rendering and logical-window hit testing, including HiDPI.
+    static GridLayout creativeLayout(float aspect) {
+        float slotHeight = fittedSlotHeight(CREATIVE_SLOT_HEIGHT, CREATIVE_COLUMNS, aspect, CREATIVE_PANEL_PAD_X);
+        float slotWidth = squareSlotWidth(slotHeight, aspect);
+        return new GridLayout(slotHeight, slotWidth,
+                CREATIVE_COLUMNS * slotWidth, CREATIVE_ROWS * slotHeight);
     }
 
-    private static float creativeGridStartX(float aspect) {
-        return -creativeGridWidth(aspect) * 0.5f;
+    private static float fittedSlotHeight(float preferred, int columns, float aspect, float paddingX) {
+        return Math.min(preferred, (1.9f - 2.0f * paddingX) * Math.max(0.1f, aspect) / Math.max(1, columns));
+    }
+
+    record GridLayout(float slotHeight, float slotWidth, float width, float height) {
+        float startX() { return -width * 0.5f; }
+        float slotX(int column) { return startX() + column * slotWidth; }
+        float slotY(int row) { return CREATIVE_GRID_TOP - (row + 1) * slotHeight; }
     }
 
     private void addBlockPanel(FloatArrayBuilder out, float x, float y, float width, float height, float aspect) {
@@ -667,14 +684,29 @@ public final class HudRenderer implements AutoCloseable {
         return pixelColumns * TEXT_PIXEL_WIDTH;
     }
 
+    static List<String> wrapDebugLine(String line) {
+        if (line == null || line.isBlank()) return List.of("");
+        List<String> result = new ArrayList<>();
+        while (line.length() > 63) {
+            int split = line.lastIndexOf(' ', 63);
+            if (split <= 0) split = 63;
+            result.add(line.substring(0, split));
+            line = line.substring(split).stripLeading();
+        }
+        result.add(line);
+        return result;
+    }
+
     private void addDebugOverlay(FloatArrayBuilder out, String[] lines) {
         float x = -0.985f;
         float lineHeight = FONT_GLYPH_HEIGHT * TEXT_PIXEL_HEIGHT;
         float lineStep = lineHeight + TEXT_PIXEL_HEIGHT * 3.0f;
         float y = 0.96f - lineHeight;
 
-        for (String line : lines) {
-            if (line == null || line.isBlank()) {
+        List<String> wrapped = new ArrayList<>();
+        for (String line : lines) wrapped.addAll(wrapDebugLine(line));
+        for (String line : wrapped) {
+            if (line.isBlank()) {
                 y -= lineStep;
                 continue;
             }

@@ -87,12 +87,13 @@ Minecraftin 是以 Java、LWJGL 與 OpenGL 製作的獨立單人方塊沙盒遊�
 ### 1. 準備電腦環境
 
 - 使用 macOS、Windows 或 Linux 的本機桌面環境，顯示卡與驅動程式須支援 **OpenGL 3.3**。
+- Linux 上的 LWJGL 原生函式庫要求：**x86_64 使用 GLIBC 2.28 以上**，**ARM 使用 GLIBC 2.35 以上**。詳見[上游平台需求](https://github.com/LWJGL/lwjgl3/releases/tag/3.4.0)。
 - 安裝 **JDK 21（建議）**或 JDK 17。JDK 包含 Java 與編譯器；只有執行環境的 JRE 不足以建置這份原始碼。[Eclipse Temurin 安裝指南](https://adoptium.net/installation/)。
 - 選擇符合系統與 CPU 的 JDK，例如 Apple Silicon 使用 ARM64／aarch64，Intel／AMD 電腦通常使用 x64。
 - 第一次下載 Gradle 與依賴時需要網路。不需要安裝 Minecraft、登入帳號、申請 API key、設定資料庫或另裝 Gradle。
 - 可先以 4 GB 系統記憶體、建議 8 GB，以及約 1 GB 工具所需磁碟空間作為準備方向。這不是實測的最低需求；快取與探索過的世界都可能增長。遊戲預設 JVM heap 起始為 1 GB、上限為 2 GB。
 
-Wrapper 固定 Gradle `8.14.7` 與官方 distribution SHA-256；原始碼仍以 Java `release 17` 編譯。已驗證的專案流程請使用 **JDK 17 或 21**。[Gradle 8.14.7 相容性說明](https://docs.gradle.org/8.14.7/userguide/compatibility.html)。macOS ARM64 為主要桌面平台；其他平台尚未完成全面驗證。
+Wrapper 固定 Gradle `9.9.1` 與官方 distribution SHA-256；原始碼仍以 Java `release 17` 編譯。已驗證的專案流程請使用 **JDK 17 或 21**。[Gradle 9.9.1 相容性說明](https://docs.gradle.org/9.9.1/userguide/compatibility.html)。macOS ARM64 為主要桌面平台；其他平台尚未完成全面驗證。
 
 ### 2. 取得完整專案
 
@@ -133,7 +134,7 @@ javac -version
 .\gradlew.bat run
 ```
 
-請逐行執行。Java 指令應顯示所選的相容 JDK；wrapper 應顯示 Gradle `8.14.7` 與相容 JVM。若版本檢查失敗，先依[疑難排解](#troubleshooting)處理，再繼續。
+請逐行執行。Java 指令應顯示所選的相容 JDK；wrapper 應顯示 Gradle `9.9.1` 與相容 JVM。若版本檢查失敗，先依[疑難排解](#troubleshooting)處理，再繼續。
 
 ### 4. 確認啟動成功
 
@@ -300,7 +301,7 @@ Write-Output $worldBackupPath
 
 同一個檔案也控制視窗標題、相機裁切距離、走路／飛行／衝刺／跳躍／重力，以及角色碰撞與眼睛高度。蹲下、游泳、梯子與踏階常數位於 [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java)；水流更新上限位於 [World.java](src/main/java/com/minecraftin/clone/world/World.java)。
 
-建置設定位於 [build.gradle](build.gradle)：Java 程式入口 `com.minecraftin.clone.MinecraftClone`、LWJGL `3.3.3`、JOML `1.10.5`、JUnit `5.14.4`，以及遊戲 JVM 記憶體參數 `-Xms1g -Xmx2g`。macOS 會自動加入 `-XstartOnFirstThread`。遊戲本身不要求專用環境變數或線上服務；`JAVA_HOME`、`GRADLE_USER_HOME` 是可選的 Java／建置工具設定。
+建置設定位於 [build.gradle](build.gradle)：Java 程式入口 `com.minecraftin.clone.MinecraftClone`、LWJGL `3.4.3`、JOML `1.10.9`、JUnit `6.1.3`，以及遊戲 JVM 記憶體參數 `-Xms1g -Xmx2g`。macOS 會自動加入 `-XstartOnFirstThread`。遊戲本身不要求專用環境變數或線上服務；`JAVA_HOME`、`GRADLE_USER_HOME` 是可選的 Java／建置工具設定。
 
 <a id="development"></a>
 ## 開發、測試與打包
@@ -345,7 +346,9 @@ Write-Output $worldBackupPath
 
 2026-11-14 審查修正、決策、目前驗證與平台限制記錄於[審查處理紀錄](docs/review-fixes-20261114.md)。CI 會記錄 Linux／macOS、JDK 17／21 的來源 commit、環境與測試報告；設定完成不等於遠端已實際執行。桌面圖形仍獨立驗證。
 
-**桌面補驗 — 2026-11-15：** 已用 macOS ARM64 正式發行包與臨時世界，完成正常關閉／存檔／重開，以及存檔失敗時重試、取消與確認放棄的實際操作。三輪皆以退出碼0正常結束；區塊資料保持一致，放棄時保留前次成功存檔。詳情與截圖見[審查處理紀錄](docs/review-fixes-20261114.md)。
+**升級前桌面補驗 — 2026-11-15：** 已用 LWJGL `3.3.3`、JOML `1.10.5` 的 macOS ARM64 正式發行包與臨時世界，完成正常關閉／存檔／重開，以及存檔失敗時重試、取消與確認放棄的實際操作。三輪皆以退出碼0正常結束；區塊資料保持一致，放棄時保留前次成功存檔。詳情與截圖見[審查處理紀錄](docs/review-fixes-20261114.md)。
+
+Gradle `9.9.1`、JUnit `6.1.3`、JOML `1.10.9` 與 LWJGL `3.4.3` 的整合更新另有[依賴更新驗證紀錄](docs/dependency-updates-20261115.md)，列出受測來源、指令、結果與尚未驗證的平台範圍。上方歷史檢查僅代表各自當時的版本。
 
 ### 資源預算
 

@@ -87,12 +87,13 @@ The rendering techniques above are implemented; this repository does not provide
 ### 1. Prepare your computer
 
 - Use a local macOS, Windows, or Linux desktop with a GPU/driver supporting **OpenGL 3.3**.
+- On Linux, the LWJGL native libraries require GLIBC **2.28 or newer on x86_64**, or **2.35 or newer on ARM**. See the [upstream platform requirements](https://github.com/LWJGL/lwjgl3/releases/tag/3.4.0).
 - Install **JDK 21** (recommended) or JDK 17. A JDK includes both Java and its compiler; a runtime-only JRE is insufficient to build this source project. [Eclipse Temurin installation guide](https://adoptium.net/installation/).
 - Select a JDK matching your OS and CPU, such as ARM64/aarch64 for Apple Silicon or x64 for an Intel/AMD computer.
 - Allow internet access for the first download of Gradle and dependencies. You do not need a Minecraft installation, account, API key, database, or separate Gradle installation.
 - As a starting guideline, allow 4 GB system RAM, preferably 8 GB, and roughly 1 GB disk space for build tools. These are not benchmarked minimums; caches and explored worlds can grow. The game JVM starts with a 1 GB heap and allows up to 2 GB by default.
 
-The wrapper pins Gradle `8.14.7` and its official distribution SHA-256; source code still targets Java `release 17`. Use **JDK 17 or 21** for the tested project workflow. [Gradle 8.14.7 compatibility](https://docs.gradle.org/8.14.7/userguide/compatibility.html). macOS ARM64 is the primary desktop platform; other platforms are not yet fully verified.
+The wrapper pins Gradle `9.9.1` and its official distribution SHA-256; source code still targets Java `release 17`. Use **JDK 17 or 21** for the tested project workflow. [Gradle 9.9.1 compatibility](https://docs.gradle.org/9.9.1/userguide/compatibility.html). macOS ARM64 is the primary desktop platform; other platforms are not yet fully verified.
 
 ### 2. Get the whole project
 
@@ -133,7 +134,7 @@ javac -version
 .\gradlew.bat run
 ```
 
-Run one line at a time. The Java commands should show your chosen compatible JDK; the wrapper should show Gradle `8.14.7` and a compatible JVM. If a version check fails, follow [Troubleshooting](#troubleshooting) before continuing.
+Run one line at a time. The Java commands should show your chosen compatible JDK; the wrapper should show Gradle `9.9.1` and a compatible JVM. If a version check fails, follow [Troubleshooting](#troubleshooting) before continuing.
 
 ### 4. Recognize a successful launch
 
@@ -300,7 +301,7 @@ Most settings live in [GameConfig.java](src/main/java/com/minecraftin/clone/conf
 
 The same file also controls the window title, camera clipping distances, walk/fly/sprint/jump/gravity values, and player collision/eye dimensions. Crouching, swimming, ladder, and stepping constants are in [Player.java](src/main/java/com/minecraftin/clone/gameplay/Player.java); water update limits are in [World.java](src/main/java/com/minecraftin/clone/world/World.java).
 
-Build settings are in [build.gradle](build.gradle): Java application entry point `com.minecraftin.clone.MinecraftClone`, LWJGL `3.3.3`, JOML `1.10.5`, JUnit `5.14.4`, and game JVM heap options `-Xms1g -Xmx2g`. macOS launches automatically add `-XstartOnFirstThread`. No game-specific environment variables or online services are required; `JAVA_HOME` and `GRADLE_USER_HOME` are optional Java/build-tool settings.
+Build settings are in [build.gradle](build.gradle): Java application entry point `com.minecraftin.clone.MinecraftClone`, LWJGL `3.4.3`, JOML `1.10.9`, JUnit `6.1.3`, and game JVM heap options `-Xms1g -Xmx2g`. macOS launches automatically add `-XstartOnFirstThread`. No game-specific environment variables or online services are required; `JAVA_HOME` and `GRADLE_USER_HOME` are optional Java/build-tool settings.
 
 <a id="development"></a>
 ## Development, Tests, and Packaging
@@ -345,7 +346,9 @@ The graphics check is a short smoke test, not a complete manual gameplay test or
 
 The 2026-11-14 review fixes, decisions, current verification and remaining platform limits are recorded in [the review resolution log](docs/review-fixes-20261114.md). CI records the source commit, runtime and test reports for JDK 17/21 on Linux and macOS; a configured job is not evidence of a completed remote run. Desktop graphics remain a separate check.
 
-**Desktop follow-up — 2026-11-15:** the packaged macOS ARM64 application passed normal close/save/reopen and save-failure retry/cancel/confirmed-discard checks in a temporary world. All three runs exited normally with code 0; saved chunk data and the previous save on discard were preserved. Details and screenshots are in the [review resolution log](docs/review-fixes-20261114.md).
+**Pre-upgrade desktop follow-up — 2026-11-15:** the packaged macOS ARM64 application using LWJGL `3.3.3` and JOML `1.10.5` passed normal close/save/reopen and save-failure retry/cancel/confirmed-discard checks in a temporary world. All three runs exited normally with code 0; saved chunk data and the previous save on discard were preserved. Details and screenshots are in the [review resolution log](docs/review-fixes-20261114.md).
+
+The combined Gradle `9.9.1`, JUnit `6.1.3`, JOML `1.10.9`, and LWJGL `3.4.3` update has a separate [dependency verification record](docs/dependency-updates-20261115.md), which identifies the tested source, commands, results, and remaining platform limits. The historical checks above describe their original versions.
 
 ### Resource budget
 

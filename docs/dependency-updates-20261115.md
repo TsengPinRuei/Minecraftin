@@ -11,7 +11,7 @@
 
 ## 修正範圍
 
-- 採用新版 Gradle wrapper JAR、兩個啟動腳本、distribution URL 與官方 SHA-256。
+- 採用新版 Gradle wrapper JAR、兩個啟動腳本、distribution URL 與官方 SHA-256。wrapper JAR 與 distribution 校驗值皆已另行讀取官方校驗檔核對。
 - 保持 Java `release 17`、JDK 17／21 驗證範圍，以及 macOS ARM64 主要桌面平台。
 - 同步 [英文 README](../README.md)、[繁體中文 README](../READMEzhTW.md) 與 Linux GLIBC 需求。舊桌面驗證明確保留為升級前紀錄。
 - 更新 [第三方版本與授權清單](../THIRD-PARTY-NOTICES.md)。六份授權全文已與指定上游版本逐位元組核對；僅 JOML copyright 需改為 2015–2026，其餘五份全文相同。
@@ -28,7 +28,8 @@ shasum -a 256 -c docs/dependency-source-manifest-20261115.sha256
 - 清單 SHA-256：`303b0a5278c8c6acca21ebc9e42d9568d4bb4e0df5029434e0eee3571fdbb435`。
 - 本機：macOS ARM64、Apple M2 Pro、Homebrew OpenJDK 21.0.10、OpenGL 4.1 Metal 91.7。
 - 受測主程式 JAR SHA-256：`bc213755a84bbe1ee53f3ffee1219673c336817e9343315ac502ebf90fbb1d97`。
-- 新產物位於 `build/dependency-updates-20261115/`；新紀錄位於 `build/reports/dependency-updates-20261115/`。兩者均為本機忽略檔，不覆寫先前審查證據。
+- 隔離受測產物位於 `build/dependency-updates-20261115/`；新紀錄位於 `build/reports/dependency-updates-20261115/`。兩者均為本機忽略檔，先前審查紀錄另行保留。
+- 最後以標準 `./gradlew --no-daemon verifyDistributionNotices` 更新 `build/install/minecraftin-clone/` 與 ZIP／TAR；標準安裝樹的 18 個檔案與隔離受測包逐檔 SHA-256 完全一致。可照 README 的一般啟動方式使用新版。
 
 ## 本機建置與圖形驗證
 
@@ -53,11 +54,28 @@ shasum -a 256 -c docs/dependency-source-manifest-20261115.sha256
 
 ## 正式安裝包桌面流程
 
-桌面流程正在獨立臨時世界驗證；完成前不合併。證據位於本機 `build/reports/dependency-updates-20261115/desktop/`。
+使用新版正式啟動腳本與獨立臨時世界 `/tmp/minecraftin-dependency-desktop.0oaflklf` 實測；以檔案目標替換成非空目錄注入可復原的存檔失敗，未修改遊戲內部狀態來模擬按鈕。
+
+| 流程 | 結果 |
+| --- | --- |
+| 正常原生關閉、存檔與重開 | 退出碼 0；正式 `World.load` 回讀成功 |
+| 實體鍵盤 3／E／W | 使用者確認三者正常；畫面顯示 Stone，角色移動後存檔與重開位置一致 |
+| 關閉時存檔失敗 | 顯示 SAVE FAILED，程式保持開啟；R 重試仍失敗 |
+| Esc 返回遊戲 | 保留失敗警示，可繼續遊玩 |
+| 遊戲中恢復寫入後按 R | 成功儲存、清除警示，程式繼續開啟 |
+| D 開啟確認、Esc 取消 | 顯示獨立 Y／Esc 確認，取消後不退出 |
+| 退出提示內恢復寫入後按 R | 成功儲存並正常退出，退出碼 0 |
+| D → Y 確認放棄 | 退出碼 0；即使確認前已恢復可寫入路徑，先前成功存檔仍完全不變 |
+
+角色移動後的存檔含 400 chunks，位置 `(-969.8544921875, 67.0, -533.5728759765625)`。最後放棄前後完整存檔 SHA-256 均為 `967f95154d55e71488c9ec13ecfb76feb9f681760afee37e91c2a084f086f38c`，並再次通過正式載入器回讀。
+
+初次全域合成按鍵受視窗切換／鎖屏期間的焦點影響，結果不穩定；使用者解鎖並完成上述實體按鍵對照後，改以限定測試 PID 的定向鍵盤事件完成其餘流程。未因此修改 production 按鍵程式，也未把初次不穩定結果列為已確認的依賴回歸。所有測試視窗皆以正常關閉流程結束，未送出終止訊號。
+
+證據位於本機 `build/reports/dependency-updates-20261115/desktop/`，包含各輪 PID／退出碼、逐步截圖、原始日誌、存檔解析與正式 `World.load` 回讀結果。
 
 ## CI 與範圍
 
-四個原始 PR 在本次整合前，各自的 macOS 15／Ubuntu 24.04 × JDK 17／21 測試、建置及安裝包檢查均成功。這些結果不等於四項更新一起使用的驗證；整合分支需另外通過同一組四項 CI 後才合併。實際執行狀態與可下載報告以整合 PR 的 Checks 為準。
+四個原始 PR 各自的 CI 均成功後，本次四項更新一起使用的整合來源也通過 macOS 15／Ubuntu 24.04 × JDK 17／21 四組測試、建置及安裝包檢查。首次整合成功紀錄為 [`5da829b` 的 CI run](https://github.com/TsengPinRuei/Minecraftin/actions/runs/43617499214)。其後僅補充驗證說明，75 檔受測來源雜湊不變。合併前會再核對最終提交的四組 CI；最新狀態與可下載報告見[整合 PR #6](https://github.com/TsengPinRuei/Minecraftin/pull/6/checks)。
 
 CI 的桌面 graphics job 預設略過；本次桌面證據來自上述本機實測。Windows、其他 Linux 發行版與其他 GPU／CPU 的桌面流程仍未完整驗證。
 

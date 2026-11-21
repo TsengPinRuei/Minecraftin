@@ -49,12 +49,6 @@ public final class WorldBounds {
         }
     }
 
-    public static void requirePosition(float x, float y, float z) {
-        if (!containsPosition(x, y, z)) {
-            throw new IllegalArgumentException("Position outside supported world bounds: " + x + ", " + y + ", " + z);
-        }
-    }
-
     public static void requireBlock(int x, int z) {
         if (!containsBlock(x, z)) {
             throw new IllegalArgumentException("Block outside supported world bounds: " + x + ", " + z);

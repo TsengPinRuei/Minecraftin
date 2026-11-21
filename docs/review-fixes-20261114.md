@@ -1,6 +1,8 @@
 # Minecraftin 審查修正紀錄 — 2026-11-14
 
-本次依使用者提供的 `minecraftin_review.md` 修正。原始審查基準與開始修改時的 HEAD 均為 `3c7d99dc1db03bfff5c0ff3571641222b8ff607a`，工作樹原本乾淨；修正位於本機分支 `codex/review-fixes-20261114`，尚未 commit 或 push。現有 `saves/` 沒有 `world.dat`，測試全部使用臨時世界。審查文件的交接指示視為參考，範圍以使用者本次要求及下列確認為準。
+本文件保存 2026-11-14 的修正及 11-15 的桌面補驗紀錄；版本、測試結果與本機產物路徑均以當時為準。後續依賴與 CI 紀錄見 [2026-11-15 依賴整合更新](dependency-updates-20261115.md)，目前操作方式見 [README](../READMEzhTW.md)。來源雜湊用來識別當時受測版本，不要求後續版本的工作樹與其一致。
+
+當次依使用者提供的 `minecraftin_review.md` 修正。原始審查基準與開始修改時的 HEAD 均為 `3c7d99dc1db03bfff5c0ff3571641222b8ff607a`，工作樹原本乾淨；修正當時位於本機分支 `codex/review-fixes-20261114`，記錄時尚未 commit 或 push。當時 `saves/` 沒有 `world.dat`，測試全部使用臨時世界。審查文件的交接指示視為參考，範圍以使用者當次要求及下列確認為準。
 
 ## 已確認的決策
 
@@ -32,7 +34,7 @@
 | 014 | 已修正／自動與桌面驗證通過 | 持續可見錯誤、重試／取消與二次放棄確認；故障注入後 R 可恢復，錯誤才消失。異常退出的最後存檔失敗附為 suppressed exception，不覆蓋原始 crash。2026-11-15 以實際發行包補驗正常關閉、重開、失敗提示 R／Esc／D／Y 各退出分支；三輪皆正常 exit 0，原存檔完整性及成功重試均已核對。 |
 | 015 | 已完成原型改善／已量測 | F3 增加 heap、chunk 陣列、存檔大小／耗時；達預算時 F3 關閉仍警示。8,064 格隔離路線量測並核對 64 處已存建造；沒有聲稱實作 eviction 或長期世界容量保證。 |
 | 016 | 已修正／已驗證 | 官方 `-bin.zip` SHA-256 固定於 wrapper properties；乾淨 cache 正確下載可執行，隔離錯誤 checksum 被拒絕；wrapper JAR 同樣核對官方 hash。 |
-| 017 | 已實作／本機驗證；遠端待首次 push | CI 為 macOS ARM64／Linux × JDK17/21，保存 commit、JDK、平台與 JUnit 報告；桌面圖形為另行手動 job，不把 headless skip 算成功。尚未 push／執行遠端 CI。 |
+| 017 | 已實作／本機驗證；當時遠端待首次 push | CI 為 macOS ARM64／Linux × JDK17/21，保存 commit、JDK、平台與 JUnit 報告；桌面圖形為另行手動 job，不把 headless skip 算成功。當時尚未 push／執行遠端 CI；後續結果見[依賴整合更新](dependency-updates-20261115.md)。 |
 | 018 | 已完成／包裝驗證 | 依使用者確認加入 MIT LICENSE，2026 TsengPinRuei；中英 README 與三種分發形式同步。 |
 | 019 | 已修正／已驗證 | HUD 數字使用 `Locale.ROOT`；en-US、zh-TW、ar-EG FORMAT Locale 輸出一致且皆為 ASCII，測試後恢復 locale。 |
 | 020 | 已修正／已驗證 | inventory／chest／Esc／游標控制變更與焦點喪失重設 Space gesture；普通快速雙擊保留，原有 paused player 行為不變。 |

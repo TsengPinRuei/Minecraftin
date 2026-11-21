@@ -1,5 +1,7 @@
 # 2026-11-15 依賴整合更新與驗證
 
+本文件保存 2026-11-15 的整合與驗證紀錄；本機產物、雜湊及測試結果均對應該次版本。一般啟動與建置步驟見 [README](../READMEzhTW.md)。
+
 四個 Dependabot 更新在同一個分支整合，保留各 PR 的原始提交，並補齊版本文件與授權。原始主分支為 `d4314dc92b93cdcd47843c73fb433541b988a202`；遊戲與測試的 Java 原始碼均未修改。
 
 | 更新 | 原始 PR | 原始提交 |
@@ -20,6 +22,8 @@
 ## 受測來源與本機環境
 
 本次獨立的 [75 檔來源清單](dependency-source-manifest-20261115.sha256) 涵蓋 Java 原始碼、資源、建置設定、wrapper 與授權檔；不含可後續補充的說明文件。
+
+在當次受測來源的根目錄核對：
 
 ```sh
 shasum -a 256 -c docs/dependency-source-manifest-20261115.sha256
@@ -75,7 +79,7 @@ shasum -a 256 -c docs/dependency-source-manifest-20261115.sha256
 
 ## CI 與範圍
 
-四個原始 PR 各自的 CI 均成功後，本次四項更新一起使用的整合來源也通過 macOS 15／Ubuntu 24.04 × JDK 17／21 四組測試、建置及安裝包檢查。首次整合成功紀錄為 [`5da829b` 的 CI run](https://github.com/TsengPinRuei/Minecraftin/actions/runs/43617499214)。其後僅補充驗證說明，75 檔受測來源雜湊不變。合併前會再核對最終提交的四組 CI；最新狀態與可下載報告見[整合 PR #6](https://github.com/TsengPinRuei/Minecraftin/pull/6/checks)。
+四個原始 PR 各自的 CI 均成功後，本次四項更新一起使用的整合來源也通過 macOS 15／Ubuntu 24.04 × JDK 17／21 四組測試、建置及安裝包檢查。首次整合成功紀錄為 [`5da829b` 的 CI run](https://github.com/TsengPinRuei/Minecraftin/actions/runs/43617499214)。其後僅補充驗證說明，75 檔受測來源雜湊不變。這批更新其後已透過 PR #6 合併為 `ac4fb38`；整合檢查紀錄見[PR #6](https://github.com/TsengPinRuei/Minecraftin/pull/6/checks)。
 
 CI 的桌面 graphics job 預設略過；本次桌面證據來自上述本機實測。Windows、其他 Linux 發行版與其他 GPU／CPU 的桌面流程仍未完整驗證。
 

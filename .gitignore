@@ -28,3 +28,10 @@ Thumbs.db
 
 # Local game data
 saves/
+
+# Local verification records and portfolio materials
+/docs/review-fixes-20261114.md
+/docs/review-source-manifest.sha256
+/docs/dependency-updates-20261115.md
+/docs/dependency-source-manifest-20261115.sha256
+/docs/Minecraftin-Portfolio/

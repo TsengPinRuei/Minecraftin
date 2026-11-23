@@ -118,7 +118,7 @@ Gradle 會依建置電腦的作業系統和處理器，選用對應的原生函�
 2. **`World` 將火把寫進對應的區塊（chunk）。** 每個區塊底面 16 × 16 格、高 128 格。這次放置會觸發光照傳播、排程附近的水流更新，並標記需要重繪的區塊。角落的陰影會參考周圍方塊，連斜對角區塊也可能需要重繪。[World](src/main/java/com/minecraftin/clone/world/World.java) · [LightEngine](src/main/java/com/minecraftin/clone/world/LightEngine.java)
 3. **`WorldRenderer` 在主執行緒擷取快照**，複製整個區塊及其外圍一格的方塊和光照資料。背景執行緒讀取這份唯讀快照，將可見的方塊表面組成三角形網格（mesh）。主執行緒每幀最多處理 16 份結果，捨棄過期網格，將最新的網格上傳到 GPU。繪製時先畫不透明表面和鏤空材質，再由遠到近混合玻璃、水和半透明碎屑。[ChunkSnapshot](src/main/java/com/minecraftin/clone/world/ChunkSnapshot.java) · [ChunkMesher](src/main/java/com/minecraftin/clone/world/ChunkMesher.java) · [WorldRenderer](src/main/java/com/minecraftin/clone/render/WorldRenderer.java)
 
-地形在遊戲主執行緒生成。繪圖系統會釋放遠處的網格。**已探索區塊的方塊資料會留在記憶體中**，每次存檔都會一併寫入。已載入 2,048 個區塊、用到 Java 堆積記憶體上限的 75%，或一次存檔嘗試耗時達 1,000 毫秒，任一條件都會觸發畫面警示，即使關閉 `F3` 也看得到。此時請存檔並退出。重開同一個世界仍會載入這些區塊。[警示門檻](src/main/java/com/minecraftin/clone/game/ResourceBudget.java) · [探索路線量測紀錄](docs/review-fixes-20261114.md)
+地形在遊戲主執行緒生成。繪圖系統會釋放遠處的網格。**已探索區塊的方塊資料會留在記憶體中**，每次存檔都會一併寫入。已載入 2,048 個區塊、用到 Java 堆積記憶體上限的 75%，或一次存檔嘗試耗時達 1,000 毫秒，任一條件都會觸發畫面警示，即使關閉 `F3` 也看得到。此時請存檔並退出。重開同一個世界仍會載入這些區塊。[警示門檻](src/main/java/com/minecraftin/clone/game/ResourceBudget.java) · [探索路線量測程式](src/test/java/com/minecraftin/clone/game/ResourceBudgetProbe.java)
 
 <a id="project-structure"></a>
 
@@ -162,7 +162,7 @@ Gradle 會依建置電腦的作業系統和處理器，選用對應的原生函�
 
 **邏輯測試**涵蓋移動、方塊選取、光照、水流與存檔相容性，報告位於 `build/reports/tests/test/index.html`。獨立的圖形測試會驗證著色器、網格上傳、透明效果和背包畫面，截圖存放在 `build/reports/graphics-smoke/`。資源量測會沿著總長 8,064 格的路線取樣 64 個位置，重新載入世界後逐一核對放下的方塊。結果在 `build/reports/resource-budget/exploration.csv`。
 
-提交 `ac4fb38` 在 **Ubuntu 24.04 和 macOS 15** 上分別使用 JDK 17、21 建置。四組持續整合（CI）檢查皆通過，涵蓋邏輯測試和發行包檢查。CI 的桌面圖形測試則需手動觸發。2026 年 11 月 15 日的 macOS ARM64 實測紀錄另包含 92 項通過的 JUnit 測試、OpenGL 圖形檢查，以及打包版實際存檔、重開、重試與確認放棄變更的流程。[該次 CI 結果](https://github.com/TsengPinRuei/Minecraftin/actions/runs/43618785890) · [CI 設定](.github/workflows/verify.yml) · [桌面驗證紀錄](docs/dependency-updates-20261115.md)
+GitHub Actions 會在 Ubuntu 24.04 和 macOS 15 上分別使用 JDK 17、21 執行邏輯測試並檢查發行包。手動執行工作流程時，也可以選擇執行 macOS 桌面圖形測試。[CI 執行紀錄](https://github.com/TsengPinRuei/Minecraftin/actions/workflows/verify.yml) · [CI 設定](.github/workflows/verify.yml)
 
 要**啟動打包版**，請先執行 `installDist`，接著在專案資料夾執行 `./build/install/minecraftin-clone/bin/minecraftin-clone`，Windows PowerShell 則執行 `.\build\install\minecraftin-clone\bin\minecraftin-clone.bat`。請將 `bin/`、`lib/` 與授權檔放在一起。ZIP 和 TAR 位於 `build/distributions/`。交付給其他電腦時，應在相符的作業系統與處理器上建置，並在執行端安裝 Java 17 或 21。
 
